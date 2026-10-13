@@ -76,7 +76,7 @@ npm ci
 npm run dev
 ```
 
-前端开发服务器监听 `http://127.0.0.1:43117`，并把 `/api` 代理到 `http://127.0.0.1:8000`。后端 OpenAPH�在 `http://127.0.0.1:8000/docs`。
+前端开发服务器监听 `http://127.0.0.1:43117`，并把 `/api` 代理到 `http://127.0.0.1:8000`。后端 OpenAPI 在 `http://127.0.0.1:8000/docs`。
 
 数据库文件默认写到仓库的 `data/ai_novel_writer.db`（已加入 `.gitignore`）。变量说明见 `backend/.env.example`。
 
