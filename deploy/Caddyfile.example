@@ -1,0 +1,4 @@
+# M6 placeholder.
+# Do not enable this file until authentication is turned on for LAN access.
+# The future reverse proxy should serve the frontend and forward /api to FastAPI.
+# Bind only the intended host, and do not publish the database directory.

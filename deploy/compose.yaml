@@ -1,0 +1,3 @@
+# M6 placeholder.
+# Local development does not use Docker. See the root README.
+# A production Compose file will be added when deployment work starts.

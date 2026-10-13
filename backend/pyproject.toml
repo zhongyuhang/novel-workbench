@@ -1,0 +1,51 @@
+[project]
+name = "ai-novel-writer"
+version = "0.2.0"
+description = "Personal long-form novel writing workbench"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.14,<2",
+    "cryptography>=44,<47",
+    "fastapi>=0.115,<1",
+    "pydantic-settings>=2.6,<3",
+    "sqlalchemy>=2.0.36,<3",
+    "uvicorn[standard]>=0.32,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.28,<1",
+    "mypy>=1.13,<2",
+    "pytest>=8.3,<9",
+    "ruff>=0.8,<1",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["app"]
+warn_unused_ignores = true
+disallow_any_generics = true
+plugins = []
