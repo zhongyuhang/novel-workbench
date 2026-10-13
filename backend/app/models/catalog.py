@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
@@ -86,3 +87,42 @@ class Chapter(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ChapterVersion(Base):
+    """Content snapshot for one chapter revision.
+
+    Rows are written for manual saves, accepted AI candidates, restores, and imports.
+    Autosave updates ``chapters`` only.
+    """
+
+    __tablename__ = "chapter_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "chapter_id",
+            "revision",
+            name="uq_chapter_versions_chapter_id_revision",
+        ),
+        CheckConstraint(
+            "change_source IN ('manual', 'ai_accepted', 'restore', 'import')",
+            name="ck_chapter_versions_change_source",
+        ),
+        CheckConstraint(
+            "content_format = 'tiptap_json'",
+            name="ck_chapter_versions_content_format",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    chapter_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("chapters.id", name="fk_chapter_versions_chapter_id_chapters"),
+        nullable=False,
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_snapshot: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    content_format: Mapped[str] = mapped_column(String(32), nullable=False)
+    content_format_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    change_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    change_note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

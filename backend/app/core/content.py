@@ -36,6 +36,10 @@ def word_count(document: dict[str, object]) -> int:
     return sum(1 for char in document_to_text(document) if not char.isspace())
 
 
+def canonical_dump(document: dict[str, object]) -> str:
+    return json.dumps(document, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
 def text_to_document(text: str) -> dict[str, object]:
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     if normalized == "":

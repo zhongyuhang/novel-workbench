@@ -58,9 +58,16 @@ export type ChapterSummary = {
   updated_at: string;
 };
 
+export type TiptapMark = {
+  type: string;
+  attrs?: Record<string, unknown>;
+};
+
 export type TiptapNode = {
   type: string;
   text?: string;
+  attrs?: Record<string, unknown>;
+  marks?: TiptapMark[];
   content?: TiptapNode[];
 };
 
@@ -73,6 +80,22 @@ export type Chapter = ChapterSummary & {
   content: TiptapDoc;
   content_format: string;
   content_format_version: number;
+  created_at: string;
+};
+
+export type SaveKind = "manual" | "autosave";
+export type ChangeSource = "manual" | "ai_accepted" | "restore" | "import";
+
+export type ChapterVersion = {
+  id: string;
+  chapter_id: string;
+  revision: number;
+  content_format: string;
+  content_format_version: number;
+  change_source: ChangeSource;
+  change_note: string | null;
+  word_count: number;
+  preview: string;
   created_at: string;
 };
 

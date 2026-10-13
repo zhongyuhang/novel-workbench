@@ -6,8 +6,9 @@ from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_session
-from app.schemas.catalog import NovelCreate, NovelResponse, NovelUpdate
+from app.schemas.catalog import NovelCreate, NovelExportRequest, NovelResponse, NovelUpdate
 from app.services import catalog as catalog_service
+from app.services import exporting as export_service
 
 router = APIRouter(
     prefix="/novels",
@@ -47,3 +48,17 @@ def update_novel(
 def delete_novel(novel_id: str, session: Annotated[Session, Depends(get_db)]) -> Response:
     catalog_service.delete_novel(session, novel_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{novel_id}/export")
+def export_novel(
+    novel_id: str,
+    payload: NovelExportRequest,
+    session: Annotated[Session, Depends(get_db)],
+) -> Response:
+    exported = export_service.export_novel(session, novel_id, payload.format)
+    return Response(
+        content=exported.body.encode("utf-8"),
+        media_type=exported.media_type,
+        headers={"Content-Disposition": exported.disposition},
+    )

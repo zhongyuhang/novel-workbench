@@ -23,29 +23,32 @@
 - 后端：Python + FastAPI
 - ORM / Migration：SQLAlchemy 2.x + Alembic
 - 数据库：SQLite 起步，单写入者设计；需要高并发写入或多用户后再评估 PostgreSQL
-- 测试：pytest；前端当前以 TypeScript 严格检查和构建为门槛
+- 测试：pytest；前端 Vitest、TypeScript 严格检查、构建和 oxlint
 - 部署：Docker Compose 可选；单容器/单进程起步，持久化数据挂载到宿主机
 
 ## 项目状态规则
 
 本仓库文档是目标规范，不代表所有功能已经实现。每个实施阶段都必须提交代码、测试、运行说明和验收记录；未实现的功能不得在 README 中标注为已完成。
 
-## 当前实现（M1）
+## 当前实现（M2）
 
 已实现：
 
 - 前后端工程骨架、`GET /api/v1/health`、OpenAPI（`/docs`、`/openapi.json`）
-- Alembic：`0001_initial` 基线，`0002_catalog` 创建 `novels`、`volumes`、`chapters`
+- Alembic：`0001_initial` 基线，`0002_catalog` 创建 `novels`、`volumes`、`chapters`，`0003_chapter_versions` 创建版本快照表
 - 作品、卷、章节的列表、创建、读取、更新和删除。作品与章节删除是软删除；删除卷时章节改为未分卷
 - 卷重排，章节移动和复制
-- 章节正文以 Tiptap JSON（`tiptap_json`，version 1）保存。`PUT /api/v1/chapters/{id}` 必须带客户端看到的 `revision`；不一致时返回 `409`，不会覆盖已保存正文
-- 作品库页面，以及三栏工作台骨架：左侧目录、中间正文文本与 JSON、右侧写作辅助占位
+- 章节正文的权威格式是 Tiptap JSON（`content_format=tiptap_json`，`content_format_version=1`）。工作台中间栏用 Tiptap 编辑，保存时只写这一份 JSON
+- 手动保存和停笔后的防抖自动保存。编辑器显示未保存、保存中、已保存或失败。自动保存失败时正文留在编辑器里，可以重试。切换章节、返回作品库或关闭页面前，未保存修改会先确认
+- `PUT /api/v1/chapters/{id}` 必须带客户端看到的 `revision`。不一致时返回 `409`，不会覆盖已保存正文，也不会写入被拒绝的那一版快照。`save_kind=autosave` 只更新当前正文；`save_kind=manual` 在正文相对上一份快照有变化时写入 `chapter_versions`
+- `GET /api/v1/chapters/{id}/versions` 列出版本。`POST /api/v1/chapters/{id}/restore` 在确认后把所选快照写成新修订，旧版本保留
+- `POST /api/v1/novels/{id}/export` 导出 Markdown 或 TXT。顺序与目录一致：先未分卷，再按卷的 `sort_order`，卷内按章节 `sort_order`。导出包含标题、简介、卷名、章节标题和正文
+- 作品库页面和三栏工作台。右侧写作辅助仍是占位，不会调用模型，也不会改写正文
 - 单用户会话。开发环境和测试环境在未配置访问口令时可以用空口令换取令牌；配置了 `APP_ACCESS_PASSWORD` 后必须口令正确
 
 尚未实现，不能当作可用功能：
 
-- Tiptap 富文本编辑器、自动保存、版本快照和恢复、导出
-- 模型配置、AI 生成、SSE 任务执行
+- 模型配置、AI 生成、候选采纳、SSE 任务执行
 - 记忆系统
 - 局域网部署和备份恢复
 
@@ -88,4 +91,4 @@ npm run dev
 ./scripts/check.sh
 ```
 
-脚本会安装后端依赖、执行迁移、运行 Ruff、mypy 和 pytest，然后构建并检查前端。`backend/requirements.lock` 记录了本次验证时解析到的依赖版本；日常安装仍使用上面的 `pip install -e ".[dev]"`。
+脚本会安装后端依赖、执行迁移、运行 Ruff、mypy 和 pytest，然后运行前端测试、构建和 oxlint。`backend/requirements.lock` 记录了本次验证时解析到的依赖版本；日常安装仍使用上面的 `pip install -e ".[dev]"`。

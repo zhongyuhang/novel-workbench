@@ -35,6 +35,43 @@ export function textToDocument(text: string): TiptapDoc {
   return { type: "doc", content: blocks };
 }
 
+export function wordCount(document: TiptapDoc): number {
+  const text = documentToText(document);
+  let count = 0;
+  for (const char of text) {
+    if (!/\s/u.test(char)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(sortJson(value));
+}
+
+export function toTiptapDoc(value: { type?: unknown }): TiptapDoc {
+  if (value.type !== "doc") {
+    return emptyDocument();
+  }
+  return value as TiptapDoc;
+}
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortJson);
+  }
+  if (typeof value === "object" && value !== null) {
+    const record = value as Record<string, unknown>;
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(record).sort()) {
+      sorted[key] = sortJson(record[key]);
+    }
+    return sorted;
+  }
+  return value;
+}
+
 function inlineText(node: TiptapNode): string {
   const pieces: string[] = [];
   collectInline(node, pieces);

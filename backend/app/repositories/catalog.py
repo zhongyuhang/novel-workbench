@@ -3,7 +3,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.catalog import Chapter, Novel, Volume
+from app.models.catalog import Chapter, ChapterVersion, Novel, Volume
 
 
 def list_novels(session: Session) -> list[Novel]:
@@ -63,3 +63,26 @@ def get_chapter(session: Session, chapter_id: str) -> Chapter | None:
     if chapter is None or chapter.deleted_at is not None:
         return None
     return chapter
+
+
+def list_versions(session: Session, chapter_id: str) -> list[ChapterVersion]:
+    stmt = (
+        select(ChapterVersion)
+        .where(ChapterVersion.chapter_id == chapter_id)
+        .order_by(ChapterVersion.revision.desc(), ChapterVersion.id.asc())
+    )
+    return list(session.scalars(stmt))
+
+
+def latest_version(session: Session, chapter_id: str) -> ChapterVersion | None:
+    stmt = (
+        select(ChapterVersion)
+        .where(ChapterVersion.chapter_id == chapter_id)
+        .order_by(ChapterVersion.revision.desc(), ChapterVersion.id.asc())
+        .limit(1)
+    )
+    return session.scalars(stmt).first()
+
+
+def get_version(session: Session, version_id: str) -> ChapterVersion | None:
+    return session.get(ChapterVersion, version_id)

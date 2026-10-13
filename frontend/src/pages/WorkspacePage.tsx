@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createChapter,
   createVolume,
   deleteChapter,
   deleteVolume,
   duplicateChapter,
+  exportNovel,
   getChapter,
   getNovel,
   listChapters,
@@ -15,9 +16,11 @@ import {
 } from "../api/catalog.ts";
 import { ApiError, type Chapter, type ChapterSummary, type Novel, type Volume } from "../api/types.ts";
 import { AiPanel } from "../components/AiPanel.tsx";
-import { ChapterDraft } from "../components/ChapterDraft.tsx";
+import { ChapterEditor } from "../components/ChapterEditor.tsx";
 import { HealthBadge } from "../components/HealthBadge.tsx";
+import { allowChapterLeave } from "../editor/leaveGuard.ts";
 import { useBackendHealth } from "../features/library/useBackendHealth.ts";
+import { parseHash, workspaceHash } from "../routes.ts";
 
 type WorkspacePageProps = {
   novelId: string;
@@ -43,6 +46,8 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
   const [busy, setBusy] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const unsavedRef = useRef(false);
+  const skipGuardRef = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -127,8 +132,53 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
     }
   }
 
+  useEffect(() => {
+    const onHashChange = () => {
+      if (skipGuardRef.current) {
+        skipGuardRef.current = false;
+        return;
+      }
+      if (!unsavedRef.current || chapterId === null) {
+        return;
+      }
+      const next = parseHash(window.location.hash);
+      const sameChapter =
+        next.kind === "workspace" && next.novelId === novelId && next.chapterId === chapterId;
+      if (sameChapter) {
+        return;
+      }
+      if (!allowChapterLeave(true, (message) => window.confirm(message))) {
+        skipGuardRef.current = true;
+        window.location.hash = workspaceHash(novelId, chapterId);
+      }
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => {
+      window.removeEventListener("hashchange", onHashChange);
+    };
+  }, [chapterId, novelId]);
+
+  function tryNavigate(hash: string) {
+    if (!allowChapterLeave(unsavedRef.current, (message) => window.confirm(message))) {
+      return;
+    }
+    if (window.location.hash === hash) {
+      return;
+    }
+    skipGuardRef.current = true;
+    window.location.hash = hash;
+  }
+
+  function forceNavigate(hash: string) {
+    if (window.location.hash === hash) {
+      return;
+    }
+    skipGuardRef.current = true;
+    window.location.hash = hash;
+  }
+
   function openChapter(id: string) {
-    window.location.hash = `#/novels/${novelId}/chapters/${id}`;
+    tryNavigate(workspaceHash(novelId, id));
   }
 
   const toc = buildToc(volumes, chapters);
@@ -136,7 +186,14 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
   return (
     <div className="workspace">
       <header className="workspace-top">
-        <a className="ghost back-link" href="#/">
+        <a
+          className="ghost back-link"
+          href="#/"
+          onClick={(event) => {
+            event.preventDefault();
+            tryNavigate("#/");
+          }}
+        >
           返回作品库
         </a>
         <div>
@@ -144,7 +201,33 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
           <h1>{novel?.title ?? "读取中"}</h1>
         </div>
         <div className="topbar-meta">
-          <p className="milestone">M1 目录与正文</p>
+          <p className="milestone">M2 编辑与版本</p>
+          <div className="inline-actions">
+            <button
+              className="ghost"
+              type="button"
+              disabled={busy || !novel}
+              onClick={() => {
+                void run(async () => {
+                  await downloadExport(novelId, "markdown");
+                });
+              }}
+            >
+              导出 Markdown
+            </button>
+            <button
+              className="ghost"
+              type="button"
+              disabled={busy || !novel}
+              onClick={() => {
+                void run(async () => {
+                  await downloadExport(novelId, "txt");
+                });
+              }}
+            >
+              导出 TXT
+            </button>
+          </div>
           <HealthBadge state={health} />
         </div>
       </header>
@@ -347,7 +430,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
                             await deleteChapter(item.id);
                             await refreshStructure();
                             if (chapterId === item.id) {
-                              window.location.hash = `#/novels/${novelId}`;
+                              forceNavigate(workspaceHash(novelId, null));
                             }
                           });
                         }}
@@ -376,10 +459,13 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
           ))}
         </nav>
         <main className="workspace-pane editor-pane">
-          {chapter ? (
-            <ChapterDraft
+          {chapter && chapter.id === chapterId ? (
+            <ChapterEditor
               key={chapter.id}
               chapter={chapter}
+              onUnsavedChange={(unsaved) => {
+                unsavedRef.current = unsaved;
+              }}
               onSaved={(saved) => {
                 setChapter(saved);
                 setChapters((current) =>
@@ -400,7 +486,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
             />
           ) : (
             <div className="empty">
-              <p className="empty-title">选择一章</p>
+              <p className="empty-title">{chapterId ? "正在打开章节" : "选择一章"}</p>
               <p>从左侧目录打开章节，或在未分卷下新建。正文保存在服务器，刷新后仍在。</p>
             </div>
           )}
@@ -453,6 +539,18 @@ async function shiftVolume(
   ids[target] = volumeId;
   ids[index] = next;
   await reorderVolumes(novelId, ids);
+}
+
+async function downloadExport(novelId: string, format: "markdown" | "txt") {
+  const file = await exportNovel(novelId, format);
+  const url = URL.createObjectURL(file.blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = file.filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function messageFrom(error: unknown, fallback: string): string {

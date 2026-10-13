@@ -10,7 +10,9 @@ from app.schemas.catalog import (
     ChapterCreate,
     ChapterMove,
     ChapterResponse,
+    ChapterRestore,
     ChapterSummary,
+    ChapterVersionResponse,
     ChapterWrite,
 )
 from app.services import catalog as catalog_service
@@ -72,6 +74,25 @@ def duplicate_chapter(
     session: Annotated[Session, Depends(get_db)],
 ) -> ChapterResponse:
     return ChapterResponse.model_validate(catalog_service.duplicate_chapter(session, chapter_id))
+
+
+@router.get("/chapters/{chapter_id}/versions", response_model=list[ChapterVersionResponse])
+def list_chapter_versions(
+    chapter_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> list[ChapterVersionResponse]:
+    versions = catalog_service.list_chapter_versions(session, chapter_id)
+    return [ChapterVersionResponse.model_validate(version) for version in versions]
+
+
+@router.post("/chapters/{chapter_id}/restore", response_model=ChapterResponse)
+def restore_chapter(
+    chapter_id: str,
+    payload: ChapterRestore,
+    session: Annotated[Session, Depends(get_db)],
+) -> ChapterResponse:
+    chapter = catalog_service.restore_chapter(session, chapter_id, payload)
+    return ChapterResponse.model_validate(chapter)
 
 
 @router.post("/chapters/{chapter_id}/move", response_model=ChapterResponse)

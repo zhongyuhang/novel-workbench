@@ -3,26 +3,31 @@
 import copy
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
 
 from sqlalchemy import update
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.content import (
     CANONICAL_CONTENT_FORMAT,
     CANONICAL_CONTENT_FORMAT_VERSION,
+    canonical_dump,
     empty_document,
     validate_document,
     word_count,
 )
 from app.core.errors import InvalidReference, NotFound, RevisionConflict
-from app.models.catalog import Chapter, Novel, Volume
+from app.core.manuscript import preview_text
+from app.models.catalog import Chapter, ChapterVersion, Novel, Volume
 from app.repositories import catalog as catalog_repo
 from app.schemas.catalog import (
     ChapterCreate,
     ChapterMove,
+    ChapterRestore,
     ChapterWrite,
     NovelCreate,
     NovelUpdate,
@@ -32,6 +37,20 @@ from app.schemas.catalog import (
 )
 
 logger = logging.getLogger("app.catalog")
+
+
+@dataclass(frozen=True)
+class ChapterVersionRecord:
+    id: str
+    chapter_id: str
+    revision: int
+    content_format: str
+    content_format_version: int
+    change_source: str
+    change_note: str | None
+    word_count: int
+    preview: str
+    created_at: datetime
 
 
 def create_novel(session: Session, payload: NovelCreate) -> Novel:
@@ -190,40 +209,107 @@ def save_chapter(session: Session, chapter_id: str, payload: ChapterWrite) -> Ch
     chapter = _require_chapter(session, chapter_id)
     if chapter.revision != payload.revision:
         raise RevisionConflict()
-    document = validate_document(payload.content)
-    values: dict[str, object] = {
-        "content": document,
-        "content_format": CANONICAL_CONTENT_FORMAT,
-        "content_format_version": CANONICAL_CONTENT_FORMAT_VERSION,
-        "word_count": word_count(document),
-        "revision": chapter.revision + 1,
-        "updated_at": _now(),
-    }
-    if payload.title is not None:
-        values["title"] = payload.title
-    if payload.status is not None:
-        values["status"] = payload.status
+    document = validate_document(copy.deepcopy(payload.content))
+    title = chapter.title if payload.title is None else payload.title
+    status = chapter.status if payload.status is None else payload.status
+    content_changed = canonical_dump(document) != _canonical_content(chapter.content)
+    meta_changed = title != chapter.title or status != chapter.status
+    latest = catalog_repo.latest_version(session, chapter.id)
+    needs_snapshot = payload.save_kind == "manual" and (
+        latest is None or canonical_dump(document) != _canonical_content(latest.content_snapshot)
+    )
+    needs_write = content_changed or meta_changed
+    if not needs_write and not needs_snapshot:
+        return chapter
+
+    new_revision = chapter.revision + 1 if needs_write else chapter.revision
+    if needs_write:
+        values: dict[str, object] = {
+            "content": copy.deepcopy(document),
+            "content_format": CANONICAL_CONTENT_FORMAT,
+            "content_format_version": CANONICAL_CONTENT_FORMAT_VERSION,
+            "word_count": word_count(document),
+            "title": title,
+            "status": status,
+            "revision": new_revision,
+            "updated_at": _now(),
+        }
+        result = cast(
+            CursorResult[tuple[object, ...]],
+            session.execute(
+                update(Chapter)
+                .where(
+                    Chapter.id == chapter_id,
+                    Chapter.revision == payload.revision,
+                    Chapter.deleted_at.is_(None),
+                )
+                .values(**values)
+            ),
+        )
+        if result.rowcount != 1:
+            session.rollback()
+            raise RevisionConflict()
+    if needs_snapshot:
+        _add_version(
+            session,
+            chapter_id=chapter.id,
+            revision=new_revision,
+            document=document,
+            change_source="manual",
+            change_note=_blank_to_none(payload.change_note),
+        )
+    _commit_version_write(session, wrote_chapter=needs_write)
+    return _reload_chapter(session, chapter_id)
+
+
+def list_chapter_versions(session: Session, chapter_id: str) -> list[ChapterVersionRecord]:
+    _require_chapter(session, chapter_id)
+    return [_version_record(row) for row in catalog_repo.list_versions(session, chapter_id)]
+
+
+def restore_chapter(session: Session, chapter_id: str, payload: ChapterRestore) -> Chapter:
+    chapter = _require_chapter(session, chapter_id)
+    if chapter.revision != payload.revision:
+        raise RevisionConflict()
+    version = catalog_repo.get_version(session, payload.version_id)
+    if version is None or version.chapter_id != chapter.id:
+        raise NotFound("版本不存在。")
+    document = validate_document(copy.deepcopy(version.content_snapshot))
+    new_revision = chapter.revision + 1
     result = cast(
         CursorResult[tuple[object, ...]],
         session.execute(
             update(Chapter)
             .where(
-                Chapter.id == chapter_id,
+                Chapter.id == chapter.id,
                 Chapter.revision == payload.revision,
                 Chapter.deleted_at.is_(None),
             )
-            .values(**values)
+            .values(
+                content=copy.deepcopy(document),
+                content_format=CANONICAL_CONTENT_FORMAT,
+                content_format_version=CANONICAL_CONTENT_FORMAT_VERSION,
+                word_count=word_count(document),
+                revision=new_revision,
+                updated_at=_now(),
+            )
         ),
     )
     if result.rowcount != 1:
         session.rollback()
         raise RevisionConflict()
-    session.commit()
-    session.expire_all()
-    saved = catalog_repo.get_chapter(session, chapter_id)
-    if saved is None:
-        raise NotFound("章节不存在。")
-    return saved
+    _add_version(
+        session,
+        chapter_id=chapter.id,
+        revision=new_revision,
+        document=document,
+        change_source="restore",
+        change_note=f"恢复自修订 {version.revision}",
+        content_format_version=version.content_format_version,
+    )
+    _commit_version_write(session, wrote_chapter=True)
+    logger.info("chapter restored")
+    return _reload_chapter(session, chapter.id)
 
 
 def delete_chapter(session: Session, chapter_id: str) -> None:
@@ -291,6 +377,72 @@ def duplicate_chapter(session: Session, chapter_id: str) -> Chapter:
     session.commit()
     session.refresh(chapter)
     return chapter
+
+
+def _add_version(
+    session: Session,
+    *,
+    chapter_id: str,
+    revision: int,
+    document: dict[str, object],
+    change_source: str,
+    change_note: str | None,
+    content_format_version: int = CANONICAL_CONTENT_FORMAT_VERSION,
+) -> None:
+    session.add(
+        ChapterVersion(
+            id=_new_id(),
+            chapter_id=chapter_id,
+            revision=revision,
+            content_snapshot=copy.deepcopy(document),
+            content_format=CANONICAL_CONTENT_FORMAT,
+            content_format_version=content_format_version,
+            change_source=change_source,
+            change_note=change_note,
+            created_at=_now(),
+        )
+    )
+    logger.info("chapter version recorded")
+
+
+def _commit_version_write(session: Session, *, wrote_chapter: bool) -> None:
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        if wrote_chapter:
+            raise RevisionConflict() from None
+        return
+
+
+def _reload_chapter(session: Session, chapter_id: str) -> Chapter:
+    session.expire_all()
+    saved = catalog_repo.get_chapter(session, chapter_id)
+    if saved is None:
+        raise NotFound("章节不存在。")
+    return saved
+
+
+def _version_record(row: ChapterVersion) -> ChapterVersionRecord:
+    document = row.content_snapshot if isinstance(row.content_snapshot, dict) else empty_document()
+    return ChapterVersionRecord(
+        id=row.id,
+        chapter_id=row.chapter_id,
+        revision=row.revision,
+        content_format=row.content_format,
+        content_format_version=row.content_format_version,
+        change_source=row.change_source,
+        change_note=row.change_note,
+        word_count=word_count(document),
+        preview=preview_text(document),
+        created_at=row.created_at,
+    )
+
+
+def _canonical_content(value: object) -> str:
+    if isinstance(value, dict):
+        return canonical_dump(cast(dict[str, object], value))
+    return ""
 
 
 def _require_novel(session: Session, novel_id: str) -> Novel:
