@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { openSession, readToken } from "../api/client.ts";
+import { openSession, readToken, SESSION_REQUIRED_EVENT } from "../api/client.ts";
 import { ApiError } from "../api/types.ts";
 
 type GateState =
@@ -33,8 +33,13 @@ export function SessionGate({ children }: SessionGateProps) {
         }
         setState(gateFromError(error));
       });
+    const onSessionRequired = () => {
+      setState({ kind: "password", message: "登录状态无效或已过期。" });
+    };
+    window.addEventListener(SESSION_REQUIRED_EVENT, onSessionRequired);
     return () => {
       active = false;
+      window.removeEventListener(SESSION_REQUIRED_EVENT, onSessionRequired);
     };
   }, []);
 
@@ -65,7 +70,7 @@ export function SessionGate({ children }: SessionGateProps) {
       </header>
       <main className="main">
         <section className="library">
-          {state.kind === "loading" ? <p role="status">正在建立本机会话</p> : null}
+          {state.kind === "loading" ? <p role="status">正在确认登录状态</p> : null}
           {state.kind === "offline" ? (
             <p className="banner banner-error" role="alert">
               {state.message}
@@ -73,8 +78,10 @@ export function SessionGate({ children }: SessionGateProps) {
           ) : null}
           {state.kind === "password" ? (
             <form className="stack-form" onSubmit={submitPassword}>
-              <h1>本机访问口令</h1>
-              <p className="hint">这一页不需要模型 API Key。目录接口需要本机会话。</p>
+              <h1>访问口令</h1>
+              <p className="hint">
+                局域网和生产环境必须先登录。开发环境如果没有设置口令，会直接进入作品库。
+              </p>
               <p className="banner banner-error" role="alert">
                 {state.message}
               </p>

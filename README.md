@@ -30,12 +30,12 @@
 
 本仓库文档是目标规范，不代表所有功能已经实现。每个实施阶段都必须提交代码、测试、运行说明和验收记录；未实现的功能不得在 README 中标注为已完成。
 
-## 当前实现（M5）
+## 当前实现（1.0.0，M0–M6）
 
 已实现：
 
 - 前后端工程骨架、`GET /api/v1/health`、OpenAPI（`/docs`、`/openapi.json`）
-- Alembic：`0001_initial` 基线，`0002_catalog` 创建 `novels`、`volumes`、`chapters`，`0003_chapter_versions` 创建版本快照表，`0004_ai` 创建 `model_configs` 与 `ai_tasks`，`0005_memory` 创建 `story_entities`、`entity_states`、`story_events`、`chapter_summaries`、`memory_change_proposals`
+- Alembic：`0001_initial` 基线，`0002_catalog` 创建 `novels`、`volumes`、`chapters`，`0003_chapter_versions` 创建版本快照表，`0004_ai` 创建 `model_configs` 与 `ai_tasks`，`0005_memory` 创建 `story_entities`、`entity_states`、`story_events`、`chapter_summaries`、`memory_change_proposals`，`0006_quality` 创建伏笔和可选字数目标
 - 作品、卷、章节的列表、创建、读取、更新和删除。作品与章节删除是软删除；删除卷时章节改为未分卷
 - 卷重排，章节移动和复制
 - 章节正文的权威格式是 Tiptap JSON（`content_format=tiptap_json`，`content_format_version=1`）。工作台中间栏用 Tiptap 编辑，保存时只写这一份 JSON
@@ -56,11 +56,11 @@
 - 字数统计：`GET /api/v1/novels/{id}/stats` 用正文的字数函数统计每章和全书。可以另存一个全本目标字数，目标不会改写正文
 - 评测样例：`backend/tests/fixtures/eval/samples.json` 固定了续写、选区改写和摘要三条虚构短句，由模拟模型重复跑，不访问网络
 - 作品库页面和三栏工作台。模型设置在 `#/settings`
-- 单用户会话。开发环境和测试环境在未配置访问口令时可以用空口令换取令牌；配置了 `APP_ACCESS_PASSWORD` 后必须口令正确
+- 单用户会话。口令在服务端按 PBKDF2 哈希校验。只绑定 `127.0.0.1` 的开发和测试环境在未配置访问口令时可以用空口令换取令牌。`APP_ENV=production`，或 `APP_HOST` 不是回环地址时，必须配置口令或 `APP_ACCESS_PASSWORD_HASH`，未登录访问作品和备份接口会返回 401。页面在需要口令时显示「访问口令」
+- 备份：已登录后 `POST /api/v1/admin/backups` 写入 `DATA_DIR/backups/<id>/`，包含 SQLite 一致性副本和清单（应用版本、迁移版本、时间）。`GET /api/v1/admin/backups` 只返回这些元数据。恢复用 `python -m app.cli.restore`，不提供网页恢复。健康检查 `GET /api/v1/health` 仍然公开
+- Docker Compose 位于 `deploy/compose.yaml`：Caddy 反代，API 容器提供前端静态文件和 FastAPI，数据挂在宿主机目录。生产进程不开启自动重载
 
-尚未实现，不能当作可用功能：
-
-- 局域网部署、认证加固和备份恢复（M6）
+M0–M6 的计划范围已经完成。多租户、公开注册、向量库和训练模型不在这一版里。
 
 ## 环境要求
 
@@ -93,7 +93,28 @@ npm run dev
 
 数据库文件默认写到仓库的 `data/ai_novel_writer.db`（已加入 `.gitignore`）。变量说明见 `backend/.env.example`。
 
-开发环境可以不配置 `APP_ACCESS_PASSWORD`。这时作品库会自动申请本机会话，不需要模型 API Key。若 `APP_AUTH_SECRET` 仍是占位值，开发环境会在 `data/dev-auth-secret` 写入一把本机签名密钥。配置了 `APP_ACCESS_PASSWORD` 后，页面会要求口令。生产环境拒绝占位的认证密钥、加密密钥、访问口令，也拒绝 `CORS_ORIGINS=*`。保存真实模型 API Key 前，要把 `APP_SECRET_ENCRYPTION_KEY` 设成 Fernet 密钥。没有外部模型时，工作台仍可打开，也可以显式使用模拟模型。
+开发环境可以不配置 `APP_ACCESS_PASSWORD`。这时作品库会自动申请本机会话，不需要模型 API Key。若 `APP_AUTH_SECRET` 仍是占位值，开发环境会在 `data/dev-auth-secret` 写入一把本机签名密钥。配置了 `APP_ACCESS_PASSWORD` 或 `APP_ACCESS_PASSWORD_HASH` 后，页面会要求口令；哈希优先。生产环境拒绝占位的认证密钥、加密密钥、访问口令，拒绝弱口令和过低的哈希迭代次数，也拒绝 `CORS_ORIGINS=*` 与 `ALLOWED_HOSTS=*`。保存真实模型 API Key 前，要把 `APP_SECRET_ENCRYPTION_KEY` 设成 Fernet 密钥。没有外部模型时，工作台仍可打开，也可以显式使用模拟模型。
+
+## 局域网部署
+
+不使用 Docker 时，继续用上面的本地开发命令，并把进程保持在 `127.0.0.1`。
+
+使用 Docker Compose 时，在仓库根目录：
+
+```bash
+cp .env.example .env
+# 填写 APP_AUTH_SECRET、APP_ACCESS_PASSWORD_HASH、APP_SECRET_ENCRYPTION_KEY、
+# ALLOWED_HOSTS 和 CORS_ORIGINS。不要保留占位符或示例口令。
+mkdir -p data
+chmod 700 data
+# 当前用户没有权限时，给下一行加上 sudo。API 容器用户是 uid/gid 10001。
+chown 10001:10001 data
+(cd backend && python -m app.cli.hash_password)
+docker compose --env-file .env -f deploy/compose.yaml config
+docker compose --env-file .env -f deploy/compose.yaml up --build -d
+```
+
+浏览器打开 `http://<局域网地址>:8080`，用刚才的口令登录。数据在宿主机 `DATA_DIR`（默认 `./data`），备份在其中的 `backups/`。恢复步骤、另一台设备上的手工检查，以及容器健康检查要求，见 [09 部署、备份与恢复](docs/09-deployment-guide.md)。没有安装 Docker 时，本地开发命令仍然是启动方式；`docker compose config` 只在有 Docker Compose 的机器上运行。
 
 ## 检查
 

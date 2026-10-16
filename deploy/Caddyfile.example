@@ -1,4 +1,8 @@
-# M6 placeholder.
-# Do not enable this file until authentication is turned on for LAN access.
-# The future reverse proxy should serve the frontend and forward /api to FastAPI.
-# Bind only the intended host, and do not publish the database directory.
+# Reverse proxy for LAN access. The API container serves the built frontend
+# and /api. This file does not publish the database directory.
+# Replace :80 only if the container port changes. Publish the host port in compose.
+
+:80 {
+	encode gzip
+	reverse_proxy api:8000
+}

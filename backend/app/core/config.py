@@ -29,11 +29,13 @@ class Settings(BaseSettings):
     database_url: str = ""
     app_auth_secret: str = ""
     app_access_password: str = ""
+    app_access_password_hash: str = ""
     app_secret_encryption_key: str = ""
     allowed_hosts: str = "localhost,127.0.0.1"
     cors_origins: str = "http://127.0.0.1:43117,http://localhost:43117"
     log_level: str = "INFO"
     sse_heartbeat_seconds: float = 15.0
+    frontend_dist: str = ""
 
     @property
     def resolved_data_dir(self) -> Path:
@@ -55,6 +57,16 @@ class Settings(BaseSettings):
     @property
     def allowed_host_list(self) -> list[str]:
         return [item.strip() for item in self.allowed_hosts.split(",") if item.strip()]
+
+    @property
+    def resolved_frontend_dist(self) -> Path | None:
+        raw = self.frontend_dist.strip()
+        if raw == "":
+            return None
+        path = Path(raw)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        return path
 
 
 @lru_cache

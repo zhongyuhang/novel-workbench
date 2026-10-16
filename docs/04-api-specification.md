@@ -103,9 +103,9 @@
 
 ### Export / backup
 - `POST /api/v1/novels/{novel_id}/export`
-- `POST /api/v1/admin/backups`
-- `GET /api/v1/admin/backups`
-- 恢复操作第一版可以通过 CLI 完成，避免在 Web 页面暴露高风险恢复接口。
+- `POST /api/v1/admin/backups`：做一次 SQLite 一致性备份。需要认证。响应只含 `id`、`app_version`、`alembic_revision`、`created_at`，不返回数据库文件。
+- `GET /api/v1/admin/backups`：列出上述元数据，需要认证。
+- 恢复操作第一版通过 CLI 完成：`python -m app.cli.restore --backup <目录> --database <新文件>`。不要在 Web 页面暴露恢复接口。目标文件已存在时命令拒绝覆盖，除非显式加上 `--force`（先把现有文件改名）。
 
 ## 3. SSE 协议
 

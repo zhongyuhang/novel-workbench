@@ -46,13 +46,25 @@ class InvalidReference(AppError):
 class PasswordRequired(AppError):
     status_code = 401
     code = "PASSWORD_REQUIRED"
-    message = "需要本机访问口令。"
+    message = "需要访问口令。"
 
 
 class InvalidPassword(AppError):
     status_code = 401
     code = "INVALID_PASSWORD"
     message = "口令不正确。"
+
+
+class BackupFailed(AppError):
+    status_code = 500
+    code = "BACKUP_FAILED"
+    message = "备份没有完成。"
+
+
+class RestoreTargetExists(AppError):
+    status_code = 409
+    code = "RESTORE_TARGET_EXISTS"
+    message = "目标数据库已存在。确认后使用 --force，现有文件会先被改名。"
 
 
 class ModelNotConfigured(AppError):

@@ -18,7 +18,7 @@ def test_health_ok(client: TestClient) -> None:
     assert body == {
         "status": "ok",
         "service": "ai-novel-writer",
-        "version": "0.6.0",
+        "version": "1.0.0",
         "database": "ok",
     }
     assert response.headers["x-request-id"]

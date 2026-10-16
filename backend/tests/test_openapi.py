@@ -9,7 +9,10 @@ def test_openapi_lists_m3_routes(client: TestClient) -> None:
     assert response.status_code == 200
     document = response.json()
     assert document["info"]["title"] == "AI Novel Writer"
-    assert document["info"]["version"] == "0.6.0"
+    assert document["info"]["version"] == "1.0.0"
+    assert "/api/v1/admin/backups" in document["paths"]
+    assert "post" in document["paths"]["/api/v1/admin/backups"]
+    assert "get" in document["paths"]["/api/v1/admin/backups"]
     assert "/api/v1/novels/{novel_id}/foreshadowing" in document["paths"]
     assert "/api/v1/foreshadowing/{foreshadowing_id}" in document["paths"]
     assert "/api/v1/chapters/{chapter_id}/conflict-check" in document["paths"]

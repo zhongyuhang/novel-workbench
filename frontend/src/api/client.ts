@@ -8,6 +8,14 @@ import {
 const configuredBase = import.meta.env.VITE_API_BASE_URL ?? "";
 const SESSION_KEY = "ai-novel-writer.session";
 
+export const SESSION_REQUIRED_EVENT = "ai-novel-writer:session-required";
+
+function notifySessionRequired(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(SESSION_REQUIRED_EVENT));
+  }
+}
+
 export function apiUrl(path: string): string {
   const base = configuredBase.replace(/\/$/, "");
   return `${base}${path}`;
@@ -186,10 +194,16 @@ async function authorizedFetch(path: string, init: RequestInit, allowRetry = tru
     const error = toApiError(response, payload);
     if (error.code === "UNAUTHENTICATED") {
       clearToken();
-      await refreshDevSession();
+      try {
+        await refreshDevSession();
+      } catch (refreshError) {
+        notifySessionRequired();
+        throw refreshError;
+      }
       return authorizedFetch(path, init, false);
     }
     clearToken();
+    notifySessionRequired();
     throw error;
   }
   return response;

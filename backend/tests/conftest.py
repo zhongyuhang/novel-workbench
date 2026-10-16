@@ -18,11 +18,16 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 def isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     database_path = tmp_path / "test.db"
     monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("APP_HOST", "127.0.0.1")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     monkeypatch.setenv("APP_AUTH_SECRET", "test-auth-secret-value")
+    monkeypatch.setenv("APP_ACCESS_PASSWORD", "")
+    monkeypatch.setenv("APP_ACCESS_PASSWORD_HASH", "")
     monkeypatch.setenv("APP_SECRET_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("CORS_ORIGINS", "http://127.0.0.1:43117")
+    monkeypatch.setenv("ALLOWED_HOSTS", "localhost,127.0.0.1")
+    monkeypatch.setenv("FRONTEND_DIST", "")
     monkeypatch.setenv("LOG_LEVEL", "WARNING")
     get_settings.cache_clear()
     yield
