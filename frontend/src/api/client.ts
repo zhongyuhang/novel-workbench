@@ -231,6 +231,10 @@ export async function apiDownload(
   };
 }
 
+export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  return authorizedFetch(path, init);
+}
+
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await authorizedFetch(path, init);
   if (response.status === 204) {

@@ -107,6 +107,79 @@ export type ApiErrorBody = {
   };
 };
 
+export type ProviderType = "openai_compatible" | "mock";
+export type ProviderMode = "openai_compatible" | "mock";
+export type AiTaskType = "continue" | "rewrite" | "polish" | "expand" | "shrink" | "proofread";
+export type AiTaskStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+export type ApplyMode = "append" | "insert" | "replace_selection";
+
+export type ModelConfig = {
+  id: string;
+  display_name: string;
+  provider_type: ProviderType;
+  base_url: string;
+  model_name: string;
+  api_key_configured: boolean;
+  api_key_hint: string | null;
+  parameters: Record<string, unknown>;
+  capabilities: Record<string, unknown>;
+  is_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ModelConfigInput = {
+  display_name: string;
+  provider_type: ProviderType;
+  base_url: string;
+  model_name: string;
+  api_key?: string;
+  timeout_seconds: number;
+  max_retries: number;
+  temperature: number | null;
+  max_output_tokens: number | null;
+  supports_streaming: boolean;
+  supports_json_output: boolean;
+  is_enabled: boolean;
+};
+
+export type AiTask = {
+  id: string;
+  novel_id: string;
+  chapter_id: string | null;
+  task_type: AiTaskType;
+  status: AiTaskStatus;
+  model_config_id: string | null;
+  provider_mode: ProviderMode;
+  model_name: string;
+  prompt_version: string;
+  output_text: string | null;
+  error_code: string | null;
+  error_message_safe: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  resolution: "accepted" | "rejected" | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+};
+
+export type AiTaskCreateInput = {
+  novel_id: string;
+  chapter_id: string;
+  task_type: AiTaskType;
+  instruction: string;
+  selection_text?: string;
+  target_revision: number;
+  model_config_id?: string;
+  constraints?: {
+    max_words?: number;
+    must_include?: string;
+    must_avoid?: string;
+  };
+  use_mock?: boolean;
+};
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;

@@ -42,11 +42,22 @@ def test_upgrade_empty_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         }
     engine.dispose()
 
-    assert version == "0003_chapter_versions"
-    assert {"alembic_version", "novels", "volumes", "chapters", "chapter_versions"} <= tables
+    assert version == "0004_ai"
+    assert {
+        "alembic_version",
+        "novels",
+        "volumes",
+        "chapters",
+        "chapter_versions",
+        "model_configs",
+        "ai_tasks",
+    } <= tables
     assert "ix_chapters_novel_id_sort_order" in indexes
     assert "ix_chapters_volume_id_sort_order" in indexes
     assert "ix_volumes_novel_id_sort_order" in indexes
+    assert "ix_ai_tasks_novel_id" in indexes
+    assert "ix_ai_tasks_status" in indexes
+    assert "ix_model_configs_is_enabled" in indexes
     assert "novels" in chapter_fks
     assert "volumes" in chapter_fks
 
@@ -79,9 +90,11 @@ def test_upgrade_from_previous_revision(tmp_path: Path, monkeypatch: pytest.Monk
             ).scalars()
         )
     engine.dispose()
-    assert version == "0003_chapter_versions"
+    assert version == "0004_ai"
     assert "chapters" in tables
     assert "chapter_versions" in tables
+    assert "model_configs" in tables
+    assert "ai_tasks" in tables
 
 
 def test_upgrade_from_catalog_keeps_chapters_and_adds_versions(
@@ -140,7 +153,7 @@ def test_upgrade_from_catalog_keeps_chapters_and_adds_versions(
         table_sql = connection.execute(
             text("SELECT sql FROM sqlite_master WHERE name = 'chapter_versions'")
         ).scalar_one()
-        assert version == "0003_chapter_versions"
+        assert version == "0004_ai"
         assert "升级前正文" in str(stored)
         assert version_count == 0
         unique_name = next(row[1] for row in index_rows if row[2] == 1 and row[3] == "u")
@@ -167,4 +180,56 @@ def test_upgrade_from_catalog_keeps_chapters_and_adds_versions(
     engine.dispose()
     assert version == "0002_catalog"
     assert "chapter_versions" not in tables
+    assert "ai_tasks" not in tables
+    assert "model_configs" not in tables
     assert stored == "旧章"
+
+
+def test_upgrade_from_chapter_versions_adds_ai_tables(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database_path = tmp_path / "from-versions.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    config = Config(str(BACKEND_ROOT / "alembic.ini"))
+    command.upgrade(config, "0003_chapter_versions")
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO novels (
+                    id, title, genre, synopsis, style_guide, status,
+                    created_at, updated_at, deleted_at
+                ) VALUES (
+                    'novel-1', '版本后', NULL, NULL, NULL, 'draft',
+                    '2026-01-01 00:00:00', '2026-01-01 00:00:00', NULL
+                )
+                """
+            )
+        )
+
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        title = connection.execute(
+            text("SELECT title FROM novels WHERE id = 'novel-1'")
+        ).scalar_one()
+        ai_sql = connection.execute(
+            text("SELECT sql FROM sqlite_master WHERE name = 'ai_tasks'")
+        ).scalar_one()
+        config_sql = connection.execute(
+            text("SELECT sql FROM sqlite_master WHERE name = 'model_configs'")
+        ).scalar_one()
+        foreign_keys = connection.execute(text("PRAGMA foreign_key_list(ai_tasks)")).all()
+    engine.dispose()
+
+    assert version == "0004_ai"
+    assert title == "版本后"
+    assert "ck_ai_tasks_status" in ai_sql
+    assert "ck_ai_tasks_resolution" in ai_sql
+    assert "secret_ref" in config_sql
+    assert any(row[2] == "novels" and row[3] == "novel_id" for row in foreign_keys)
+    assert any(row[2] == "model_configs" and row[3] == "model_config_id" for row in foreign_keys)

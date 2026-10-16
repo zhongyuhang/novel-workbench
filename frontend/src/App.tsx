@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { SessionGate } from "./components/SessionGate.tsx";
+import { ModelSettingsPage } from "./pages/ModelSettingsPage.tsx";
 import { NovelLibraryPage } from "./pages/NovelLibraryPage.tsx";
 import { WorkspacePage } from "./pages/WorkspacePage.tsx";
 import { parseHash, type Route } from "./routes.ts";
@@ -10,6 +11,8 @@ export function App() {
     <SessionGate>
       {route.kind === "library" ? (
         <NovelLibraryPage />
+      ) : route.kind === "settings" ? (
+        <ModelSettingsPage />
       ) : (
         <WorkspacePage novelId={route.novelId} chapterId={route.chapterId} />
       )}

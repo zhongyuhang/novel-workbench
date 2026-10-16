@@ -312,6 +312,56 @@ def restore_chapter(session: Session, chapter_id: str, payload: ChapterRestore) 
     return _reload_chapter(session, chapter.id)
 
 
+def apply_accepted_candidate(
+    session: Session,
+    chapter_id: str,
+    *,
+    expected_revision: int,
+    document: dict[str, object],
+    change_note: str | None,
+) -> Chapter:
+    """Write an accepted candidate with the same optimistic lock as a manual save."""
+
+    chapter = _require_chapter(session, chapter_id)
+    if chapter.revision != expected_revision:
+        raise RevisionConflict()
+    validated = validate_document(copy.deepcopy(document))
+    new_revision = chapter.revision + 1
+    result = cast(
+        CursorResult[tuple[object, ...]],
+        session.execute(
+            update(Chapter)
+            .where(
+                Chapter.id == chapter.id,
+                Chapter.revision == expected_revision,
+                Chapter.deleted_at.is_(None),
+            )
+            .values(
+                content=copy.deepcopy(validated),
+                content_format=CANONICAL_CONTENT_FORMAT,
+                content_format_version=CANONICAL_CONTENT_FORMAT_VERSION,
+                word_count=word_count(validated),
+                revision=new_revision,
+                updated_at=_now(),
+            )
+        ),
+    )
+    if result.rowcount != 1:
+        session.rollback()
+        raise RevisionConflict()
+    _add_version(
+        session,
+        chapter_id=chapter.id,
+        revision=new_revision,
+        document=validated,
+        change_source="ai_accepted",
+        change_note=change_note,
+    )
+    _commit_version_write(session, wrote_chapter=True)
+    logger.info("ai candidate accepted")
+    return _reload_chapter(session, chapter.id)
+
+
 def delete_chapter(session: Session, chapter_id: str) -> None:
     chapter = _require_chapter(session, chapter_id)
     volume_id = chapter.volume_id

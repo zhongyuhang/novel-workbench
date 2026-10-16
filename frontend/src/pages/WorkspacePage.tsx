@@ -42,6 +42,9 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
   const [chapters, setChapters] = useState<ChapterSummary[]>([]);
   const [chapter, setChapter] = useState<Chapter | null>(null);
   const [error, setError] = useState("");
+  const [unsaved, setUnsaved] = useState(false);
+  const [selectionText, setSelectionText] = useState("");
+  const [adoptedChapter, setAdoptedChapter] = useState<Chapter | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -87,8 +90,12 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
   useEffect(() => {
     if (!chapterId) {
       setChapter(null);
+      setSelectionText("");
+      setAdoptedChapter(null);
       return;
     }
+    setSelectionText("");
+    setAdoptedChapter(null);
     const controller = new AbortController();
     let active = true;
     getChapter(chapterId, controller.signal)
@@ -201,7 +208,10 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
           <h1>{novel?.title ?? "读取中"}</h1>
         </div>
         <div className="topbar-meta">
-          <p className="milestone">M2 编辑与版本</p>
+          <p className="milestone">M3 模型与生成</p>
+          <a className="ghost" href="#/settings">
+            模型设置
+          </a>
           <div className="inline-actions">
             <button
               className="ghost"
@@ -463,9 +473,12 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
             <ChapterEditor
               key={chapter.id}
               chapter={chapter}
-              onUnsavedChange={(unsaved) => {
-                unsavedRef.current = unsaved;
+              onUnsavedChange={(value) => {
+                unsavedRef.current = value;
+                setUnsaved(value);
               }}
+              onSelectionChange={setSelectionText}
+              adoptedChapter={adoptedChapter}
               onSaved={(saved) => {
                 setChapter(saved);
                 setChapters((current) =>
@@ -491,7 +504,31 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
             </div>
           )}
         </main>
-        <AiPanel />
+        <AiPanel
+          novelId={novelId}
+          chapter={chapter}
+          savedRevision={chapter?.revision ?? null}
+          selectionText={selectionText}
+          editorDirty={unsaved}
+          onAccepted={(saved) => {
+            setChapter(saved);
+            setAdoptedChapter(saved);
+            setChapters((current) =>
+              current.map((item) =>
+                item.id === saved.id
+                  ? {
+                      ...item,
+                      title: saved.title,
+                      status: saved.status,
+                      word_count: saved.word_count,
+                      revision: saved.revision,
+                      updated_at: saved.updated_at,
+                    }
+                  : item,
+              ),
+            );
+          }}
+        />
       </div>
     </div>
   );
