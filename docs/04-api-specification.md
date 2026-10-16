@@ -56,7 +56,7 @@
 - `POST /api/v1/ai/tasks/{task_id}/accept`
 - `POST /api/v1/ai/tasks/{task_id}/reject`
 
-采纳请求包含 `target_revision` 和 `apply_mode`（`append`、`insert`、`replace_selection`）。修订号不一致时返回 `409`，不覆盖正文。拒绝只标记任务，不改正文。任务类型为 `continue`、`rewrite`、`polish`、`expand`、`shrink`、`proofread`。显式 `use_mock=true` 或选择模拟配置时，响应里的 `provider_mode` 为 `mock`。
+采纳请求包含 `target_revision` 和 `apply_mode`（`append`、`insert`、`replace_selection`）。修订号不一致时返回 `409`，不覆盖正文。拒绝只标记任务，不改正文。任务类型为 `continue`、`rewrite`、`polish`、`expand`、`shrink`、`proofread`。显式 `use_mock=true` 或选择模拟配置时，响应里的 `provider_mode` 为 `mock`。`rewrite` 且带有非空 `selection_text` 时，`prompt_version` 为 `rewrite_selection_v1`，候选仍要等到采纳才写入正文。
 
 创建任务请求至少包含：
 - `novel_id`
@@ -81,6 +81,16 @@
 - `GET /api/v1/novels/{novel_id}/events`
 
 分析请求带 `revision`，可选 `model_config_id` 和 `use_mock`。它只创建提案。响应里的 `formal_memory_changed` 和 `manuscript_changed` 固定为 false。没有证据的条目 `certainty` 为 `inferred` 或 `uncertain`。接受才写入正式记忆，并且不改正文。拒绝不改正式设定。撤回只回滚该提案接受时写下的记忆。章节修订变化后，相关摘要和待审核提案变为 `stale`。
+
+### Quality
+- `GET /api/v1/novels/{novel_id}/foreshadowing`
+- `POST /api/v1/novels/{novel_id}/foreshadowing`
+- `PATCH /api/v1/foreshadowing/{foreshadowing_id}`
+- `POST /api/v1/chapters/{chapter_id}/conflict-check`
+- `GET /api/v1/novels/{novel_id}/stats`
+- `PUT /api/v1/novels/{novel_id}/writing-goal`
+
+伏笔状态为 `open`、`planned`、`resolved`、`abandoned`、`uncertain`，并且只属于一本作品。冲突检查只返回疑似冲突：类型、正文片段、已确认事实、来源章节与引用、严重程度、置信度、建议的人工处理。响应里的 `manuscript_changed` 和 `formal_memory_changed` 固定为 false。没有外部模型，或请求 `use_mock=true` 时，使用本地规则，`provider_mode` 为 `mock`。人物状态变化本身不算冲突。字数统计按正文字数函数计算每章和全书，目标字数是可选项。
 
 ### Model settings
 - `GET /api/v1/settings/models`

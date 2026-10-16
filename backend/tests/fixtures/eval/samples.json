@@ -1,0 +1,32 @@
+{
+  "description": "固定评测样例。句子是虚构的，用来重复检查续写、选区改写和摘要，不代表任何真实作品。",
+  "samples": [
+    {
+      "id": "continue-rain",
+      "kind": "continue",
+      "instruction": "顺着夜雨再写一句，不要总结。",
+      "chapter_text": "雨还在下。巷口没有人。",
+      "selection_text": "",
+      "constraints": {"max_words": 30},
+      "mock_tokens": ["灯", "灭了。"]
+    },
+    {
+      "id": "rewrite-door",
+      "kind": "rewrite",
+      "instruction": "把这个动作写慢一点。",
+      "chapter_text": "他推开门。屋里没有人。",
+      "selection_text": "他推开门。",
+      "constraints": null,
+      "mock_tokens": ["他慢慢推开门。"]
+    },
+    {
+      "id": "summarize-key",
+      "kind": "summarize",
+      "instruction": "概括这一章发生了什么。",
+      "chapter_text": "阿宁说道，钥匙在抽屉里。她离开了屋子。",
+      "selection_text": "",
+      "constraints": null,
+      "mock_tokens": ["阿宁说钥匙在抽屉里，然后离开。"]
+    }
+  ]
+}

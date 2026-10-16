@@ -10,7 +10,7 @@ from sqlalchemy import select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
-from app.ai.prompts import PROMPT_VERSION, TASK_LABELS, build_prompt
+from app.ai.prompts import TASK_LABELS, build_prompt, prompt_version_for
 from app.ai.runner import run_ai_task
 from app.ai.runtime import AiRuntime
 from app.ai.tasks import IllegalTaskTransition, TaskStatus, transition
@@ -104,7 +104,7 @@ def create_ai_task(session: Session, payload: AiTaskCreate, runtime: AiRuntime) 
         status=TaskStatus.QUEUED.value,
         model_config_id=config.id if config is not None else None,
         input_snapshot=snapshot,
-        prompt_version=PROMPT_VERSION,
+        prompt_version=prompt_version_for(payload.task_type, selection),
         output_text=None,
         error_code=None,
         error_message_safe=None,

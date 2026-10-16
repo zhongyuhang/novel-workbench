@@ -21,10 +21,10 @@ from app.db.session import build_engine, build_session_factory
 
 OPENAPI_DESCRIPTION = (
     "Personal long-form novel writing workbench. "
-    "Milestone M4 adds story entities, chapter summaries, and memory proposals. "
-    "Chapter analysis only stores proposals. Accept is the only path that updates "
-    "formal memory, and it does not change the manuscript. "
-    "Foreshadowing tools and deployment routes are not implemented yet."
+    "Milestone M5 adds foreshadowing, suspected-conflict hints, selection rewrite, "
+    "and writing stats. Conflict checks never change the manuscript or formal memory. "
+    "Selection rewrite stays a candidate until the author accepts it. "
+    "Deployment routes are not implemented yet."
 )
 
 

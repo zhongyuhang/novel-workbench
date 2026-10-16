@@ -114,6 +114,17 @@
 - `evidence_quote` nullable
 - `created_at`, `updated_at`
 
+索引：`(novel_id)`、`(novel_id, status)`。
+
+### writing_goals
+
+每本作品最多一行，用来记可选的全本目标字数。它不保存正文。
+
+- `id` PK
+- `novel_id` FK，唯一
+- `target_words`（大于等于 1）
+- `created_at`, `updated_at`
+
 ### chapter_versions
 - `id` PK
 - `chapter_id` FK

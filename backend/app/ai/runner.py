@@ -99,6 +99,7 @@ def _execute(
             task = _require(session, task_id)
             _publish_status(broker, task, "task.failed")
             return
+        prompt_version = task.prompt_version or PROMPT_VERSION
         usage = provider.estimate_usage(
             GenerationRequest(
                 endpoint=endpoint,
@@ -113,7 +114,7 @@ def _execute(
             TaskStatus.RUNNING,
             started_at=_now(),
             input_tokens=usage.input_tokens,
-            prompt_version=PROMPT_VERSION,
+            prompt_version=prompt_version,
         )
         if not started:
             session.rollback()

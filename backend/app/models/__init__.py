@@ -10,6 +10,7 @@ from app.models.memory import (
     StoryEntity,
     StoryEvent,
 )
+from app.models.quality import Foreshadowing, WritingGoal
 
 __all__ = [
     "AiTask",
@@ -18,10 +19,12 @@ __all__ = [
     "ChapterSummary",
     "ChapterVersion",
     "EntityState",
+    "Foreshadowing",
     "MemoryChangeProposal",
     "ModelConfig",
     "Novel",
     "StoryEntity",
     "StoryEvent",
     "Volume",
+    "WritingGoal",
 ]

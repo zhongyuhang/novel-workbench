@@ -42,7 +42,7 @@ def test_upgrade_empty_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         }
     engine.dispose()
 
-    assert version == "0005_memory"
+    assert version == "0006_quality"
     assert {
         "alembic_version",
         "novels",
@@ -56,6 +56,8 @@ def test_upgrade_empty_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         "story_events",
         "chapter_summaries",
         "memory_change_proposals",
+        "foreshadowing",
+        "writing_goals",
     } <= tables
     assert "ix_chapters_novel_id_sort_order" in indexes
     assert "ix_chapters_volume_id_sort_order" in indexes
@@ -68,6 +70,8 @@ def test_upgrade_empty_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert "ix_chapter_summaries_chapter_id" in indexes
     assert "ix_story_events_novel_id" in indexes
     assert "ix_entity_states_entity_id" in indexes
+    assert "ix_foreshadowing_novel_id" in indexes
+    assert "ix_foreshadowing_novel_id_status" in indexes
     assert "novels" in chapter_fks
     assert "volumes" in chapter_fks
 
@@ -100,7 +104,7 @@ def test_upgrade_from_previous_revision(tmp_path: Path, monkeypatch: pytest.Monk
             ).scalars()
         )
     engine.dispose()
-    assert version == "0005_memory"
+    assert version == "0006_quality"
     assert "chapters" in tables
     assert "chapter_versions" in tables
     assert "model_configs" in tables
@@ -163,7 +167,7 @@ def test_upgrade_from_catalog_keeps_chapters_and_adds_versions(
         table_sql = connection.execute(
             text("SELECT sql FROM sqlite_master WHERE name = 'chapter_versions'")
         ).scalar_one()
-        assert version == "0005_memory"
+        assert version == "0006_quality"
         assert "升级前正文" in str(stored)
         assert version_count == 0
         unique_name = next(row[1] for row in index_rows if row[2] == 1 and row[3] == "u")
@@ -236,7 +240,7 @@ def test_upgrade_from_chapter_versions_adds_ai_tables(
         foreign_keys = connection.execute(text("PRAGMA foreign_key_list(ai_tasks)")).all()
     engine.dispose()
 
-    assert version == "0005_memory"
+    assert version == "0006_quality"
     assert title == "版本后"
     assert "ck_ai_tasks_status" in ai_sql
     assert "ck_ai_tasks_resolution" in ai_sql
@@ -280,9 +284,14 @@ def test_upgrade_from_ai_tables_adds_memory_and_keeps_novels(
         proposal_sql = connection.execute(
             text("SELECT sql FROM sqlite_master WHERE name = 'memory_change_proposals'")
         ).scalar_one()
+        foreshadow_sql = connection.execute(
+            text("SELECT sql FROM sqlite_master WHERE name = 'foreshadowing'")
+        ).scalar_one()
         foreign_keys = connection.execute(text("PRAGMA foreign_key_list(entity_states)")).all()
-    assert version == "0005_memory"
+    assert version == "0006_quality"
     assert title == "记忆前"
+    assert "ck_foreshadowing_status" in foreshadow_sql
+    assert "abandoned" in foreshadow_sql
     assert "ck_memory_change_proposals_status" in proposal_sql
     assert "stale" in proposal_sql
     assert "ck_memory_change_proposals_certainty" in proposal_sql
@@ -305,4 +314,6 @@ def test_upgrade_from_ai_tables_adds_memory_and_keeps_novels(
     assert title == "记忆前"
     assert "story_entities" not in tables
     assert "memory_change_proposals" not in tables
+    assert "foreshadowing" not in tables
+    assert "writing_goals" not in tables
     assert "ai_tasks" in tables
