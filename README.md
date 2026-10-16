@@ -30,12 +30,12 @@
 
 本仓库文档是目标规范，不代表所有功能已经实现。每个实施阶段都必须提交代码、测试、运行说明和验收记录；未实现的功能不得在 README 中标注为已完成。
 
-## 当前实现（M3）
+## 当前实现（M4）
 
 已实现：
 
 - 前后端工程骨架、`GET /api/v1/health`、OpenAPI（`/docs`、`/openapi.json`）
-- Alembic：`0001_initial` 基线，`0002_catalog` 创建 `novels`、`volumes`、`chapters`，`0003_chapter_versions` 创建版本快照表，`0004_ai` 创建 `model_configs` 与 `ai_tasks`
+- Alembic：`0001_initial` 基线，`0002_catalog` 创建 `novels`、`volumes`、`chapters`，`0003_chapter_versions` 创建版本快照表，`0004_ai` 创建 `model_configs` 与 `ai_tasks`，`0005_memory` 创建 `story_entities`、`entity_states`、`story_events`、`chapter_summaries`、`memory_change_proposals`
 - 作品、卷、章节的列表、创建、读取、更新和删除。作品与章节删除是软删除；删除卷时章节改为未分卷
 - 卷重排，章节移动和复制
 - 章节正文的权威格式是 Tiptap JSON（`content_format=tiptap_json`，`content_format_version=1`）。工作台中间栏用 Tiptap 编辑，保存时只写这一份 JSON
@@ -44,16 +44,18 @@
 - `GET /api/v1/chapters/{id}/versions` 列出版本。`POST /api/v1/chapters/{id}/restore` 在确认后把所选快照写成新修订，旧版本保留
 - `POST /api/v1/novels/{id}/export` 导出 Markdown 或 TXT。顺序与目录一致：先未分卷，再按卷的 `sort_order`，卷内按章节 `sort_order`。导出包含标题、简介、卷名、章节标题和正文
 - 模型设置：添加、修改、测试和删除 OpenAI 兼容配置。API Key 用 `APP_SECRET_ENCRYPTION_KEY` 加密后写入 `secret_ref`。接口只返回是否已配置和脱敏尾号
-- AI 任务：续写、改写、润色、扩写、缩写、校对。`POST /api/v1/ai/tasks` 创建任务，`GET /api/v1/ai/tasks/{id}/events` 用 SSE 推送 `task.started`、`token`、`task.completed`、`task.failed`、`task.cancelled` 和 `heartbeat`。可以取消。完成只表示候选就绪
+- AI 任务：续写、改写、润色、扩写、缩写、校对。`POST /api/v1/ai/tasks` 创建任务，`GET /api/v1/ai/tasks/{id}/events` 用 SSE 推送 `task.started`、`token`、`task.completed`、`task.failed`、`task.cancelled` 和 `heartbeat`。可以取消。完成只表示候选就绪。创建任务时会按当前作品组装上下文：硬规则、当前章节约束、相邻章节、已确认设定，以及在预算内的摘要。检索只用名称匹配、LIKE 和相邻章节，不使用向量库，也不会读到其他作品的设定
 - 采纳候选会按当前修订号做乐观锁更新正文，并写入 `change_source=ai_accepted` 的版本。修订号不一致返回 `409`，不覆盖。放弃候选不改正文
 - 没有可用的外部模型时，右侧「续写」会提示去模型设置，不会假装已经生成。可以单独使用模拟模型，界面会标明「模拟输出」
+- 设定与记忆：可以按作品列出、新建和修改实体。`POST /api/v1/chapters/{id}/analyze` 针对提交的修订号做分析，只写入提案。没有外部模型时用模拟分析，界面标明「模拟分析」。每条提案带有来源章节、来源修订、证据原文和 certainty。没有证据或证据不在原文中的条目会标成不确定，不会自动变成正式设定
+- 接受提案会在一个事务里更新正式设定、状态、事件或摘要，并保留章节和修订来源。拒绝提案不改正式设定。已接受的提案可以撤回。章节修订变化后，旧修订上的当前摘要和待审核提案会变成 `stale`，需要重新分析或由人确认后才接受
+- 工作台右侧有「生成」和「设定」。目录里可以对章节点「分析记忆」。设定页列出实体、过期摘要和提案，接受或拒绝都是明确操作
 - 作品库页面和三栏工作台。模型设置在 `#/settings`
 - 单用户会话。开发环境和测试环境在未配置访问口令时可以用空口令换取令牌；配置了 `APP_ACCESS_PASSWORD` 后必须口令正确
 
 尚未实现，不能当作可用功能：
 
-- 记忆系统、设定提案和上下文组装
-- 伏笔、冲突提示、创作统计
+- 伏笔、冲突提示、选区改写工具和创作统计
 - 局域网部署、认证加固和备份恢复
 
 ## 环境要求

@@ -77,6 +77,10 @@
 - `POST /api/v1/memory-proposals/{proposal_id}/accept`
 - `POST /api/v1/memory-proposals/{proposal_id}/reject`
 - `POST /api/v1/memory-proposals/{proposal_id}/revert`
+- `GET /api/v1/novels/{novel_id}/chapter-summaries`
+- `GET /api/v1/novels/{novel_id}/events`
+
+分析请求带 `revision`，可选 `model_config_id` 和 `use_mock`。它只创建提案。响应里的 `formal_memory_changed` 和 `manuscript_changed` 固定为 false。没有证据的条目 `certainty` 为 `inferred` 或 `uncertain`。接受才写入正式记忆，并且不改正文。拒绝不改正式设定。撤回只回滚该提案接受时写下的记忆。章节修订变化后，相关摘要和待审核提案变为 `stale`。
 
 ### Model settings
 - `GET /api/v1/settings/models`

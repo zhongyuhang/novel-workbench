@@ -35,6 +35,7 @@ from app.schemas.catalog import (
     VolumeReorder,
     VolumeUpdate,
 )
+from app.services.memory import mark_chapter_memory_stale
 
 logger = logging.getLogger("app.catalog")
 
@@ -258,6 +259,8 @@ def save_chapter(session: Session, chapter_id: str, payload: ChapterWrite) -> Ch
             change_source="manual",
             change_note=_blank_to_none(payload.change_note),
         )
+    if needs_write:
+        mark_chapter_memory_stale(session, chapter.id, new_revision)
     _commit_version_write(session, wrote_chapter=needs_write)
     return _reload_chapter(session, chapter_id)
 
@@ -307,6 +310,7 @@ def restore_chapter(session: Session, chapter_id: str, payload: ChapterRestore) 
         change_note=f"恢复自修订 {version.revision}",
         content_format_version=version.content_format_version,
     )
+    mark_chapter_memory_stale(session, chapter.id, new_revision)
     _commit_version_write(session, wrote_chapter=True)
     logger.info("chapter restored")
     return _reload_chapter(session, chapter.id)
@@ -357,6 +361,7 @@ def apply_accepted_candidate(
         change_source="ai_accepted",
         change_note=change_note,
     )
+    mark_chapter_memory_stale(session, chapter.id, new_revision)
     _commit_version_write(session, wrote_chapter=True)
     logger.info("ai candidate accepted")
     return _reload_chapter(session, chapter.id)

@@ -33,6 +33,7 @@ from app.schemas.ai import (
 )
 from app.schemas.catalog import ChapterResponse
 from app.services.catalog import apply_accepted_candidate
+from app.services.context_builder import build_memory_context
 
 logger = logging.getLogger("app.ai.tasks")
 
@@ -59,12 +60,21 @@ def create_ai_task(session: Session, payload: AiTaskCreate, runtime: AiRuntime) 
     chapter_text = document_to_text(chapter.content) if chapter is not None else ""
     selection = payload.selection_text or ""
     constraints = payload.constraints.model_dump() if payload.constraints is not None else None
+    memory_context = build_memory_context(
+        session,
+        novel_id=novel.id,
+        chapter_id=chapter.id if chapter is not None else None,
+        instruction=payload.instruction,
+        selection_text=selection,
+        chapter_text=chapter_text,
+    )
     prompt = build_prompt(
         task_type=payload.task_type,
         instruction=payload.instruction,
         chapter_text=chapter_text,
         selection_text=selection,
         constraints=constraints,
+        memory_context=memory_context,
     )
     snapshot: dict[str, object] = {
         "instruction": payload.instruction,

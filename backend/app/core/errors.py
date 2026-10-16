@@ -85,6 +85,12 @@ class TaskStateError(AppError):
     message = "当前任务状态不能执行这个操作。"
 
 
+class DuplicateEntity(AppError):
+    status_code = 409
+    code = "DUPLICATE_ENTITY"
+    message = "这本作品里已经有同名设定。"
+
+
 class ProviderRequestFailed(AppError):
     """Safe provider failure. The message must not contain secrets or response bodies."""
 
