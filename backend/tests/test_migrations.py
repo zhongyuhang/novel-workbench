@@ -42,7 +42,7 @@ def test_upgrade_empty_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         }
     engine.dispose()
 
-    assert version == "0004_ai"
+    assert version == "0005_memory"
     assert {
         "alembic_version",
         "novels",
@@ -51,6 +51,11 @@ def test_upgrade_empty_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         "chapter_versions",
         "model_configs",
         "ai_tasks",
+        "story_entities",
+        "entity_states",
+        "story_events",
+        "chapter_summaries",
+        "memory_change_proposals",
     } <= tables
     assert "ix_chapters_novel_id_sort_order" in indexes
     assert "ix_chapters_volume_id_sort_order" in indexes
@@ -58,6 +63,11 @@ def test_upgrade_empty_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert "ix_ai_tasks_novel_id" in indexes
     assert "ix_ai_tasks_status" in indexes
     assert "ix_model_configs_is_enabled" in indexes
+    assert "ix_story_entities_novel_id" in indexes
+    assert "ix_memory_change_proposals_novel_id_status" in indexes
+    assert "ix_chapter_summaries_chapter_id" in indexes
+    assert "ix_story_events_novel_id" in indexes
+    assert "ix_entity_states_entity_id" in indexes
     assert "novels" in chapter_fks
     assert "volumes" in chapter_fks
 
@@ -90,7 +100,7 @@ def test_upgrade_from_previous_revision(tmp_path: Path, monkeypatch: pytest.Monk
             ).scalars()
         )
     engine.dispose()
-    assert version == "0004_ai"
+    assert version == "0005_memory"
     assert "chapters" in tables
     assert "chapter_versions" in tables
     assert "model_configs" in tables
@@ -153,7 +163,7 @@ def test_upgrade_from_catalog_keeps_chapters_and_adds_versions(
         table_sql = connection.execute(
             text("SELECT sql FROM sqlite_master WHERE name = 'chapter_versions'")
         ).scalar_one()
-        assert version == "0004_ai"
+        assert version == "0005_memory"
         assert "升级前正文" in str(stored)
         assert version_count == 0
         unique_name = next(row[1] for row in index_rows if row[2] == 1 and row[3] == "u")
@@ -226,10 +236,73 @@ def test_upgrade_from_chapter_versions_adds_ai_tables(
         foreign_keys = connection.execute(text("PRAGMA foreign_key_list(ai_tasks)")).all()
     engine.dispose()
 
-    assert version == "0004_ai"
+    assert version == "0005_memory"
     assert title == "版本后"
     assert "ck_ai_tasks_status" in ai_sql
     assert "ck_ai_tasks_resolution" in ai_sql
     assert "secret_ref" in config_sql
     assert any(row[2] == "novels" and row[3] == "novel_id" for row in foreign_keys)
     assert any(row[2] == "model_configs" and row[3] == "model_config_id" for row in foreign_keys)
+
+
+def test_upgrade_from_ai_tables_adds_memory_and_keeps_novels(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database_path = tmp_path / "from-ai.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    config = Config(str(BACKEND_ROOT / "alembic.ini"))
+    command.upgrade(config, "0004_ai")
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO novels (
+                    id, title, genre, synopsis, style_guide, status,
+                    created_at, updated_at, deleted_at
+                ) VALUES (
+                    'novel-1', '记忆前', NULL, NULL, NULL, 'draft',
+                    '2026-01-01 00:00:00', '2026-01-01 00:00:00', NULL
+                )
+                """
+            )
+        )
+
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        title = connection.execute(
+            text("SELECT title FROM novels WHERE id = 'novel-1'")
+        ).scalar_one()
+        proposal_sql = connection.execute(
+            text("SELECT sql FROM sqlite_master WHERE name = 'memory_change_proposals'")
+        ).scalar_one()
+        foreign_keys = connection.execute(text("PRAGMA foreign_key_list(entity_states)")).all()
+    assert version == "0005_memory"
+    assert title == "记忆前"
+    assert "ck_memory_change_proposals_status" in proposal_sql
+    assert "stale" in proposal_sql
+    assert "ck_memory_change_proposals_certainty" in proposal_sql
+    assert any(row[2] == "story_entities" and row[3] == "entity_id" for row in foreign_keys)
+    assert any(row[2] == "chapters" and row[3] == "chapter_id" for row in foreign_keys)
+
+    command.downgrade(config, "0004_ai")
+    with engine.connect() as connection:
+        version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        tables = set(
+            connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'table'")
+            ).scalars()
+        )
+        title = connection.execute(
+            text("SELECT title FROM novels WHERE id = 'novel-1'")
+        ).scalar_one()
+    engine.dispose()
+    assert version == "0004_ai"
+    assert title == "记忆前"
+    assert "story_entities" not in tables
+    assert "memory_change_proposals" not in tables
+    assert "ai_tasks" in tables

@@ -17,6 +17,8 @@ import {
 import { ApiError, type Chapter, type ChapterSummary, type Novel, type Volume } from "../api/types.ts";
 import { AiPanel } from "../components/AiPanel.tsx";
 import { ChapterEditor } from "../components/ChapterEditor.tsx";
+import { MemoryPanel } from "../components/MemoryPanel.tsx";
+import { requestMemoryAnalyze } from "../features/memory/analyzeBridge.ts";
 import { HealthBadge } from "../components/HealthBadge.tsx";
 import { allowChapterLeave } from "../editor/leaveGuard.ts";
 import { useBackendHealth } from "../features/library/useBackendHealth.ts";
@@ -49,6 +51,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
   const [busy, setBusy] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [sideTab, setSideTab] = useState<"write" | "memory">("write");
   const unsavedRef = useRef(false);
   const skipGuardRef = useRef(false);
 
@@ -208,7 +211,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
           <h1>{novel?.title ?? "读取中"}</h1>
         </div>
         <div className="topbar-meta">
-          <p className="milestone">M3 模型与生成</p>
+          <p className="milestone">M4 设定与记忆</p>
           <a className="ghost" href="#/settings">
             模型设置
           </a>
@@ -429,6 +432,25 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
                         复制
                       </button>
                       <button
+                        className="ghost"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          if (item.id === chapterId && unsaved) {
+                            setError("正文还有未保存的修改。请先保存，再分析这一章。");
+                            return;
+                          }
+                          setSideTab("memory");
+                          requestMemoryAnalyze({
+                            chapterId: item.id,
+                            revision: item.revision,
+                            title: item.title,
+                          });
+                        }}
+                      >
+                        分析记忆
+                      </button>
+                      <button
                         className="ghost danger"
                         type="button"
                         disabled={busy}
@@ -504,31 +526,68 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
             </div>
           )}
         </main>
-        <AiPanel
-          novelId={novelId}
-          chapter={chapter}
-          savedRevision={chapter?.revision ?? null}
-          selectionText={selectionText}
-          editorDirty={unsaved}
-          onAccepted={(saved) => {
-            setChapter(saved);
-            setAdoptedChapter(saved);
-            setChapters((current) =>
-              current.map((item) =>
-                item.id === saved.id
-                  ? {
-                      ...item,
-                      title: saved.title,
-                      status: saved.status,
-                      word_count: saved.word_count,
-                      revision: saved.revision,
-                      updated_at: saved.updated_at,
-                    }
-                  : item,
-              ),
-            );
-          }}
-        />
+        <div className="side-pane">
+          <div className="side-tabs" role="tablist" aria-label="写作侧栏">
+            <button
+              className={sideTab === "write" ? "primary" : "ghost"}
+              type="button"
+              role="tab"
+              aria-selected={sideTab === "write"}
+              onClick={() => {
+                setSideTab("write");
+              }}
+            >
+              生成
+            </button>
+            <button
+              className={sideTab === "memory" ? "primary" : "ghost"}
+              type="button"
+              role="tab"
+              aria-selected={sideTab === "memory"}
+              onClick={() => {
+                setSideTab("memory");
+              }}
+            >
+              设定
+            </button>
+          </div>
+          <div hidden={sideTab !== "write"}>
+            <AiPanel
+              novelId={novelId}
+              chapter={chapter}
+              savedRevision={chapter?.revision ?? null}
+              selectionText={selectionText}
+              editorDirty={unsaved}
+              onAccepted={(saved) => {
+                setChapter(saved);
+                setAdoptedChapter(saved);
+                setChapters((current) =>
+                  current.map((item) =>
+                    item.id === saved.id
+                      ? {
+                          ...item,
+                          title: saved.title,
+                          status: saved.status,
+                          word_count: saved.word_count,
+                          revision: saved.revision,
+                          updated_at: saved.updated_at,
+                        }
+                      : item,
+                  ),
+                );
+              }}
+            />
+          </div>
+          <div hidden={sideTab !== "memory"}>
+            <MemoryPanel
+              novelId={novelId}
+              activeChapterId={chapterId}
+              activeRevision={chapter?.revision ?? null}
+              activeTitle={chapter?.title ?? null}
+              editorDirty={unsaved}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );

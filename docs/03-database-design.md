@@ -73,6 +73,8 @@
 - `state_data` JSON
 - `evidence_quote` nullable
 - `source_type` (`manual`, `ai_proposal`, `import`)
+- `source_revision` nullable，接受提案时写入，便于追溯到章节修订
+- `proposal_id` nullable FK -> memory_change_proposals
 - `created_at`
 
 用于记录动态状态历史，不覆盖实体基础档案。
@@ -86,7 +88,9 @@
 - `participants` JSON
 - `evidence_quote`
 - `certainty` (`confirmed`, `inferred`, `uncertain`)
-- `created_at`
+- `source_revision` nullable
+- `proposal_id` nullable FK -> memory_change_proposals
+- `created_at`, `deleted_at`
 
 ### chapter_summaries
 - `id` PK
@@ -96,7 +100,7 @@
 - `source_revision`
 - `model_name` nullable
 - `status` (`current`, `stale`, `rejected`)
-- `created_at`
+- `created_at`, `updated_at`
 
 当章节 revision 改变时，相关摘要应标记为 stale，而不是假装仍与正文一致。
 
@@ -160,9 +164,12 @@
 - `proposal_type`
 - `payload` JSON
 - `evidence_quote`
-- `status` (`pending`, `accepted`, `rejected`, `reverted`)
+- `certainty` (`confirmed`, `inferred`, `uncertain`)
+- `status` (`pending`, `accepted`, `rejected`, `reverted`, `stale`)
 - `review_note` nullable
 - `created_at`, `reviewed_at`
+
+章节修订变化后，仍为 `pending` 且 `source_revision` 对不上的提案改为 `stale`，不写入正式设定。`payload.applied` 记录接受时写下的行，供撤回使用。
 
 ## 3. 关系原则
 
