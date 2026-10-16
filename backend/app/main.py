@@ -17,8 +17,9 @@ from app.db.session import build_engine, build_session_factory
 
 OPENAPI_DESCRIPTION = (
     "Personal long-form novel writing workbench. "
-    "Milestone M1 covers novels, volumes, and chapters with revision locking. "
-    "Autosave polish, version history, AI generation, and memory routes are not implemented yet."
+    "Milestone M2 covers the Tiptap JSON chapter body, autosave with revision locking, "
+    "chapter version snapshots, restore, and Markdown/TXT export. "
+    "AI generation and memory routes are not implemented yet."
 )
 
 

@@ -42,9 +42,8 @@ def test_upgrade_empty_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         }
     engine.dispose()
 
-    assert version == "0002_catalog"
-    assert {"alembic_version", "novels", "volumes", "chapters"} <= tables
-    assert "chapter_versions" not in tables
+    assert version == "0003_chapter_versions"
+    assert {"alembic_version", "novels", "volumes", "chapters", "chapter_versions"} <= tables
     assert "ix_chapters_novel_id_sort_order" in indexes
     assert "ix_chapters_volume_id_sort_order" in indexes
     assert "ix_volumes_novel_id_sort_order" in indexes
@@ -80,5 +79,92 @@ def test_upgrade_from_previous_revision(tmp_path: Path, monkeypatch: pytest.Monk
             ).scalars()
         )
     engine.dispose()
-    assert version == "0002_catalog"
+    assert version == "0003_chapter_versions"
     assert "chapters" in tables
+    assert "chapter_versions" in tables
+
+
+def test_upgrade_from_catalog_keeps_chapters_and_adds_versions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database_path = tmp_path / "from-catalog.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    config = Config(str(BACKEND_ROOT / "alembic.ini"))
+    command.upgrade(config, "0002_catalog")
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO novels (
+                    id, title, genre, synopsis, style_guide, status,
+                    created_at, updated_at, deleted_at
+                ) VALUES (
+                    'novel-1', '升级前', NULL, NULL, NULL, 'draft',
+                    '2026-01-01 00:00:00', '2026-01-01 00:00:00', NULL
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO chapters (
+                    id, novel_id, volume_id, title, sort_order, content,
+                    content_format, content_format_version, word_count, status,
+                    revision, created_at, updated_at, deleted_at
+                ) VALUES (
+                    'chapter-1', 'novel-1', NULL, '旧章', 0,
+                    '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"升级前正文"}]}]}',
+                    'tiptap_json', 1, 5, 'draft', 1,
+                    '2026-01-01 00:00:00', '2026-01-01 00:00:00', NULL
+                )
+                """
+            )
+        )
+
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        stored = connection.execute(
+            text("SELECT content FROM chapters WHERE id = 'chapter-1'")
+        ).scalar_one()
+        version_count = connection.execute(
+            text("SELECT COUNT(*) FROM chapter_versions")
+        ).scalar_one()
+        index_rows = connection.execute(text("PRAGMA index_list('chapter_versions')")).all()
+        foreign_keys = connection.execute(text("PRAGMA foreign_key_list(chapter_versions)")).all()
+        table_sql = connection.execute(
+            text("SELECT sql FROM sqlite_master WHERE name = 'chapter_versions'")
+        ).scalar_one()
+        assert version == "0003_chapter_versions"
+        assert "升级前正文" in str(stored)
+        assert version_count == 0
+        unique_name = next(row[1] for row in index_rows if row[2] == 1 and row[3] == "u")
+        unique_columns = [
+            row[2] for row in connection.execute(text(f"PRAGMA index_info('{unique_name}')")).all()
+        ]
+        assert unique_columns == ["chapter_id", "revision"]
+        assert "uq_chapter_versions_chapter_id_revision" in table_sql
+        assert any(row[2] == "chapters" and row[3] == "chapter_id" for row in foreign_keys)
+        assert "ck_chapter_versions_change_source" in table_sql
+        assert "ai_accepted" in table_sql
+
+    command.downgrade(config, "0002_catalog")
+    with engine.connect() as connection:
+        version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        tables = set(
+            connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'table'")
+            ).scalars()
+        )
+        stored = connection.execute(
+            text("SELECT title FROM chapters WHERE id = 'chapter-1'")
+        ).scalar_one()
+    engine.dispose()
+    assert version == "0002_catalog"
+    assert "chapter_versions" not in tables
+    assert stored == "旧章"

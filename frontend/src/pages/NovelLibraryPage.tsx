@@ -67,7 +67,7 @@ export function NovelLibraryPage() {
           <p className="wordmark">AI Novel Writer</p>
         </div>
         <div className="topbar-meta">
-          <p className="milestone">M1 作品库</p>
+          <p className="milestone">M2 作品库</p>
           <HealthBadge state={health} />
         </div>
       </header>

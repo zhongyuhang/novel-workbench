@@ -153,14 +153,12 @@ function refreshDevSession(): Promise<void> {
   return refreshInFlight;
 }
 
-export async function apiRequest<T>(
-  path: string,
-  init: RequestInit = {},
-  allowRetry = true,
-): Promise<T> {
+async function authorizedFetch(path: string, init: RequestInit, allowRetry = true): Promise<Response> {
   const headers = new Headers(init.headers);
-  headers.set("Accept", "application/json");
-  if (init.body !== undefined) {
+  if (!headers.has("Accept")) {
+    headers.set("Accept", "application/json");
+  }
+  if (init.body !== undefined && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   const token = readToken();
@@ -178,6 +176,63 @@ export async function apiRequest<T>(
     throw new ApiError(0, "NETWORK", "无法连接后端服务。", "", { cause: error });
   }
 
+  if (response.status === 401 && allowRetry) {
+    let payload: unknown = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    const error = toApiError(response, payload);
+    if (error.code === "UNAUTHENTICATED") {
+      clearToken();
+      await refreshDevSession();
+      return authorizedFetch(path, init, false);
+    }
+    clearToken();
+    throw error;
+  }
+  return response;
+}
+
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) {
+    return null;
+  }
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  const value = encoded?.[1];
+  if (!value) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+export async function apiDownload(
+  path: string,
+  init: RequestInit = {},
+): Promise<{ blob: Blob; filename: string | null }> {
+  const response = await authorizedFetch(path, init);
+  if (!response.ok) {
+    let payload: unknown = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    throw toApiError(response, payload);
+  }
+  return {
+    blob: await response.blob(),
+    filename: filenameFromDisposition(response.headers.get("Content-Disposition")),
+  };
+}
+
+export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await authorizedFetch(path, init);
   if (response.status === 204) {
     return undefined as T;
   }
@@ -188,18 +243,6 @@ export async function apiRequest<T>(
   } catch {
     payload = null;
   }
-
-  if (response.status === 401 && allowRetry) {
-    const error = toApiError(response, payload);
-    if (error.code === "UNAUTHENTICATED") {
-      clearToken();
-      await refreshDevSession();
-      return apiRequest<T>(path, init, false);
-    }
-    clearToken();
-    throw error;
-  }
-
   if (!response.ok) {
     throw toApiError(response, payload);
   }

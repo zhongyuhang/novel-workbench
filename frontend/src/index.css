@@ -311,8 +311,71 @@ textarea {
   gap: 0.75rem;
 }
 
-.editor-body textarea {
+.editor-body textarea,
+.tiptap {
   min-height: 18rem;
+}
+
+.tiptap {
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  padding: 0.75rem 0.9rem;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.tiptap:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.tiptap p,
+.tiptap h2,
+.tiptap ul,
+.tiptap ol,
+.tiptap blockquote {
+  margin: 0.45rem 0;
+}
+
+.tiptap ul,
+.tiptap ol {
+  padding-left: 1.25rem;
+}
+
+.editor-toolbar button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.version-panel {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.version-panel h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.version-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+
+.version-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding-top: 0.75rem;
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.version-list p {
+  margin: 0;
 }
 
 .stack-form,

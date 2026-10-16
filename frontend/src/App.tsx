@@ -2,10 +2,7 @@ import { useEffect, useState } from "react";
 import { SessionGate } from "./components/SessionGate.tsx";
 import { NovelLibraryPage } from "./pages/NovelLibraryPage.tsx";
 import { WorkspacePage } from "./pages/WorkspacePage.tsx";
-
-type Route =
-  | { kind: "library" }
-  | { kind: "workspace"; novelId: string; chapterId: string | null };
+import { parseHash, type Route } from "./routes.ts";
 
 export function App() {
   const route = useHashRoute();
@@ -34,17 +31,4 @@ function useHashRoute(): Route {
   }, []);
 
   return route;
-}
-
-function parseHash(hash: string): Route {
-  const path = hash.replace(/^#/, "") || "/";
-  const chapter = /^\/novels\/([^/]+)\/chapters\/([^/]+)$/.exec(path);
-  if (chapter?.[1] && chapter[2]) {
-    return { kind: "workspace", novelId: decodeURIComponent(chapter[1]), chapterId: decodeURIComponent(chapter[2]) };
-  }
-  const novel = /^\/novels\/([^/]+)$/.exec(path);
-  if (novel?.[1]) {
-    return { kind: "workspace", novelId: decodeURIComponent(novel[1]), chapterId: null };
-  }
-  return { kind: "library" };
 }

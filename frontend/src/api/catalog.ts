@@ -1,10 +1,12 @@
-import { apiRequest } from "./client.ts";
+import { apiDownload, apiRequest } from "./client.ts";
 import type {
   Chapter,
   ChapterStatus,
   ChapterSummary,
+  ChapterVersion,
   Novel,
   NovelStatus,
+  SaveKind,
   TiptapDoc,
   Volume,
 } from "./types.ts";
@@ -99,12 +101,47 @@ export function saveChapter(
     title?: string;
     status?: ChapterStatus;
     content_format: "tiptap_json";
+    save_kind: SaveKind;
+    change_note?: string | null;
   },
 ): Promise<Chapter> {
   return apiRequest<Chapter>(`/api/v1/chapters/${chapterId}`, {
     method: "PUT",
     body: JSON.stringify(payload),
   });
+}
+
+export function listChapterVersions(
+  chapterId: string,
+  signal?: AbortSignal,
+): Promise<ChapterVersion[]> {
+  return apiRequest<ChapterVersion[]>(`/api/v1/chapters/${chapterId}/versions`, { signal });
+}
+
+export function restoreChapter(
+  chapterId: string,
+  payload: { revision: number; version_id: string },
+): Promise<Chapter> {
+  return apiRequest<Chapter>(`/api/v1/chapters/${chapterId}/restore`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function exportNovel(
+  novelId: string,
+  format: "markdown" | "txt",
+): Promise<{ blob: Blob; filename: string }> {
+  const downloaded = await apiDownload(`/api/v1/novels/${novelId}/export`, {
+    method: "POST",
+    headers: { Accept: "text/markdown, text/plain, application/json" },
+    body: JSON.stringify({ format }),
+  });
+  const extension = format === "markdown" ? "md" : "txt";
+  return {
+    blob: downloaded.blob,
+    filename: downloaded.filename ?? `novel.${extension}`,
+  };
 }
 
 export function deleteChapter(chapterId: string): Promise<void> {

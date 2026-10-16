@@ -9,6 +9,9 @@ from app.core.content import CANONICAL_CONTENT_FORMAT
 
 NovelStatus = Literal["draft", "active", "archived"]
 ChapterStatus = Literal["outline", "draft", "revised", "final"]
+SaveKind = Literal["manual", "autosave"]
+ChangeSource = Literal["manual", "ai_accepted", "restore", "import"]
+ExportFormat = Literal["markdown", "txt"]
 
 
 def _required_title(value: str) -> str:
@@ -110,6 +113,8 @@ class ChapterWrite(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     status: ChapterStatus | None = None
     content_format: str | None = None
+    save_kind: SaveKind = "manual"
+    change_note: str | None = Field(default=None, max_length=500)
 
     @field_validator("title")
     @classmethod
@@ -150,6 +155,30 @@ class ChapterResponse(ChapterSummary):
     content_format: str
     content_format_version: int
     created_at: datetime
+
+
+class ChapterRestore(BaseModel):
+    revision: int = Field(ge=1)
+    version_id: str = Field(min_length=1, max_length=36)
+
+
+class ChapterVersionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    chapter_id: str
+    revision: int
+    content_format: str
+    content_format_version: int
+    change_source: ChangeSource
+    change_note: str | None
+    word_count: int
+    preview: str
+    created_at: datetime
+
+
+class NovelExportRequest(BaseModel):
+    format: ExportFormat
 
 
 class SessionRequest(BaseModel):
