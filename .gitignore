@@ -24,6 +24,7 @@ dist-ssr/
 
 # Runtime data, databases, and logs
 data/
+backups/
 *.db
 *.db-wal
 *.db-shm

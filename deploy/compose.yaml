@@ -1,3 +1,56 @@
-# M6 placeholder.
-# Local development does not use Docker. See the root README.
-# A production Compose file will be added when deployment work starts.
+# LAN deployment. Local development does not use this file; see the root README.
+# Validate with: docker compose --env-file .env -f deploy/compose.yaml config
+# Placeholder secrets are refused by the application when APP_ENV=production.
+
+name: ai-novel-writer
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: ai-novel-writer:1.0.0
+    user: "10001:10001"
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_HOST: 0.0.0.0
+      APP_PORT: "8000"
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////data/ai_novel_writer.db}
+      DATA_DIR: /data
+      APP_AUTH_SECRET: ${APP_AUTH_SECRET:-replace-with-a-long-random-secret}
+      APP_ACCESS_PASSWORD: ${APP_ACCESS_PASSWORD:-}
+      APP_ACCESS_PASSWORD_HASH: ${APP_ACCESS_PASSWORD_HASH:-}
+      APP_SECRET_ENCRYPTION_KEY: ${APP_SECRET_ENCRYPTION_KEY:-replace-with-a-fernet-key}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://127.0.0.1:8080}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      FRONTEND_DIST: /app/frontend/dist
+      FORWARDED_ALLOW_IPS: 127.0.0.1
+    volumes:
+      - ${DATA_DIR:-../data}:/data
+    expose:
+      - "8000"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  caddy:
+    image: caddy:2
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${PUBLISH_PORT:-8080}:80"
+    volumes:
+      - ./Caddyfile.example:/etc/caddy/Caddyfile:ro
+    restart: unless-stopped

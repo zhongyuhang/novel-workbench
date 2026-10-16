@@ -7,6 +7,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import __version__
 from app.ai.broker import TaskBroker
@@ -21,10 +23,11 @@ from app.db.session import build_engine, build_session_factory
 
 OPENAPI_DESCRIPTION = (
     "Personal long-form novel writing workbench. "
-    "Milestone M5 adds foreshadowing, suspected-conflict hints, selection rewrite, "
-    "and writing stats. Conflict checks never change the manuscript or formal memory. "
-    "Selection rewrite stays a candidate until the author accepts it. "
-    "Deployment routes are not implemented yet."
+    "Milestone M6 serves the built frontend, requires a single-user session when "
+    "APP_ENV is production or the process binds beyond loopback, and can write a "
+    "consistent SQLite backup. Restore stays on the CLI. "
+    "Conflict checks never change the manuscript or formal memory. "
+    "Selection rewrite stays a candidate until the author accepts it."
 )
 
 
@@ -59,6 +62,7 @@ def create_app() -> FastAPI:
         version=__version__,
         description=OPENAPI_DESCRIPTION,
         lifespan=lifespan,
+        debug=False,
     )
     register_exception_handlers(app)
     app.add_middleware(
@@ -69,7 +73,12 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
     )
     app.add_middleware(RequestContextMiddleware)
+    if settings.app_env == "production":
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_host_list)
     app.include_router(v1_router, prefix="/api/v1")
+    frontend_dist = settings.resolved_frontend_dist
+    if frontend_dist is not None and frontend_dist.is_dir():
+        app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
     return app
 
 
