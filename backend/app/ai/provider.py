@@ -1,10 +1,7 @@
-"""Provider port. Business code depends on this shape, not on a vendor SDK.
+"""Provider port. Business code depends on this shape, not on a vendor SDK."""
 
-No adapter is registered in M0. Calling a model requires a later milestone.
-"""
-
-from collections.abc import Iterator
-from dataclasses import dataclass
+from collections.abc import Iterator, Mapping
+from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from app.core.secrets import mask_api_key
@@ -24,9 +21,14 @@ class ModelEndpoint:
     api_key: str
     timeout_seconds: float
     supports_streaming: bool
+    provider_type: str = "openai_compatible"
+    max_retries: int = 2
+    temperature: float | None = None
+    max_output_tokens: int | None = None
+    parameters: Mapping[str, object] = field(default_factory=dict)
 
     def __repr__(self) -> str:
-        masked = mask_api_key(self.api_key)
+        masked = mask_api_key(self.api_key) if self.api_key else ""
         return (
             "ModelEndpoint("
             f"base_url={self.base_url!r}, model_name={self.model_name!r}, "

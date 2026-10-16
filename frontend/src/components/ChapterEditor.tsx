@@ -22,6 +22,8 @@ type ChapterEditorProps = {
   autosaveDelayMs?: number;
   onSaved: (chapter: Chapter) => void;
   onUnsavedChange: (unsaved: boolean) => void;
+  onSelectionChange?: (text: string) => void;
+  adoptedChapter?: Chapter | null;
 };
 
 const STATUSES: Array<{ value: ChapterStatus; label: string }> = [
@@ -52,6 +54,8 @@ export function ChapterEditor({
   autosaveDelayMs,
   onSaved,
   onUnsavedChange,
+  onSelectionChange,
+  adoptedChapter = null,
 }: ChapterEditorProps) {
   const draftRef = useRef<ChapterDraftState>({
     content: chapter.content,
@@ -84,6 +88,9 @@ export function ChapterEditor({
     onUnsavedChange,
   });
   const autosaveRef = useRef(autosave);
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  onSelectionChangeRef.current = onSelectionChange;
+  const adoptedKey = useRef("");
 
   const editor = useEditor({
     immediatelyRender: true,
@@ -100,6 +107,11 @@ export function ChapterEditor({
         "aria-label": "正文",
         class: "tiptap",
       },
+    },
+    onSelectionUpdate: ({ editor: instance }) => {
+      const { from, to } = instance.state.selection;
+      const text = from === to ? "" : instance.state.doc.textBetween(from, to, "\n\n");
+      onSelectionChangeRef.current?.(text);
     },
     onUpdate: ({ editor: instance }) => {
       if (!baselineReady.current) {
@@ -172,6 +184,20 @@ export function ChapterEditor({
       controller.abort();
     };
   }, [chapter.id, versionReload]);
+
+  useEffect(() => {
+    if (!editor || !adoptedChapter || adoptedChapter.id !== chapter.id) {
+      return;
+    }
+    const key = `${adoptedChapter.id}:${adoptedChapter.revision}`;
+    if (adoptedKey.current === key) {
+      return;
+    }
+    adoptedKey.current = key;
+    void applyRemote(adoptedChapter, "已采纳候选，并留下版本快照。").then(() => {
+      setVersionReload((current) => current + 1);
+    });
+  }, [adoptedChapter, chapter.id, editor]);
 
   async function applyRemote(next: Chapter, notice: string) {
     if (!editor) {

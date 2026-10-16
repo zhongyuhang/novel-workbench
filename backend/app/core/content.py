@@ -1,8 +1,9 @@
 """Canonical chapter body format. See docs/adr/ADR-001-content-format.md."""
 
+import copy
 import json
 
-from app.core.errors import InvalidDocument
+from app.core.errors import InvalidDocument, SelectionNotFound
 
 CANONICAL_CONTENT_FORMAT = "tiptap_json"
 CANONICAL_CONTENT_FORMAT_VERSION = 1
@@ -57,6 +58,50 @@ def text_to_document(text: str) -> dict[str, object]:
         else:
             blocks.append({"type": "paragraph"})
     return {"type": "doc", "content": blocks}
+
+
+def apply_candidate_text(
+    document: dict[str, object],
+    candidate: str,
+    *,
+    mode: str,
+    selection_text: str,
+) -> dict[str, object]:
+    """Return a new Tiptap document. Does not write the chapter."""
+
+    base = validate_document(copy.deepcopy(document))
+    cleaned = candidate.strip()
+    if cleaned == "":
+        raise InvalidDocument("候选文本是空的，没有改写正文。")
+    blocks = _paragraphs(cleaned)
+    content = base.get("content")
+    if not isinstance(content, list):
+        content = []
+        base["content"] = content
+    selection = selection_text.strip()
+    if mode == "append" or (mode == "insert" and selection == ""):
+        content.extend(copy.deepcopy(blocks))
+        return validate_document(base)
+    source = document_to_text(base)
+    if mode == "replace_selection":
+        if selection == "":
+            return validate_document(text_to_document(cleaned))
+        if selection not in source:
+            raise SelectionNotFound()
+        return validate_document(text_to_document(source.replace(selection, cleaned, 1)))
+    if mode == "insert":
+        if selection not in source:
+            raise SelectionNotFound()
+        inserted = source.replace(selection, f"{selection}\n\n{cleaned}", 1)
+        return validate_document(text_to_document(inserted))
+    raise InvalidDocument("不支持的采纳方式。")
+
+
+def _paragraphs(text: str) -> list[dict[str, object]]:
+    content = text_to_document(text).get("content")
+    if not isinstance(content, list):
+        return []
+    return [node for node in content if isinstance(node, dict)]
 
 
 def _inline_text(node: dict[str, object]) -> str:

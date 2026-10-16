@@ -53,6 +53,10 @@
 - `GET /api/v1/ai/tasks/{task_id}`
 - `POST /api/v1/ai/tasks/{task_id}/cancel`
 - `GET /api/v1/ai/tasks/{task_id}/events`（SSE）
+- `POST /api/v1/ai/tasks/{task_id}/accept`
+- `POST /api/v1/ai/tasks/{task_id}/reject`
+
+采纳请求包含 `target_revision` 和 `apply_mode`（`append`、`insert`、`replace_selection`）。修订号不一致时返回 `409`，不覆盖正文。拒绝只标记任务，不改正文。任务类型为 `continue`、`rewrite`、`polish`、`expand`、`shrink`、`proofread`。显式 `use_mock=true` 或选择模拟配置时，响应里的 `provider_mode` 为 `mock`。
 
 创建任务请求至少包含：
 - `novel_id`

@@ -1,9 +1,13 @@
 export type Route =
   | { kind: "library" }
+  | { kind: "settings" }
   | { kind: "workspace"; novelId: string; chapterId: string | null };
 
 export function parseHash(hash: string): Route {
   const path = hash.replace(/^#/, "") || "/";
+  if (path === "/settings") {
+    return { kind: "settings" };
+  }
   const chapter = /^\/novels\/([^/]+)\/chapters\/([^/]+)$/.exec(path);
   if (chapter?.[1] && chapter[2]) {
     return {

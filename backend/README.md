@@ -2,4 +2,4 @@
 
 Python package for the AI Novel Writer API. Setup and run commands live in the repository root README.
 
-Milestone M0 provides the application skeleton, `GET /api/v1/health`, Alembic, and OpenAPI. It does not implement novel or chapter APIs.
+Milestone M3 provides the API through model settings and AI candidate tasks. Setup commands live in the repository root README. Memory and deployment are not implemented.

@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     allowed_hosts: str = "localhost,127.0.0.1"
     cors_origins: str = "http://127.0.0.1:43117,http://localhost:43117"
     log_level: str = "INFO"
+    sse_heartbeat_seconds: float = 15.0
 
     @property
     def resolved_data_dir(self) -> Path:

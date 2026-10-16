@@ -1,1 +1,1 @@
-"""AI subsystem scaffolding. Generation is not implemented."""
+"""Model adapters, prompts, and task execution."""

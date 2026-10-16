@@ -147,7 +147,10 @@
 - `error_code` nullable
 - `error_message_safe` nullable
 - `input_tokens` / `output_tokens` nullable
+- `resolution` nullable（`accepted`, `rejected`；空表示候选尚未处理）
 - `started_at`, `finished_at`, `created_at`
+
+`secret_ref` 保存的是主密钥加密后的 API Key 密文，不是明文，也不是可回传给前端的字段。`completed` 只表示候选已生成。`resolution=accepted` 才表示用户已经把候选写入正文。
 
 ### memory_change_proposals
 - `id` PK

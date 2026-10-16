@@ -53,3 +53,43 @@ class InvalidPassword(AppError):
     status_code = 401
     code = "INVALID_PASSWORD"
     message = "口令不正确。"
+
+
+class ModelNotConfigured(AppError):
+    status_code = 409
+    code = "MODEL_NOT_CONFIGURED"
+    message = "还没有可用的模型配置。请先到模型设置里填写服务信息。"
+
+
+class ModelConfigInvalid(AppError):
+    status_code = 422
+    code = "MODEL_CONFIG_INVALID"
+    message = "模型配置不完整。"
+
+
+class SecretStorageUnavailable(AppError):
+    status_code = 503
+    code = "SECRET_STORAGE_UNAVAILABLE"
+    message = "服务器还没有配置密钥加密主密钥，暂时不能保存模型 API Key。"
+
+
+class SelectionNotFound(AppError):
+    status_code = 422
+    code = "SELECTION_NOT_FOUND"
+    message = "选区已经不在正文里，没有改写正文。"
+
+
+class TaskStateError(AppError):
+    status_code = 409
+    code = "TASK_STATE"
+    message = "当前任务状态不能执行这个操作。"
+
+
+class ProviderRequestFailed(AppError):
+    """Safe provider failure. The message must not contain secrets or response bodies."""
+
+    def __init__(self, code: str, message: str, status_code: int) -> None:
+        self.status_code = status_code
+        self.code = code
+        self.message = message
+        super().__init__(message)
