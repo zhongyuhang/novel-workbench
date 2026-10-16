@@ -212,4 +212,78 @@ describe("AiPanel", () => {
     expect(onAccepted).not.toHaveBeenCalled();
     expect(await screen.findByText(/正文没有改动/)).toBeTruthy();
   });
+
+  it("rewrites the current selection and compares before accept", async () => {
+    vi.mocked(listModelConfigs).mockResolvedValue([model]);
+    vi.mocked(createAiTask).mockResolvedValue({
+      id: "task-rewrite",
+      novel_id: "novel-1",
+      chapter_id: chapter.id,
+      task_type: "rewrite",
+      status: "queued",
+      model_config_id: null,
+      provider_mode: "mock",
+      model_name: "mock",
+      prompt_version: "rewrite_selection_v1",
+      output_text: null,
+      error_code: null,
+      error_message_safe: null,
+      input_tokens: null,
+      output_tokens: null,
+      resolution: null,
+      started_at: null,
+      finished_at: null,
+      created_at: "2026-01-01T00:00:00Z",
+    });
+    vi.mocked(streamAiTask).mockImplementation(async (_taskId, onEvent) => {
+      onEvent({
+        event: "task.completed",
+        data: { output_text: "改写后的句子", provider_mode: "mock" },
+      });
+    });
+    vi.mocked(acceptAiTask).mockResolvedValue({
+      task: {
+        id: "task-rewrite",
+        novel_id: "novel-1",
+        chapter_id: chapter.id,
+        task_type: "rewrite",
+        status: "completed",
+        model_config_id: null,
+        provider_mode: "mock",
+        model_name: "mock",
+        prompt_version: "rewrite_selection_v1",
+        output_text: "改写后的句子",
+        error_code: null,
+        error_message_safe: null,
+        input_tokens: 1,
+        output_tokens: 1,
+        resolution: "accepted",
+        started_at: null,
+        finished_at: null,
+        created_at: "2026-01-01T00:00:00Z",
+      },
+      chapter: { ...chapter, revision: 3 },
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    expect(screen.getByLabelText("当前选区").textContent).toContain("原有正文");
+    await user.click(await screen.findByRole("button", { name: "用模拟模型改写选区" }));
+
+    expect(createAiTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task_type: "rewrite",
+        selection_text: "原有正文",
+        use_mock: true,
+      }),
+    );
+    const compare = await screen.findByLabelText("选区对比");
+    expect(compare.textContent).toContain("原有正文");
+    expect(compare.textContent).toContain("改写后的句子");
+    await user.click(screen.getByRole("button", { name: "采纳" }));
+    expect(acceptAiTask).toHaveBeenCalledWith("task-rewrite", {
+      target_revision: 2,
+      apply_mode: "replace_selection",
+    });
+  });
 });

@@ -46,3 +46,5 @@
 ## 7. 模型评测
 
 维护固定的小说测试集：延续前章、遵守设定、按字数生成、选区改写、摘要事实、JSON schema、断流超时恢复。质量评价由可重复测试和人工审阅共同组成。
+
+当前可重复的小样例在 `backend/tests/fixtures/eval/samples.json`，覆盖续写、选区改写和摘要。`backend/tests/test_eval_samples.py` 用模拟模型跑这些样例，不访问网络。样例是虚构短句，不给文笔打分。

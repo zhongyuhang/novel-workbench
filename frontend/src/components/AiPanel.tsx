@@ -58,6 +58,7 @@ export function AiPanel({
   const [candidate, setCandidate] = useState<CandidateState>(idleCandidate);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [compareSelection, setCompareSelection] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -85,11 +86,16 @@ export function AiPanel({
   const selected = (configs ?? []).find((item) => item.id === modelId) ?? null;
   const streaming = candidate.status === "running" || busy;
 
-  async function start(useMock: boolean) {
+  async function start(useMock: boolean, taskOverride?: AiTaskType) {
+    const nextType = taskOverride ?? taskType;
     setError("");
     setNotice("");
     if (!novelId || !chapter || savedRevision === null) {
       setError("请先打开一章。生成不会在没有章节时开始。");
+      return;
+    }
+    if (taskOverride === "rewrite" && selectionText.trim() === "") {
+      setError("请先在正文里选中要改写的文字。");
       return;
     }
     if (editorDirty) {
@@ -106,6 +112,13 @@ export function AiPanel({
       return;
     }
     setGuidance(false);
+    if (taskOverride === "rewrite") {
+      setTaskType("rewrite");
+      setApplyMode("replace_selection");
+      setCompareSelection(selectionText.trim());
+    } else {
+      setCompareSelection(null);
+    }
     setBusy(true);
     setCandidate({
       ...idleCandidate,
@@ -118,7 +131,7 @@ export function AiPanel({
       const task = await createAiTask({
         novel_id: novelId,
         chapter_id: chapter.id,
-        task_type: taskType,
+        task_type: nextType,
         instruction: instruction.trim(),
         selection_text: selectionText,
         target_revision: savedRevision,
@@ -198,6 +211,7 @@ export function AiPanel({
       });
       setNotice("已采纳候选，并留下版本快照。");
       setCandidate(idleCandidate);
+      setCompareSelection(null);
       setTaskId(null);
       onAccepted(result.chapter);
     } catch (cause: unknown) {
@@ -222,6 +236,7 @@ export function AiPanel({
       await rejectAiTask(taskId);
       setNotice("已放弃候选。正文没有改动。");
       setCandidate(idleCandidate);
+      setCompareSelection(null);
       setTaskId(null);
     } catch (cause: unknown) {
       setError(cause instanceof ApiError ? cause.message : "放弃没有完成。");
@@ -234,6 +249,41 @@ export function AiPanel({
     <aside className="workspace-pane ai-pane" aria-labelledby="ai-heading">
       <h2 id="ai-heading">写作辅助</h2>
       <p className="hint">生成结果只是候选。采纳前不会改写正文，也不会写入记忆。</p>
+      <section className="selection-rewrite" aria-label="选区改写">
+        <h3>选区改写</h3>
+        <p className="hint">
+          {selectionText.trim()
+            ? "将只改写选中的文字。候选需要你比较后再采纳或放弃。"
+            : "在正文里选中一段文字后，可以只改这一段。"}
+        </p>
+        {selectionText.trim() ? (
+          <p className="candidate-box" aria-label="当前选区">
+            {selectionText}
+          </p>
+        ) : null}
+        <div className="inline-actions">
+          <button
+            className="primary"
+            type="button"
+            disabled={streaming || configs === null || selectionText.trim() === ""}
+            onClick={() => {
+              void start(false, "rewrite");
+            }}
+          >
+            选区改写
+          </button>
+          <button
+            className="ghost"
+            type="button"
+            disabled={streaming || configs === null || selectionText.trim() === ""}
+            onClick={() => {
+              void start(true, "rewrite");
+            }}
+          >
+            用模拟模型改写选区
+          </button>
+        </div>
+      </section>
       {configError ? (
         <p className="banner banner-error" role="alert">
           {configError}
@@ -359,6 +409,18 @@ export function AiPanel({
         </div>
       </div>
       {candidate.providerMode === "mock" ? <p className="mock-badge">模拟输出</p> : null}
+      {compareSelection && candidate.status === "completed" ? (
+        <div className="rewrite-compare" aria-label="选区对比">
+          <div>
+            <h3>当前选区</h3>
+            <p>{compareSelection}</p>
+          </div>
+          <div>
+            <h3>改写候选</h3>
+            <p>{candidate.text || "（空）"}</p>
+          </div>
+        </div>
+      ) : null}
       <p className="candidate-box" aria-label="候选文本" aria-live="polite">
         {candidate.text || "候选会显示在这里。"}
       </p>

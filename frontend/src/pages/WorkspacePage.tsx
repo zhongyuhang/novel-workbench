@@ -18,6 +18,7 @@ import { ApiError, type Chapter, type ChapterSummary, type Novel, type Volume } 
 import { AiPanel } from "../components/AiPanel.tsx";
 import { ChapterEditor } from "../components/ChapterEditor.tsx";
 import { MemoryPanel } from "../components/MemoryPanel.tsx";
+import { QualityPanel } from "../components/QualityPanel.tsx";
 import { requestMemoryAnalyze } from "../features/memory/analyzeBridge.ts";
 import { HealthBadge } from "../components/HealthBadge.tsx";
 import { allowChapterLeave } from "../editor/leaveGuard.ts";
@@ -51,7 +52,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
   const [busy, setBusy] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  const [sideTab, setSideTab] = useState<"write" | "memory">("write");
+  const [sideTab, setSideTab] = useState<"write" | "memory" | "quality">("write");
   const unsavedRef = useRef(false);
   const skipGuardRef = useRef(false);
 
@@ -550,6 +551,17 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
             >
               设定
             </button>
+            <button
+              className={sideTab === "quality" ? "primary" : "ghost"}
+              type="button"
+              role="tab"
+              aria-selected={sideTab === "quality"}
+              onClick={() => {
+                setSideTab("quality");
+              }}
+            >
+              质量
+            </button>
           </div>
           <div hidden={sideTab !== "write"}>
             <AiPanel
@@ -576,6 +588,14 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
                   ),
                 );
               }}
+            />
+          </div>
+          <div hidden={sideTab !== "quality"}>
+            <QualityPanel
+              novelId={novelId}
+              chapters={chapters}
+              activeChapterId={chapterId}
+              refreshKey={`${chapter?.revision ?? 0}:${chapters.map((item) => item.word_count).join(",")}`}
             />
           </div>
           <div hidden={sideTab !== "memory"}>
