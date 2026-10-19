@@ -284,12 +284,6 @@ def accept_repair(
             mode="append",
             selection_text="",
         )
-    now = _now()
-    candidate.status = "accepted"
-    candidate.updated_at = now
-    issue.status = "fixed"
-    issue.fixed_revision = chapter.revision + 1
-    issue.updated_at = now
     try:
         saved = apply_accepted_candidate(
             session,
@@ -297,6 +291,8 @@ def accept_repair(
             expected_revision=payload.target_revision,
             document=updated,
             change_note="采纳质量修复建议",
+            repair_candidate_id=candidate.id,
+            repair_issue_id=issue.id,
         )
     except RevisionConflict:
         _mark_conflict(session, candidate.id, expire_issue=False)

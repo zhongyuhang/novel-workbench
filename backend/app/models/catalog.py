@@ -125,4 +125,20 @@ class ChapterVersion(Base):
     content_format_version: Mapped[int] = mapped_column(Integer, nullable=False)
     change_source: Mapped[str] = mapped_column(String(32), nullable=False)
     change_note: Mapped[str | None] = mapped_column(Text)
+    ai_task_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "ai_tasks.id",
+            name="fk_chapter_versions_ai_task_id_ai_tasks",
+            ondelete="SET NULL",
+        ),
+    )
+    repair_candidate_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "quality_repair_candidates.id",
+            name="fk_chapter_versions_repair_candidate_id_quality_repair_candidates",
+            ondelete="SET NULL",
+        ),
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

@@ -24,6 +24,7 @@ export type CandidateState = {
   completedCount: number;
   errorMessage: string;
   providerMode: "mock" | "openai_compatible" | null;
+  disconnected: boolean;
 };
 
 export const idleCandidate: CandidateState = {
@@ -33,6 +34,7 @@ export const idleCandidate: CandidateState = {
   completedCount: 0,
   errorMessage: "",
   providerMode: null,
+  disconnected: false,
 };
 
 export function reduceCandidate(state: CandidateState, event: StreamEvent): CandidateState {
@@ -44,7 +46,7 @@ export function reduceCandidate(state: CandidateState, event: StreamEvent): Cand
     if (isTerminal(state.status)) {
       return state;
     }
-    return { ...state, status: "running", providerMode };
+    return { ...state, status: "running", providerMode, disconnected: false };
   }
   if (event.event === "token") {
     if (state.ignoreTokens || isTerminal(state.status)) {
@@ -55,6 +57,7 @@ export function reduceCandidate(state: CandidateState, event: StreamEvent): Cand
       status: "running",
       providerMode,
       text: state.text + (event.data.text ?? ""),
+      disconnected: false,
     };
   }
   if (event.event === "task.completed") {
@@ -67,6 +70,7 @@ export function reduceCandidate(state: CandidateState, event: StreamEvent): Cand
       providerMode,
       text: event.data.output_text ?? state.text,
       completedCount: state.completedCount + 1,
+      disconnected: false,
     };
   }
   if (event.event === "task.failed") {
@@ -79,6 +83,7 @@ export function reduceCandidate(state: CandidateState, event: StreamEvent): Cand
       ignoreTokens: true,
       providerMode,
       errorMessage: event.data.error_message ?? "生成没有完成。正文没有被修改。",
+      disconnected: false,
     };
   }
   return {
@@ -86,6 +91,7 @@ export function reduceCandidate(state: CandidateState, event: StreamEvent): Cand
     status: "cancelled",
     ignoreTokens: true,
     providerMode,
+    disconnected: false,
   };
 }
 

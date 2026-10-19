@@ -174,7 +174,40 @@ class ChapterVersionResponse(BaseModel):
     change_note: str | None
     word_count: int
     preview: str
+    ai_task_id: str | None = None
+    repair_candidate_id: str | None = None
     created_at: datetime
+
+
+class ChapterVersionDetailResponse(ChapterVersionResponse):
+    text: str
+    memory_proposal_ids: list[str]
+
+
+class VersionDiffSide(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str | None
+    revision: int
+    change_source: ChangeSource | None
+    change_note: str | None
+    created_at: datetime
+    word_count: int
+    label: str
+    ai_task_id: str | None = None
+    repair_candidate_id: str | None = None
+    memory_proposal_ids: list[str]
+
+
+class TextDiffHunkResponse(BaseModel):
+    op: Literal["equal", "insert", "delete"]
+    text: str
+
+
+class ChapterVersionDiffResponse(BaseModel):
+    left: VersionDiffSide
+    right: VersionDiffSide
+    hunks: list[TextDiffHunkResponse]
 
 
 class NovelExportRequest(BaseModel):

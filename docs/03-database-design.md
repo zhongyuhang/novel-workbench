@@ -245,9 +245,11 @@
 - `content_format`
 - `change_source` (`manual`, `ai_accepted`, `restore`, `import`)
 - `change_note` nullable
+- `ai_task_id` nullable FK -> ai_tasks，`ON DELETE SET NULL`。`0010_version_provenance` 起才有。旧快照为空
+- `repair_candidate_id` nullable FK -> quality_repair_candidates，`ON DELETE SET NULL`。质量修复采纳时填写。旧快照为空
 - `created_at`
 
-唯一约束：`(chapter_id, revision)`。
+唯一约束：`(chapter_id, revision)`。自动保存不写这张表。记忆分析提案不存在版本行上，按提案的 `source_chapter_id` 和 `source_revision` 关联。见 ADR-010。
 
 ### model_configs
 - `id` PK

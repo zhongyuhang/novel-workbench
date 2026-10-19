@@ -46,6 +46,8 @@
 - `POST /api/v1/chapters/{chapter_id}/duplicate`
 - `POST /api/v1/chapters/{chapter_id}/move`
 - `GET /api/v1/chapters/{chapter_id}/versions`
+- `GET /api/v1/chapters/{chapter_id}/versions/{version_id}`
+- `GET /api/v1/chapters/{chapter_id}/versions/diff`
 - `POST /api/v1/chapters/{chapter_id}/restore`
 
 ### AI
@@ -58,7 +60,9 @@
 - `POST /api/v1/ai/tasks/{task_id}/accept`
 - `POST /api/v1/ai/tasks/{task_id}/reject`
 
-采纳请求包含 `target_revision` 和 `apply_mode`（`append`、`insert`、`replace_selection`）。修订号不一致时返回 `409`，不覆盖正文。拒绝只标记任务，不改正文。任务类型为 `continue`、`rewrite`、`polish`、`expand`、`shrink`、`proofread`。显式 `use_mock=true` 或选择模拟配置时，响应里的 `provider_mode` 为 `mock`。模拟模型也走同一个上下文编译器。`rewrite` 且带有非空 `selection_text` 时，`prompt_version` 为 `rewrite_selection_v1`，候选仍要等到采纳才写入正文。
+采纳请求包含 `target_revision` 和 `apply_mode`（`append`、`insert`、`replace_selection`）。修订号不一致时返回 `409`，不覆盖正文。任务快照里的 `target_revision` 也必须等于当前正文修订，否则同样 `409`，并说明没有写入。选区缺失或出现多次时返回 `422 SELECTION_NOT_FOUND`，不写库。空选区的 `replace_selection` 仍替换整章。`append` 追加，`insert` 插在唯一选区之后。采纳在一个事务里更新正文、字数、修订、版本快照和任务 `resolution`。重复采纳或并发采纳只有一次成功，另一次返回 `409 TASK_STATE` 或 `409 REVISION_CONFLICT`，正文不重复插入。拒绝只标记任务，不改正文。任务类型为 `continue`、`rewrite`、`polish`、`expand`、`shrink`、`proofread`。显式 `use_mock=true` 或选择模拟配置时，响应里的 `provider_mode` 为 `mock`。模拟模型也走同一个上下文编译器。`rewrite` 且带有非空 `selection_text` 时，`prompt_version` 为 `rewrite_selection_v1`，候选仍要等到采纳才写入正文。
+
+任务状态以数据库为准。`GET /api/v1/ai/tasks/{task_id}/events` 只做通知。连接断开后仍用 `GET /api/v1/ai/tasks/{task_id}` 读取状态和已有 `output_text`。取消只对 `queued` 或 `running` 生效；已经结束返回 `409 TASK_STATE`。取消之后迟到的 token 不再写入 `output_text`。超时、限流、模型不可用和无法解析的响应使用安全错误信息，不回传密钥或上游正文。
 
 创建任务和编译请求包含：
 - `novel_id`
@@ -125,7 +129,11 @@
 
 `quality-check` 默认只跑规则，`use_model` 默认 false。响应里的 `manuscript_changed` 和 `formal_memory_changed` 固定为 false。`provider_mode` 为 `rule`、`mock` 或 `openai_compatible`。列表默认只返回 `pending` 和 `confirmed`。`status` 可单独筛选 `fixed`、`ignored`、`expired`；`include_closed=true` 会把这些已关闭问题一并列出。`PATCH` 只能把状态改成 `pending`、`confirmed` 或 `ignored`。
 
-生成修复建议同样不改正文。候选带 `diff_preview`。`applicable=false` 的候选不能采纳，返回 `422`。采纳要求请求里的 `target_revision` 和候选上的修订都等于当前章节修订，否则 `409 REVISION_CONFLICT`，候选变为 `conflict`，正文保持新内容。采纳成功才把正文写成新修订，`change_source` 为 `ai_accepted`，问题变为 `fixed`。正式设定内容不变。重复采纳返回 `409`。
+生成修复建议同样不改正文。候选带 `diff_preview`。`applicable=false` 的候选不能采纳，返回 `422`。采纳要求请求里的 `target_revision` 和候选上的修订都等于当前章节修订，否则 `409 REVISION_CONFLICT`，候选变为 `conflict`，正文保持新内容。采纳成功才把正文写成新修订，`change_source` 为 `ai_accepted`，说明是「采纳质量修复建议」，版本行带上 `repair_candidate_id`，问题变为 `fixed`。这些写入和普通 AI 采纳在同一个事务里。正式设定内容不变。重复采纳返回 `409`。
+
+保存章节时 `save_kind=autosave` 只更新当前正文。`save_kind=manual` 在内容变化时写 `chapter_versions`，来源是 `manual`。修订冲突返回 `409`，不覆盖较新的正文，也不为被拒绝的那次保存写快照。
+
+版本详情是只读的，返回快照纯文本、修订时间、来源，以及 `ai_task_id`、`repair_candidate_id` 和同一章、同一修订上的 `memory_proposal_ids`。差异接口的查询参数是 `left_id` 和 `right_id`。二者可以是版本 id，也可以把一侧写成 `current` 表示当前正文。两边相同返回 `422`。差异按行，`op` 为 `equal`、`insert` 或 `delete`。恢复仍用 `POST .../restore`：校验当前修订后写成新修订，`change_source` 为 `restore`，中间版本保留。
 
 ### Planning
 

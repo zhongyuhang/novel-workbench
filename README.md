@@ -35,18 +35,18 @@
 已实现：
 
 - 前后端工程骨架、`GET /api/v1/health`、OpenAPI（`/docs`、`/openapi.json`）
-- Alembic：`0001_initial` 基线，`0002_catalog` 创建 `novels`、`volumes`、`chapters`，`0003_chapter_versions` 创建版本快照表，`0004_ai` 创建 `model_configs` 与 `ai_tasks`，`0005_memory` 创建 `story_entities`、`entity_states`、`story_events`、`chapter_summaries`、`memory_change_proposals`，`0006_quality` 创建伏笔和可选字数目标，`0007_story_planning` 创建作品大纲、章节大纲和场景卡片，`0008_story_bible` 创建人物关系，并为动态状态补上可空的有效时间，`0009_quality_issues` 创建质量问题和修复候选
+- Alembic：`0001_initial` 基线，`0002_catalog` 创建 `novels`、`volumes`、`chapters`，`0003_chapter_versions` 创建版本快照表，`0004_ai` 创建 `model_configs` 与 `ai_tasks`，`0005_memory` 创建 `story_entities`、`entity_states`、`story_events`、`chapter_summaries`、`memory_change_proposals`，`0006_quality` 创建伏笔和可选字数目标，`0007_story_planning` 创建作品大纲、章节大纲和场景卡片，`0008_story_bible` 创建人物关系，并为动态状态补上可空的有效时间，`0009_quality_issues` 创建质量问题和修复候选，`0010_version_provenance` 给版本快照加上可空的 AI 任务和修复候选来源
 - 叙事规划：作品大纲、章节大纲、场景卡片和重排。状态区分草稿、已确认、待复核、已归档；只有已确认的 `counts_as_fact` 为 true。左栏目录保留，大纲是另一视图。没有大纲的章节仍可写作、保存和导出。规划保存不改章节修订号
 - 作品、卷、章节的列表、创建、读取、更新和删除。作品与章节删除是软删除；删除卷时章节改为未分卷
 - 卷重排，章节移动和复制
 - 章节正文的权威格式是 Tiptap JSON（`content_format=tiptap_json`，`content_format_version=1`）。工作台中间栏用 Tiptap 编辑，保存时只写这一份 JSON
-- 手动保存和停笔后的防抖自动保存。编辑器显示未保存、保存中、已保存或失败。自动保存失败时正文留在编辑器里，可以重试。切换章节、返回作品库或关闭页面前，未保存修改会先确认
+- 手动保存和停笔后的防抖自动保存。编辑器显示未保存、保存中、已保存或失败。自动保存失败时正文留在编辑器里，可以重试。并发的自动保存不会用旧响应盖掉较新的修订。修订冲突时本地草稿留在编辑器里，可以和服务器正文比较，再选择载入服务器正文，或用本地草稿做一次手动保存。切换章节、返回作品库或关闭页面前，未保存修改会先确认
 - `PUT /api/v1/chapters/{id}` 必须带客户端看到的 `revision`。不一致时返回 `409`，不会覆盖已保存正文，也不会写入被拒绝的那一版快照。`save_kind=autosave` 只更新当前正文；`save_kind=manual` 在正文相对上一份快照有变化时写入 `chapter_versions`
-- `GET /api/v1/chapters/{id}/versions` 列出版本。`POST /api/v1/chapters/{id}/restore` 在确认后把所选快照写成新修订，旧版本保留
+- `GET /api/v1/chapters/{id}/versions` 列出版本，带修订时间、来源和可空的 AI 任务或修复候选编号。`GET .../versions/{version_id}` 预览纯文本。`GET .../versions/diff` 比较两个版本，或和当前正文比较。`POST /api/v1/chapters/{id}/restore` 在确认后把所选快照写成新修订，旧版本和中间版本都保留
 - `POST /api/v1/novels/{id}/export` 导出 Markdown 或 TXT。顺序与目录一致：先未分卷，再按卷的 `sort_order`，卷内按章节 `sort_order`。导出包含标题、简介、卷名、章节标题和正文
 - 模型设置：添加、修改、测试和删除 OpenAI 兼容配置。API Key 用 `APP_SECRET_ENCRYPTION_KEY` 加密后写入 `secret_ref`。接口只返回是否已配置和脱敏尾号
 - AI 任务：续写、改写、润色、扩写、缩写、校对。`POST /api/v1/ai/tasks` 创建任务，`GET /api/v1/ai/tasks/{id}/events` 用 SSE 推送 `task.started`、`token`、`task.completed`、`task.failed`、`task.cancelled` 和 `heartbeat`。可以取消。完成只表示候选就绪。创建任务时会按当前作品组装上下文：硬规则、当前章节约束、相邻章节、已确认设定，以及在预算内的摘要。检索只用名称匹配、LIKE 和相邻章节，不使用向量库，也不会读到其他作品的设定
-- 采纳候选会按当前修订号做乐观锁更新正文，并写入 `change_source=ai_accepted` 的版本。修订号不一致返回 `409`，不覆盖。放弃候选不改正文
+- 采纳候选会按当前修订号做乐观锁更新正文，并写入 `change_source=ai_accepted` 的版本，版本上记下这次 AI 任务。正文、快照和任务决议在同一事务里提交；失败不留半完成状态。同一任务重复采纳不会把候选再写进正文。修订号不一致或任务针对的是旧修订时返回 `409`，不覆盖。放弃候选不改正文。SSE 断开后仍可按任务 ID 读回状态和候选。取消后的迟到片段不会改最终候选或正文
 - 没有可用的外部模型时，右侧「续写」会提示去模型设置，不会假装已经生成。可以单独使用模拟模型，界面会标明「模拟输出」
 - 设定与记忆：可以按作品列出、新建和修改实体。`POST /api/v1/chapters/{id}/analyze` 针对提交的修订号做分析，只写入提案。没有外部模型时用模拟分析，界面标明「模拟分析」。每条提案带有来源章节、来源修订、证据原文和 certainty。没有证据或证据不在原文中的条目会标成不确定，不会自动变成正式设定
 - 接受提案会在一个事务里更新正式设定、状态、事件或摘要，并保留章节和修订来源。拒绝提案不改正式设定。设定更新的撤回只回滚这次改过的字段；这些字段后来又被改过，或旧提案没有字段级记录时，撤回会被拒绝，正式设定保持不动。章节修订变化后，旧修订上的当前摘要和待审核提案会变成 `stale`，需要重新分析或由人确认后才接受

@@ -96,7 +96,38 @@ export type ChapterVersion = {
   change_note: string | null;
   word_count: number;
   preview: string;
+  ai_task_id?: string | null;
+  repair_candidate_id?: string | null;
   created_at: string;
+};
+
+export type ChapterVersionDetail = ChapterVersion & {
+  text: string;
+  memory_proposal_ids: string[];
+};
+
+export type VersionDiffSide = {
+  id: string | null;
+  revision: number;
+  change_source: ChangeSource | null;
+  change_note: string | null;
+  created_at: string;
+  word_count: number;
+  label: string;
+  ai_task_id: string | null;
+  repair_candidate_id: string | null;
+  memory_proposal_ids: string[];
+};
+
+export type TextDiffHunk = {
+  op: "equal" | "insert" | "delete";
+  text: string;
+};
+
+export type ChapterVersionDiff = {
+  left: VersionDiffSide;
+  right: VersionDiffSide;
+  hunks: TextDiffHunk[];
 };
 
 export type ApiErrorBody = {

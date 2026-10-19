@@ -50,6 +50,8 @@ def test_openapi_lists_m3_routes(client: TestClient) -> None:
     assert "/api/v1/chapters/{chapter_id}" in document["paths"]
     assert "put" in document["paths"]["/api/v1/chapters/{chapter_id}"]
     assert "get" in document["paths"]["/api/v1/chapters/{chapter_id}/versions"]
+    assert "get" in document["paths"]["/api/v1/chapters/{chapter_id}/versions/diff"]
+    assert "get" in document["paths"]["/api/v1/chapters/{chapter_id}/versions/{version_id}"]
     assert "post" in document["paths"]["/api/v1/chapters/{chapter_id}/restore"]
     assert "post" in document["paths"]["/api/v1/novels/{novel_id}/export"]
     assert "post" in document["paths"]["/api/v1/ai/tasks"]

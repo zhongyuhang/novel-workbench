@@ -4,6 +4,7 @@ import {
   cancelAiTask,
   compileContext,
   createAiTask,
+  getAiTask,
   getTaskContext,
   rejectAiTask,
   streamAiTask,
@@ -19,6 +20,7 @@ import {
 } from "../api/types.ts";
 import { ContextPreview } from "./ContextPreview.tsx";
 import { idleCandidate, reduceCandidate, type CandidateState } from "../features/ai/candidateStream.ts";
+import { stateFromTask } from "../features/ai/taskRecovery.ts";
 
 type AiPanelProps = {
   novelId: string | null;
@@ -140,6 +142,7 @@ export function AiPanel({
       providerMode: useMock || explicitMock ? "mock" : null,
     });
     setTaskId(null);
+    let activeTaskId: string | null = null;
     try {
       const words = maxWords.trim() === "" ? undefined : Number(maxWords);
       const task = await createAiTask({
@@ -159,6 +162,7 @@ export function AiPanel({
         pinned_include: pinnedInclude,
         pinned_exclude: pinnedExclude,
       });
+      activeTaskId = task.id;
       setTaskId(task.id);
       setLockedRevision(savedRevision);
       try {
@@ -176,6 +180,7 @@ export function AiPanel({
       await streamAiTask(task.id, (event) => {
         setCandidate((current) => reduceCandidate(current, event));
       });
+      await reconcile(task.id);
     } catch (cause: unknown) {
       if (isAbort(cause)) {
         return;
@@ -186,10 +191,17 @@ export function AiPanel({
         setCandidate(idleCandidate);
         return;
       }
+      if (activeTaskId) {
+        const recovered = await reconcile(activeTaskId);
+        if (recovered) {
+          return;
+        }
+      }
       setCandidate((current) => ({
         ...current,
         status: "failed",
         ignoreTokens: true,
+        disconnected: false,
         errorMessage: api?.message ?? "生成没有完成。正文没有被修改。",
       }));
     } finally {
@@ -197,15 +209,60 @@ export function AiPanel({
     }
   }
 
+  async function reconcile(taskIdToRead: string): Promise<boolean> {
+    try {
+      const task = await getAiTask(taskIdToRead);
+      setCandidate((current) => stateFromTask(current, task));
+      if (task.status === "queued" || task.status === "running") {
+        setNotice("连接中断。任务仍在服务器上，可以重新查看。正文没有被改写。");
+      }
+      return true;
+    } catch (cause: unknown) {
+      setCandidate((current) => {
+        if (current.status === "completed" || current.status === "cancelled" || current.status === "failed") {
+          return current;
+        }
+        return {
+          ...current,
+          disconnected: true,
+          errorMessage: cause instanceof ApiError ? cause.message : "无法读取任务状态。",
+        };
+      });
+      setNotice("连接中断。任务状态以服务器为准，可以重新查看。正文没有被改写。");
+      return false;
+    }
+  }
+
   async function cancel() {
     if (!taskId) {
       return;
     }
+    const cancellingId = taskId;
     setCandidate((current) => reduceCandidate(current, { event: "task.cancelled", data: {} }));
     try {
-      await cancelAiTask(taskId);
+      await cancelAiTask(cancellingId);
+      await reconcile(cancellingId);
       setNotice("已取消。迟到的片段不会写入正文。");
     } catch (cause: unknown) {
+      try {
+        const task = await getAiTask(cancellingId);
+        if (task.status !== "cancelled") {
+          setCandidate((current) =>
+            stateFromTask(
+              {
+                ...current,
+                status: "running",
+                ignoreTokens: false,
+                completedCount: 0,
+                text: "",
+              },
+              task,
+            ),
+          );
+        }
+      } catch {
+        setCandidate((current) => ({ ...current, disconnected: true }));
+      }
       setError(cause instanceof ApiError ? cause.message : "取消没有完成。");
     }
   }
@@ -498,6 +555,17 @@ export function AiPanel({
               取消
             </button>
           ) : null}
+          {candidate.disconnected && taskId ? (
+            <button
+              className="ghost"
+              type="button"
+              onClick={() => {
+                void reconcile(taskId);
+              }}
+            >
+              重新查看任务
+            </button>
+          ) : null}
         </div>
       </div>
       {candidate.providerMode === "mock" ? <p className="mock-badge">模拟输出</p> : null}
@@ -516,6 +584,11 @@ export function AiPanel({
       <p className="candidate-box" aria-label="候选文本" aria-live="polite">
         {candidate.text || "候选会显示在这里。"}
       </p>
+      {candidate.disconnected ? (
+        <p className="banner" role="status">
+          进度连接中断了。上面的文字只是已经收到的片段，最终候选以服务器上的任务为准。
+        </p>
+      ) : null}
       {candidate.status === "failed" ? (
         <p className="banner banner-error" role="alert">
           {candidate.errorMessage}

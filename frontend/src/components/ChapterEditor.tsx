@@ -2,18 +2,24 @@ import { useEffect, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import {
+  diffChapterVersions,
   getChapter,
+  getChapterVersion,
   listChapterVersions,
   restoreChapter,
+  saveChapter,
 } from "../api/catalog.ts";
 import {
   ApiError,
   type Chapter,
   type ChapterStatus,
   type ChapterVersion,
+  type ChapterVersionDetail,
+  type ChapterVersionDiff,
   type SaveKind,
 } from "../api/types.ts";
-import { wordCount, toTiptapDoc } from "../editor/documentText.ts";
+import { documentToText, wordCount, toTiptapDoc } from "../editor/documentText.ts";
+import { diffLines, type DiffHunk } from "../editor/textDiff.ts";
 import type { ChapterDraftState, SavePhase } from "../editor/useChapterAutosave.ts";
 import { useChapterAutosave } from "../editor/useChapterAutosave.ts";
 
@@ -70,6 +76,12 @@ export function ChapterEditor({
   const [versionReload, setVersionReload] = useState(0);
   const [actionError, setActionError] = useState("");
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [serverCopy, setServerCopy] = useState<Chapter | null>(null);
+  const [serverCopyError, setServerCopyError] = useState("");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [preview, setPreview] = useState<ChapterVersionDetail | null>(null);
+  const [versionDiff, setVersionDiff] = useState<ChapterVersionDiff | null>(null);
+  const [diffError, setDiffError] = useState("");
 
   const autosave = useChapterAutosave({
     chapterId: chapter.id,
@@ -186,6 +198,33 @@ export function ChapterEditor({
   }, [chapter.id, versionReload]);
 
   useEffect(() => {
+    if (autosave.phase !== "conflict") {
+      return;
+    }
+    const controller = new AbortController();
+    let active = true;
+    getChapter(chapter.id, controller.signal)
+      .then((fresh) => {
+        if (!active) {
+          return;
+        }
+        setServerCopy(fresh);
+        setServerCopyError("");
+      })
+      .catch((error: unknown) => {
+        if (!active || isAbort(error)) {
+          return;
+        }
+        setServerCopy(null);
+        setServerCopyError(error instanceof ApiError ? error.message : "无法读取服务器正文。");
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [autosave.phase, chapter.id]);
+
+  useEffect(() => {
     if (!editor || !adoptedChapter || adoptedChapter.id !== chapter.id) {
       return;
     }
@@ -227,6 +266,81 @@ export function ChapterEditor({
     } catch (error: unknown) {
       setActionError(error instanceof ApiError ? error.message : "无法载入服务器正文。");
     }
+  }
+
+  async function overwriteWithLocal() {
+    setActionError("");
+    try {
+      const fresh = serverCopy ?? (await getChapter(chapter.id));
+      const draft = draftRef.current;
+      const titleText = draft.title.trim();
+      if (titleText === "") {
+        setActionError("标题不能为空。本地草稿仍留在编辑器里。");
+        return;
+      }
+      const saved = await saveChapter(chapter.id, {
+        revision: fresh.revision,
+        content: draft.content,
+        title: titleText,
+        status: draft.status,
+        content_format: "tiptap_json",
+        save_kind: "manual",
+      });
+      await applyRemote(saved, "已用本地草稿手动保存，并留下版本快照。自动保存本身不产生快照。");
+      setServerCopy(null);
+      setVersionReload((current) => current + 1);
+    } catch (error: unknown) {
+      if (error instanceof ApiError && error.status === 409) {
+        setActionError(`${error.message} 本地草稿仍留在编辑器里。`);
+        setServerCopy(null);
+        return;
+      }
+      setActionError(error instanceof ApiError ? error.message : "手动保存没有完成。");
+    }
+  }
+
+  async function showVersion(version: ChapterVersion) {
+    setActionError("");
+    setDiffError("");
+    try {
+      const [detail, diff] = await Promise.all([
+        getChapterVersion(chapter.id, version.id),
+        diffChapterVersions(chapter.id, version.id, "current"),
+      ]);
+      setPreview(detail);
+      setVersionDiff(diff);
+    } catch (error: unknown) {
+      setPreview(null);
+      setVersionDiff(null);
+      setDiffError(error instanceof ApiError ? error.message : "无法读取这个版本。");
+    }
+  }
+
+  async function compareSelected() {
+    if (selectedIds.length !== 2) {
+      return;
+    }
+    const [left, right] = selectedIds;
+    if (!left || !right) {
+      return;
+    }
+    setDiffError("");
+    setPreview(null);
+    try {
+      setVersionDiff(await diffChapterVersions(chapter.id, left, right));
+    } catch (error: unknown) {
+      setVersionDiff(null);
+      setDiffError(error instanceof ApiError ? error.message : "无法比较这两个版本。");
+    }
+  }
+
+  function toggleSelected(versionId: string) {
+    setSelectedIds((current) => {
+      if (current.includes(versionId)) {
+        return current.filter((item) => item !== versionId);
+      }
+      return [...current, versionId].slice(-2);
+    });
   }
 
   async function restore(version: ChapterVersion) {
@@ -395,20 +509,89 @@ export function ChapterEditor({
           </button>
         ) : null}
         {autosave.phase === "conflict" ? (
+          <>
+            <button
+              className="ghost"
+              type="button"
+              onClick={() => {
+                void loadServerCopy();
+              }}
+            >
+              载入服务器正文
+            </button>
+            <button
+              className="ghost"
+              type="button"
+              onClick={() => {
+                void overwriteWithLocal();
+              }}
+            >
+              用本地草稿手动保存
+            </button>
+          </>
+        ) : null}
+      </div>
+      {autosave.phase === "conflict" ? (
+        <div className="rewrite-compare" aria-label="修订冲突比较">
+          <div>
+            <h3>本地草稿</h3>
+            <p>{editor ? documentToText(toTiptapDoc(editor.getJSON())) : documentToText(chapter.content)}</p>
+          </div>
+          <div>
+            <h3>服务器正文</h3>
+            {serverCopyError ? <p className="banner banner-error">{serverCopyError}</p> : null}
+            <p>{serverCopy ? documentToText(serverCopy.content) : "正在读取服务器正文"}</p>
+          </div>
+          {serverCopy && editor ? (
+            <div className="diff-view">
+              <DiffList
+                hunks={diffLines(
+                  documentToText(toTiptapDoc(editor.getJSON())),
+                  documentToText(serverCopy.content),
+                )}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      <section className="version-panel" aria-labelledby="version-heading">
+        <h2 id="version-heading">版本</h2>
+        <p className="hint">
+          恢复前可以预览全文和差异。确认恢复会生成新修订，不会删掉中间版本。手动保存、采纳、恢复和导入才会留下快照；自动保存只更新当前正文。
+        </p>
+        <div className="inline-actions">
           <button
             className="ghost"
             type="button"
+            disabled={selectedIds.length !== 2}
             onClick={() => {
-              void loadServerCopy();
+              void compareSelected();
             }}
           >
-            载入服务器正文
+            查看所选版本的差异
           </button>
+        </div>
+        {diffError ? (
+          <p className="banner banner-error" role="alert">
+            {diffError}
+          </p>
         ) : null}
-      </div>
-      <section className="version-panel" aria-labelledby="version-heading">
-        <h2 id="version-heading">版本</h2>
-        <p className="hint">恢复前会再确认一次。恢复会生成新修订，不会删掉旧版本。</p>
+        {preview ? (
+          <div className="version-preview" aria-label="恢复预览">
+            <h3>
+              预览修订 {preview.revision} · {SOURCE_LABEL[preview.change_source]} ·{" "}
+              {formatTime(preview.created_at)}
+            </h3>
+            <p className="hint">{originLabel(preview)}</p>
+            {preview.memory_proposal_ids.length > 0 ? (
+              <p className="hint">记忆分析提案：{preview.memory_proposal_ids.join("、")}</p>
+            ) : (
+              <p className="hint">这一修订还没有关联的记忆分析提案。</p>
+            )}
+            <p className="candidate-box">{preview.text || "（空正文）"}</p>
+          </div>
+        ) : null}
+        {versionDiff ? <VersionDiffView diff={versionDiff} /> : null}
         {versionsError ? (
           <p className="banner banner-error" role="alert">
             {versionsError}
@@ -426,24 +609,101 @@ export function ChapterEditor({
                   修订 {version.revision} · {SOURCE_LABEL[version.change_source]} · {version.word_count} 字
                 </p>
                 <p className="hint">{formatTime(version.created_at)}</p>
+                <p className="hint">{originLabel(version)}</p>
                 {version.change_note ? <p className="hint">{version.change_note}</p> : null}
                 {version.preview ? <p>{version.preview}</p> : null}
+                <label className="hint">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(version.id)}
+                    onChange={() => {
+                      toggleSelected(version.id);
+                    }}
+                  />
+                  用来比较
+                </label>
               </div>
-              <button
-                className="ghost"
-                type="button"
-                aria-label={`恢复修订 ${version.revision}`}
-                disabled={restoringId !== null || autosave.phase === "saving"}
-                onClick={() => {
-                  void restore(version);
-                }}
-              >
-                恢复
-              </button>
+              <div className="inline-actions">
+                <button
+                  className="ghost"
+                  type="button"
+                  aria-label={`预览修订 ${version.revision}`}
+                  onClick={() => {
+                    void showVersion(version);
+                  }}
+                >
+                  预览
+                </button>
+                <button
+                  className="ghost"
+                  type="button"
+                  aria-label={`恢复修订 ${version.revision}`}
+                  disabled={restoringId !== null || autosave.phase === "saving"}
+                  onClick={() => {
+                    void restore(version);
+                  }}
+                >
+                  恢复
+                </button>
+              </div>
             </li>
           ))}
         </ul>
       </section>
+    </div>
+  );
+}
+
+function originLabel(version: {
+  change_source: ChapterVersion["change_source"];
+  ai_task_id?: string | null;
+  repair_candidate_id?: string | null;
+}): string {
+  if (version.ai_task_id) {
+    return `来源：AI 任务 ${version.ai_task_id}`;
+  }
+  if (version.repair_candidate_id) {
+    return `来源：质量修复建议 ${version.repair_candidate_id}`;
+  }
+  if (version.change_source === "manual") {
+    return "来源：手动保存。自动保存不会单独留下这一条。";
+  }
+  if (version.change_source === "restore") {
+    return "来源：从旧版本恢复。这次恢复本身是新修订。";
+  }
+  if (version.change_source === "import") {
+    return "来源：导入。作品包导入尚未实现，整库备份会带上已有版本。";
+  }
+  return "来源：采纳后的正文修订。";
+}
+
+function VersionDiffView({ diff }: { diff: ChapterVersionDiff }) {
+  return (
+    <div className="version-preview" aria-label="版本差异">
+      <h3>
+        {diff.left.label} 与 {diff.right.label}
+      </h3>
+      <p className="hint">
+        {formatTime(diff.left.created_at)} → {formatTime(diff.right.created_at)}
+        {diff.left.change_source ? ` · ${SOURCE_LABEL[diff.left.change_source]}` : ""}
+        {diff.right.change_source ? ` → ${SOURCE_LABEL[diff.right.change_source]}` : ""}
+      </p>
+      <DiffList hunks={diff.hunks} />
+    </div>
+  );
+}
+
+function DiffList({ hunks }: { hunks: DiffHunk[] }) {
+  if (hunks.length === 0) {
+    return <p className="hint">两边正文相同。</p>;
+  }
+  return (
+    <div className="diff-view">
+      {hunks.map((hunk, index) => (
+        <p key={`${hunk.op}-${index}`} className={`diff-line diff-${hunk.op}`}>
+          {hunk.text}
+        </p>
+      ))}
     </div>
   );
 }

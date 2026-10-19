@@ -8,6 +8,7 @@ import {
   type TiptapDoc,
 } from "../api/types.ts";
 import { canonicalJson } from "./documentText.ts";
+import { interpretSaveConflict, interpretSaveSuccess } from "./saveResult.ts";
 
 export const AUTOSAVE_DELAY_MS = 1200;
 
@@ -51,6 +52,7 @@ export function useChapterAutosave(options: Options) {
   const timerRef = useRef<number | null>(null);
   const inFlightRef = useRef(false);
   const rerunRef = useRef<SaveKind | null>(null);
+  const generationRef = useRef(0);
 
   const [phase, setPhase] = useState<SavePhase>("idle");
   const [message, setMessage] = useState("");
@@ -96,29 +98,43 @@ export function useChapterAutosave(options: Options) {
         }
         return;
       }
+      const requestGeneration = generationRef.current + 1;
+      generationRef.current = requestGeneration;
       inFlightRef.current = true;
       report("saving", "");
       const sentContent = draft.content;
       const sentStatus = draft.status;
+      const sentRevision = revisionRef.current;
       let stopFollowUp = false;
       try {
         const saved = await saveChapter(chapterIdRef.current, {
-          revision: revisionRef.current,
+          revision: sentRevision,
           content: sentContent,
           title,
           status: sentStatus,
           content_format: "tiptap_json",
           save_kind: kind,
         });
+        const latest = getDraftRef.current();
+        const decision = interpretSaveSuccess({
+          requestGeneration,
+          latestGeneration: generationRef.current,
+          savedRevision: saved.revision,
+          currentRevision: revisionRef.current,
+          sentCanonical: canonicalJson(sentContent),
+          currentCanonical: canonicalJson(latest.content),
+          sentTitle: title,
+          currentTitle: latest.title.trim(),
+          sentStatus,
+          currentStatus: latest.status,
+        });
+        if (!decision.applyRevision) {
+          return;
+        }
         revisionRef.current = saved.revision;
         setRevision(saved.revision);
         onSavedRef.current(saved, kind);
-        const latest = getDraftRef.current();
-        const unchanged =
-          canonicalJson(latest.content) === canonicalJson(sentContent) &&
-          latest.title.trim() === title &&
-          latest.status === sentStatus;
-        if (unchanged) {
+        if (decision.markBaseline) {
           baselineRef.current = canonicalJson(latest.content);
           titleBaselineRef.current = saved.title;
           statusBaselineRef.current = saved.status;
@@ -130,9 +146,19 @@ export function useChapterAutosave(options: Options) {
         const api = error instanceof ApiError ? error : null;
         const text = api?.message ?? "保存失败。";
         failedKindRef.current = kind;
+        const stale = interpretSaveConflict({
+          requestGeneration,
+          latestGeneration: generationRef.current,
+        });
+        if (stale === "ignore") {
+          return;
+        }
         stopFollowUp = true;
         if (api?.status === 409) {
-          report("conflict", `${text} 编辑器里的正文没有被覆盖。`);
+          report(
+            "conflict",
+            `${text} 本地草稿还在编辑器里。自动保存不会把旧内容盖掉，也不会写成版本快照。`,
+          );
         } else {
           const prefix = kind === "manual" ? "保存失败" : "自动保存失败";
           report("error", `${prefix}，正文仍留在编辑器里。${text}`);

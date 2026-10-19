@@ -1,6 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { listChapterVersions, restoreChapter, saveChapter } from "../api/catalog.ts";
+import {
+  diffChapterVersions,
+  getChapter,
+  getChapterVersion,
+  listChapterVersions,
+  restoreChapter,
+  saveChapter,
+} from "../api/catalog.ts";
 import type { Chapter, ChapterVersion } from "../api/types.ts";
 import { ApiError } from "../api/types.ts";
 import { ChapterEditor } from "./ChapterEditor.tsx";
@@ -10,6 +17,8 @@ vi.mock("../api/catalog.ts", () => ({
   getChapter: vi.fn(),
   listChapterVersions: vi.fn(async () => []),
   restoreChapter: vi.fn(),
+  getChapterVersion: vi.fn(),
+  diffChapterVersions: vi.fn(),
 }));
 
 const chapter: Chapter = {
@@ -109,5 +118,104 @@ describe("ChapterEditor", () => {
     expect(confirm).toHaveBeenCalled();
     expect(restoreChapter).not.toHaveBeenCalled();
     expect(screen.getByRole("textbox", { name: "正文" }).textContent).toContain("编辑器里的原句");
+  });
+
+  it("keeps the local draft and compares it when autosave conflicts", async () => {
+    vi.mocked(saveChapter).mockRejectedValueOnce(
+      new ApiError(409, "REVISION_CONFLICT", "章节已在其他操作中更新，请刷新并比较差异。", "req"),
+    );
+    vi.mocked(getChapter).mockResolvedValue({
+      ...chapter,
+      revision: 4,
+      content: {
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: "服务器正文" }] }],
+      },
+    });
+    render(
+      <ChapterEditor
+        chapter={chapter}
+        autosaveDelayMs={20}
+        onSaved={() => {}}
+        onUnsavedChange={() => {}}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("章节标题"), { target: { value: "本地标题" } });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("本地草稿还在编辑器里");
+    expect(alert.textContent).toContain("不会写成版本快照");
+    expect((await screen.findAllByText("服务器正文")).length).toBeGreaterThan(0);
+    expect(screen.getByRole("textbox", { name: "正文" }).textContent).toContain("编辑器里的原句");
+    expect(screen.queryByRole("button", { name: "重试" })).toBeNull();
+    expect((screen.getByLabelText("章节标题") as HTMLInputElement).value).toBe("本地标题");
+
+    vi.mocked(saveChapter).mockResolvedValue({
+      ...chapter,
+      title: "本地标题",
+      revision: 5,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "用本地草稿手动保存" }));
+    await screen.findByText("已用本地草稿手动保存，并留下版本快照。自动保存本身不产生快照。");
+    const payload = vi.mocked(saveChapter).mock.calls.at(-1)?.[1];
+    expect(payload?.save_kind).toBe("manual");
+    expect(payload?.revision).toBe(4);
+    expect(payload?.title).toBe("本地标题");
+  });
+
+  it("previews a version diff before restore", async () => {
+    const older = { ...storedVersion, id: "version-old", revision: 2, preview: "旧句子" };
+    const newer = {
+      ...storedVersion,
+      id: "version-new",
+      revision: 3,
+      preview: "新句子",
+      change_source: "ai_accepted" as const,
+      ai_task_id: "task-9",
+    };
+    vi.mocked(listChapterVersions).mockResolvedValue([newer, older]);
+    vi.mocked(getChapterVersion).mockResolvedValue({
+      ...older,
+      text: "旧句子全文",
+      memory_proposal_ids: ["proposal-1"],
+    });
+    vi.mocked(diffChapterVersions).mockResolvedValue({
+      left: {
+        id: older.id,
+        revision: 2,
+        change_source: "manual",
+        change_note: null,
+        created_at: older.created_at,
+        word_count: 3,
+        label: "修订 2",
+        ai_task_id: null,
+        repair_candidate_id: null,
+        memory_proposal_ids: [],
+      },
+      right: {
+        id: null,
+        revision: 1,
+        change_source: null,
+        change_note: null,
+        created_at: chapter.updated_at,
+        word_count: 8,
+        label: "当前正文",
+        ai_task_id: null,
+        repair_candidate_id: null,
+        memory_proposal_ids: [],
+      },
+      hunks: [
+        { op: "delete", text: "旧句子全文" },
+        { op: "insert", text: "编辑器里的原句" },
+      ],
+    });
+    render(<ChapterEditor chapter={chapter} onSaved={() => {}} onUnsavedChange={() => {}} />);
+
+    expect(await screen.findByText(/来源：AI 任务 task-9/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "预览修订 2" }));
+    expect((await screen.findAllByText("旧句子全文")).length).toBeGreaterThan(0);
+    expect(screen.getByText(/记忆分析提案：proposal-1/)).toBeTruthy();
+    expect(screen.getByText("编辑器里的原句", { selector: ".diff-insert" })).toBeTruthy();
+    expect(restoreChapter).not.toHaveBeenCalled();
   });
 });

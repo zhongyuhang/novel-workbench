@@ -1,6 +1,6 @@
 """Chapter routes."""
 
-from typing import Annotated
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
@@ -12,8 +12,12 @@ from app.schemas.catalog import (
     ChapterResponse,
     ChapterRestore,
     ChapterSummary,
+    ChapterVersionDetailResponse,
+    ChapterVersionDiffResponse,
     ChapterVersionResponse,
     ChapterWrite,
+    TextDiffHunkResponse,
+    VersionDiffSide,
 )
 from app.services import catalog as catalog_service
 
@@ -85,6 +89,42 @@ def list_chapter_versions(
     return [ChapterVersionResponse.model_validate(version) for version in versions]
 
 
+@router.get(
+    "/chapters/{chapter_id}/versions/diff",
+    response_model=ChapterVersionDiffResponse,
+)
+def diff_chapter_versions(
+    chapter_id: str,
+    left_id: str,
+    right_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> ChapterVersionDiffResponse:
+    diff = catalog_service.diff_chapter_versions(session, chapter_id, left_id, right_id)
+    return ChapterVersionDiffResponse(
+        left=VersionDiffSide.model_validate(diff.left),
+        right=VersionDiffSide.model_validate(diff.right),
+        hunks=[TextDiffHunkResponse(op=_diff_op(hunk.op), text=hunk.text) for hunk in diff.hunks],
+    )
+
+
+@router.get(
+    "/chapters/{chapter_id}/versions/{version_id}",
+    response_model=ChapterVersionDetailResponse,
+)
+def get_chapter_version(
+    chapter_id: str,
+    version_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> ChapterVersionDetailResponse:
+    detail = catalog_service.get_chapter_version(session, chapter_id, version_id)
+    body = ChapterVersionResponse.model_validate(detail.record).model_dump()
+    return ChapterVersionDetailResponse(
+        **body,
+        text=detail.text,
+        memory_proposal_ids=list(detail.memory_proposal_ids),
+    )
+
+
 @router.post("/chapters/{chapter_id}/restore", response_model=ChapterResponse)
 def restore_chapter(
     chapter_id: str,
@@ -104,3 +144,9 @@ def move_chapter(
     return ChapterResponse.model_validate(
         catalog_service.move_chapter(session, chapter_id, payload)
     )
+
+
+def _diff_op(value: str) -> Literal["equal", "insert", "delete"]:
+    if value in {"equal", "insert", "delete"}:
+        return cast("Literal['equal', 'insert', 'delete']", value)
+    return "equal"
