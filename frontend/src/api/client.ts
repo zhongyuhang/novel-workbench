@@ -166,7 +166,8 @@ async function authorizedFetch(path: string, init: RequestInit, allowRetry = tru
   if (!headers.has("Accept")) {
     headers.set("Accept", "application/json");
   }
-  if (init.body !== undefined && !headers.has("Content-Type")) {
+  const bodyIsForm = typeof FormData !== "undefined" && init.body instanceof FormData;
+  if (init.body !== undefined && !headers.has("Content-Type") && !bodyIsForm) {
     headers.set("Content-Type", "application/json");
   }
   const token = readToken();

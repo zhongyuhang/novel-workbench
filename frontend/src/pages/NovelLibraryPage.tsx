@@ -1,8 +1,16 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { apiDocsUrl } from "../api/client.ts";
 import { createNovel, deleteNovel, listNovels, updateNovel } from "../api/catalog.ts";
+import {
+  createBackup,
+  importPortable,
+  listBackups,
+  previewPortable,
+  type PortablePreview,
+} from "../api/portable.ts";
 import { ApiError, type Novel, type NovelDraft, type NovelStatus } from "../api/types.ts";
 import { HealthBadge } from "../components/HealthBadge.tsx";
+import { LibraryMaintenance } from "../components/LibraryMaintenance.tsx";
 import {
   CANONICAL_CONTENT_FORMAT,
   CANONICAL_CONTENT_FORMAT_VERSION,
@@ -29,6 +37,12 @@ export function NovelLibraryPage() {
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [latestBackup, setLatestBackup] = useState<string | null>(null);
+  const [backupPending, setBackupPending] = useState(false);
+  const [packageFile, setPackageFile] = useState<File | null>(null);
+  const [packagePreview, setPackagePreview] = useState<PortablePreview | null>(null);
+  const [packageError, setPackageError] = useState("");
+  const [importPending, setImportPending] = useState(false);
 
   async function refresh() {
     setError("");
@@ -44,6 +58,16 @@ export function NovelLibraryPage() {
 
   useEffect(() => {
     const controller = new AbortController();
+    listBackups(controller.signal)
+      .then((report) => {
+        setLatestBackup(report.latest_success_at);
+      })
+      .catch((cause: unknown) => {
+        if (cause instanceof DOMException && cause.name === "AbortError") {
+          return;
+        }
+        setError(cause instanceof ApiError ? cause.message : "无法读取备份记录。");
+      });
     listNovels(controller.signal)
       .then((items) => {
         setNovels(items);
@@ -79,6 +103,63 @@ export function NovelLibraryPage() {
           <h1>作品库</h1>
           <p>创建、修改和归档作品。打开这一页不需要模型 API Key。正文在作品工作台里保存。</p>
         </section>
+        <LibraryMaintenance
+          latestSuccessAt={latestBackup}
+          backupPending={backupPending}
+          onBackup={() => {
+            setBackupPending(true);
+            setError("");
+            void createBackup()
+              .then((item) => {
+                setLatestBackup(item.created_at);
+              })
+              .catch((cause: unknown) => {
+                setError(cause instanceof ApiError ? cause.message : "备份没有完成。");
+              })
+              .finally(() => {
+                setBackupPending(false);
+              });
+          }}
+          preview={packagePreview}
+          previewError={packageError}
+          importPending={importPending}
+          onChooseFile={(file) => {
+            setPackageFile(file);
+            setPackageError("");
+            setPackagePreview(null);
+            void previewPortable(file)
+              .then((report) => {
+                setPackagePreview(report);
+              })
+              .catch((cause: unknown) => {
+                setPackageError(cause instanceof ApiError ? cause.message : "作品包无法预检。");
+              });
+          }}
+          onConfirmImport={() => {
+            if (!packageFile || !packagePreview?.can_import) {
+              return;
+            }
+            setImportPending(true);
+            setError("");
+            void importPortable(packageFile)
+              .then(async () => {
+                setPackageFile(null);
+                setPackagePreview(null);
+                await refresh();
+              })
+              .catch((cause: unknown) => {
+                setError(cause instanceof ApiError ? cause.message : "导入没有完成。");
+              })
+              .finally(() => {
+                setImportPending(false);
+              });
+          }}
+          onCancelPreview={() => {
+            setPackageFile(null);
+            setPackagePreview(null);
+            setPackageError("");
+          }}
+        />
         <section className="library" aria-labelledby="library-heading">
           <div className="library-toolbar">
             <h2 id="library-heading">作品</h2>

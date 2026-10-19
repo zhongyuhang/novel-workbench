@@ -103,6 +103,24 @@ class DuplicateEntity(AppError):
     message = "这本作品里已经有同名设定。"
 
 
+class UnsupportedPackage(AppError):
+    status_code = 422
+    code = "UNSUPPORTED_PACKAGE"
+    message = "不支持的作品包格式。没有写入任何数据。"
+
+
+class PackageInvalid(AppError):
+    status_code = 422
+    code = "PACKAGE_INVALID"
+    message = "作品包无法导入。没有写入任何数据。"
+
+
+class PackageImportFailed(AppError):
+    status_code = 500
+    code = "PACKAGE_IMPORT_FAILED"
+    message = "导入没有完成，没有留下半成品。"
+
+
 class ContextCompileError(AppError):
     """Context compilation failed. Generation must not continue without context."""
 

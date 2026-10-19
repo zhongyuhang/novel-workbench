@@ -34,4 +34,5 @@ def create_backup(settings: Annotated[Settings, Depends(get_settings)]) -> Backu
 @router.get("/backups", response_model=BackupListResponse)
 def list_backups(settings: Annotated[Settings, Depends(get_settings)]) -> BackupListResponse:
     items = [_response(item) for item in backup_service.list_backups(settings)]
-    return BackupListResponse(items=items)
+    latest = items[0].created_at if items else None
+    return BackupListResponse(items=items, latest_success_at=latest)
