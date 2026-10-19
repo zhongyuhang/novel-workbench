@@ -1,7 +1,35 @@
 import { apiFetch, apiRequest } from "./client.ts";
 import type { StreamEvent, StreamEventName } from "../features/ai/candidateStream.ts";
 import { ApiError } from "./types.ts";
-import type { AiTask, AiTaskCreateInput, ApplyMode, Chapter } from "./types.ts";
+import type {
+  AiTask,
+  AiTaskCreateInput,
+  ApplyMode,
+  Chapter,
+  CompiledContext,
+} from "./types.ts";
+
+export function compileContext(payload: {
+  novel_id: string;
+  chapter_id?: string;
+  task_type: AiTaskCreateInput["task_type"];
+  instruction: string;
+  selection_text?: string;
+  target_revision?: number;
+  constraints?: AiTaskCreateInput["constraints"];
+  context_budget?: number;
+  pinned_include?: string[];
+  pinned_exclude?: string[];
+}): Promise<CompiledContext> {
+  return apiRequest<CompiledContext>("/api/v1/ai/tasks/context/compile", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getTaskContext(taskId: string): Promise<CompiledContext> {
+  return apiRequest<CompiledContext>(`/api/v1/ai/tasks/${taskId}/context`);
+}
 
 export function createAiTask(payload: AiTaskCreateInput): Promise<AiTask> {
   return apiRequest<AiTask>("/api/v1/ai/tasks", {

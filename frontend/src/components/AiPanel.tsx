@@ -1,13 +1,23 @@
 import { useEffect, useState } from "react";
-import { acceptAiTask, cancelAiTask, createAiTask, rejectAiTask, streamAiTask } from "../api/ai.ts";
+import {
+  acceptAiTask,
+  cancelAiTask,
+  compileContext,
+  createAiTask,
+  getTaskContext,
+  rejectAiTask,
+  streamAiTask,
+} from "../api/ai.ts";
 import { listModelConfigs } from "../api/models.ts";
 import {
   ApiError,
   type AiTaskType,
   type ApplyMode,
   type Chapter,
+  type CompiledContext,
   type ModelConfig,
 } from "../api/types.ts";
+import { ContextPreview } from "./ContextPreview.tsx";
 import { idleCandidate, reduceCandidate, type CandidateState } from "../features/ai/candidateStream.ts";
 
 type AiPanelProps = {
@@ -59,6 +69,10 @@ export function AiPanel({
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [compareSelection, setCompareSelection] = useState<string | null>(null);
+  const [compiled, setCompiled] = useState<CompiledContext | null>(null);
+  const [contextError, setContextError] = useState("");
+  const [pinnedInclude, setPinnedInclude] = useState<string[]>([]);
+  const [pinnedExclude, setPinnedExclude] = useState<string[]>([]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -142,9 +156,17 @@ export function AiPanel({
           must_include: mustInclude.trim() || undefined,
           must_avoid: mustAvoid.trim() || undefined,
         },
+        pinned_include: pinnedInclude,
+        pinned_exclude: pinnedExclude,
       });
       setTaskId(task.id);
       setLockedRevision(savedRevision);
+      try {
+        setCompiled(await getTaskContext(task.id));
+        setContextError("");
+      } catch (cause: unknown) {
+        setContextError(cause instanceof ApiError ? cause.message : "无法读取这次任务的上下文。");
+      }
       setCandidate((current) =>
         reduceCandidate(
           { ...current, providerMode: task.provider_mode },
@@ -243,6 +265,57 @@ export function AiPanel({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function previewContext() {
+    setContextError("");
+    if (!novelId || !chapter || savedRevision === null) {
+      setContextError("请先打开一章，再查看这次会用到的上下文。");
+      return;
+    }
+    if (editorDirty) {
+      setContextError("正文还有未保存的修改。请先保存，再编译上下文。");
+      return;
+    }
+    setBusy(true);
+    try {
+      const words = maxWords.trim() === "" ? undefined : Number(maxWords);
+      const next = await compileContext({
+        novel_id: novelId,
+        chapter_id: chapter.id,
+        task_type: taskType,
+        instruction: instruction.trim(),
+        selection_text: selectionText,
+        target_revision: savedRevision,
+        constraints: {
+          max_words: words !== undefined && Number.isFinite(words) ? words : undefined,
+          must_include: mustInclude.trim() || undefined,
+          must_avoid: mustAvoid.trim() || undefined,
+        },
+        pinned_include: pinnedInclude,
+        pinned_exclude: pinnedExclude,
+      });
+      setCompiled(next);
+    } catch (cause: unknown) {
+      setCompiled(null);
+      setContextError(cause instanceof ApiError ? cause.message : "上下文编译失败，没有开始生成。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function togglePin(id: string, include: boolean) {
+    if (include) {
+      setPinnedInclude((current) =>
+        current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+      );
+      setPinnedExclude((current) => current.filter((item) => item !== id));
+      return;
+    }
+    setPinnedExclude((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+    );
+    setPinnedInclude((current) => current.filter((item) => item !== id));
   }
 
   return (
@@ -374,6 +447,25 @@ export function AiPanel({
             }}
           />
         </label>
+        <ContextPreview
+          context={compiled}
+          pinnedInclude={pinnedInclude}
+          pinnedExclude={pinnedExclude}
+          busy={streaming}
+          error={contextError}
+          onPreview={() => {
+            void previewContext();
+          }}
+          onRecompile={() => {
+            void previewContext();
+          }}
+          onToggleInclude={(id) => {
+            togglePin(id, true);
+          }}
+          onToggleExclude={(id) => {
+            togglePin(id, false);
+          }}
+        />
         <div className="inline-actions">
           <button
             className="primary"

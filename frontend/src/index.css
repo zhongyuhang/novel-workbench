@@ -535,6 +535,43 @@ textarea {
   background: var(--bg);
 }
 
+.context-panel {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0.8rem 0;
+}
+
+.context-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.context-item {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--bg);
+}
+
+.context-item header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  align-items: baseline;
+}
+
+.context-item p {
+  margin: 0.3rem 0 0;
+  white-space: pre-wrap;
+}
+
+.context-excluded {
+  opacity: 0.8;
+}
+
 .mock-badge {
   display: inline-block;
   margin: 0.6rem 0 0;

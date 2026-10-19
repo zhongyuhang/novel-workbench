@@ -12,6 +12,7 @@ from app.ai.runtime import AiRuntime
 from app.api.deps import get_db, require_session
 from app.core.config import get_settings
 from app.schemas.ai import AiTaskAccept, AiTaskAcceptResponse, AiTaskCreate, AiTaskResponse
+from app.schemas.context import CompiledContext, ContextCompileRequest
 from app.services import ai_tasks as ai_service
 
 router = APIRouter(prefix="/ai/tasks", tags=["ai"], dependencies=[Depends(require_session)])
@@ -19,6 +20,14 @@ router = APIRouter(prefix="/ai/tasks", tags=["ai"], dependencies=[Depends(requir
 
 def get_ai_runtime(request: Request) -> AiRuntime:
     return cast(AiRuntime, request.app.state.ai_runtime)
+
+
+@router.post("/context/compile", response_model=CompiledContext)
+def compile_task_context(
+    payload: ContextCompileRequest,
+    session: Annotated[Session, Depends(get_db)],
+) -> CompiledContext:
+    return ai_service.preview_context(session, payload)
 
 
 @router.post("", response_model=AiTaskResponse, status_code=status.HTTP_201_CREATED)
@@ -33,6 +42,14 @@ def create_task(
 @router.get("/{task_id}", response_model=AiTaskResponse)
 def read_task(task_id: str, session: Annotated[Session, Depends(get_db)]) -> AiTaskResponse:
     return ai_service.get_ai_task(session, task_id)
+
+
+@router.get("/{task_id}/context", response_model=CompiledContext)
+def read_task_context(
+    task_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> CompiledContext:
+    return ai_service.get_task_context(session, task_id)
 
 
 @router.post("/{task_id}/cancel", response_model=AiTaskResponse)

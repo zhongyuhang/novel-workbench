@@ -211,6 +211,8 @@
 
 `secret_ref` 保存的是主密钥加密后的 API Key 密文，不是明文，也不是可回传给前端的字段。`completed` 只表示候选已生成。`resolution=accepted` 才表示用户已经把候选写入正文。
 
+`input_snapshot` 继续放在任务行里，E2 不另建快照表。新任务会在这份 JSON 里写入 `compiler_version`、`context_items`、`context_warnings`、`context_budget`、`context_hash` 和实际使用的 `prompt`。材料副本单条超过 4000 字时缩短显示正文，字符估算仍按全文。整份快照序列化超过约 18 万字时，先去掉排除项正文，再缩短纳入项副本和章节正文副本；提示词全文保留，因为生成器读的就是它。快照随任务行保留，没有单独的过期删除。API Key 和 `secret_ref` 不写入快照。旧任务没有这些字段时，接口说明当时只保存了整段提示。详见 ADR-007。
+
 ### memory_change_proposals
 - `id` PK
 - `novel_id` FK

@@ -334,6 +334,90 @@ def test_delete_and_move_keep_planning_rows_on_the_same_novel(auth_client: TestC
     assert chapter_row[1] is not None
 
 
+def test_chapter_revision_marks_confirmed_outline_and_scene_stale(
+    auth_client: TestClient,
+) -> None:
+    novel_id, chapter_id, revision = _novel_and_chapter(auth_client, "过期大纲")
+    other = auth_client.post(
+        f"/api/v1/novels/{novel_id}/chapters",
+        json={"title": "另一章"},
+    )
+    assert other.status_code == 201, other.text
+    plan = auth_client.put(
+        f"/api/v1/novels/{novel_id}/story-plan",
+        json={"body": "全书还在"},
+    )
+    confirmed_plan = auth_client.post(
+        f"/api/v1/novels/{novel_id}/story-plan/confirm",
+        json={"expected_revision": plan.json()["revision"]},
+    )
+    outline = auth_client.put(
+        f"/api/v1/chapters/{chapter_id}/outline",
+        json={"goal": "已确认的章节目标", "forbidden_reveals": "不能写出结局"},
+    )
+    confirmed = auth_client.post(
+        f"/api/v1/chapters/{chapter_id}/outline/confirm",
+        json={"expected_revision": outline.json()["revision"]},
+    )
+    draft = auth_client.put(
+        f"/api/v1/chapters/{other.json()['id']}/outline",
+        json={"goal": "还是草稿"},
+    )
+    scene = auth_client.post(
+        f"/api/v1/chapters/{chapter_id}/scenes",
+        json={"goal": "已确认场景", "status": "confirmed"},
+    )
+    draft_scene = auth_client.post(
+        f"/api/v1/chapters/{chapter_id}/scenes",
+        json={"goal": "草稿场景"},
+    )
+    assert confirmed_plan.status_code == 200, confirmed_plan.text
+    assert confirmed.status_code == 200, confirmed.text
+    assert draft.status_code == 200, draft.text
+    assert scene.status_code == 201, scene.text
+    assert draft_scene.status_code == 201, draft_scene.text
+
+    saved = auth_client.put(
+        f"/api/v1/chapters/{chapter_id}",
+        json={
+            "revision": revision,
+            "save_kind": "manual",
+            "content": PARAGRAPH,
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["revision"] == revision + 1
+
+    stale_outline = auth_client.get(f"/api/v1/chapters/{chapter_id}/outline")
+    assert stale_outline.status_code == 200, stale_outline.text
+    body = stale_outline.json()["outline"]
+    assert body["status"] == "stale"
+    assert body["counts_as_fact"] is False
+    assert body["goal"] == "已确认的章节目标"
+    assert body["revision"] == confirmed.json()["revision"] + 1
+    scenes = auth_client.get(f"/api/v1/chapters/{chapter_id}/scenes").json()
+    by_goal = {item["goal"]: item for item in scenes}
+    assert by_goal["已确认场景"]["status"] == "stale"
+    assert by_goal["已确认场景"]["counts_as_fact"] is False
+    assert by_goal["草稿场景"]["status"] == "draft"
+    assert (
+        draft.json()["goal"]
+        == auth_client.get(f"/api/v1/chapters/{other.json()['id']}/outline").json()["outline"][
+            "goal"
+        ]
+    )
+    assert (
+        auth_client.get(f"/api/v1/chapters/{other.json()['id']}/outline").json()["outline"][
+            "status"
+        ]
+        == "draft"
+    )
+    assert (
+        auth_client.get(f"/api/v1/novels/{novel_id}/story-plan").json()["plan"]["status"]
+        == "confirmed"
+    )
+
+
 def _novel_and_chapter(
     auth_client: TestClient,
     title: str = "规划作品",

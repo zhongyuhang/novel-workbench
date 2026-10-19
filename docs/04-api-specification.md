@@ -49,24 +49,32 @@
 - `POST /api/v1/chapters/{chapter_id}/restore`
 
 ### AI
+- `POST /api/v1/ai/tasks/context/compile`：只编译上下文，不创建任务，不改正文、正式设定或大纲。
 - `POST /api/v1/ai/tasks`
 - `GET /api/v1/ai/tasks/{task_id}`
+- `GET /api/v1/ai/tasks/{task_id}/context`：返回该任务保存的上下文条目。旧任务没有条目时 `legacy=true`，`items` 为空，并说明当时只保存了整段提示。
 - `POST /api/v1/ai/tasks/{task_id}/cancel`
 - `GET /api/v1/ai/tasks/{task_id}/events`（SSE）
 - `POST /api/v1/ai/tasks/{task_id}/accept`
 - `POST /api/v1/ai/tasks/{task_id}/reject`
 
-采纳请求包含 `target_revision` 和 `apply_mode`（`append`、`insert`、`replace_selection`）。修订号不一致时返回 `409`，不覆盖正文。拒绝只标记任务，不改正文。任务类型为 `continue`、`rewrite`、`polish`、`expand`、`shrink`、`proofread`。显式 `use_mock=true` 或选择模拟配置时，响应里的 `provider_mode` 为 `mock`。`rewrite` 且带有非空 `selection_text` 时，`prompt_version` 为 `rewrite_selection_v1`，候选仍要等到采纳才写入正文。
+采纳请求包含 `target_revision` 和 `apply_mode`（`append`、`insert`、`replace_selection`）。修订号不一致时返回 `409`，不覆盖正文。拒绝只标记任务，不改正文。任务类型为 `continue`、`rewrite`、`polish`、`expand`、`shrink`、`proofread`。显式 `use_mock=true` 或选择模拟配置时，响应里的 `provider_mode` 为 `mock`。模拟模型也走同一个上下文编译器。`rewrite` 且带有非空 `selection_text` 时，`prompt_version` 为 `rewrite_selection_v1`，候选仍要等到采纳才写入正文。
 
-创建任务请求至少包含：
+创建任务和编译请求包含：
 - `novel_id`
-- `chapter_id`（可选）
+- `chapter_id`（可选；创建任务时若关联章节则必填）
 - `task_type`
 - `instruction`
 - `selection_text`（选区任务可选）
 - `target_revision`
-- `model_config_id`（可选，未指定则用任务默认模型）
+- `model_config_id`（创建任务可选，未指定则用任务默认模型；编译接口不需要模型）
 - `constraints`（可选，字数、视角、语气、必须/禁止事项）
+- `context_budget`（可选，200 到 20000，默认 6000。这是字符估算，不是分词器计数）
+- `pinned_include` / `pinned_exclude`（可选材料编号。只影响这一次编译或这一次任务）
+
+编译结果里每条材料有 `kind`、`content`、`source_type`、`source_id`、`source_revision`、`certainty`、`priority`、`token_estimate`、`included`、`exclusion_reason`、`hit_reason`、`warnings`。整体还有 `budget`、`warnings`、`compiler_version`、`context_hash`。只有 `counts_as_fact=true` 的作品大纲、章节大纲和场景卡片会默认纳入。草稿、过期和归档大纲会出现在未纳入列表里，并写明原因。
+
+上下文编译失败返回 `422 CONTEXT_COMPILE_FAILED`，任务不会创建，也不会退回成无上下文生成。作品不存在仍是 `404`。章节不属于该作品是 `422 INVALID_REFERENCE`。关联章节时修订号不一致是 `409`。未登录是 `401`。
 
 ### Memory
 - `GET /api/v1/novels/{novel_id}/entities`
@@ -113,7 +121,7 @@
 
 跨作品的章节、地点或人物引用返回 `422 INVALID_REFERENCE`。软删除后的章节再读大纲或场景返回 `404`，库里的规划行仍指向原来的 `novel_id` 和 `chapter_id`。未登录返回 `401`。
 
-本阶段没有故事线、卷大纲，也没有「生成大纲候选」接口。上下文编译器还不读取这些表。
+本阶段没有故事线、卷大纲，也没有「生成大纲候选」接口。上下文编译器只读取 `counts_as_fact=true` 的作品大纲、当前章节大纲和场景卡片。章节正文修订变化时，该章已确认的章节大纲和场景卡片改为 `stale`，正文不变；作品级大纲不因此自动过期。
 
 ### Model settings
 - `GET /api/v1/settings/models`
@@ -155,7 +163,7 @@
 - `403`：已认证但无权限。
 - `404`：资源不存在。
 - `409`：版本冲突或非法状态迁移。
-- `422`：参数校验失败。
+- `422`：参数校验失败，或上下文编译失败（`CONTEXT_COMPILE_FAILED`）。
 - `429`：请求频率限制。
 - `502`：模型供应商返回无效响应。
 - `503`：模型暂时不可用。
