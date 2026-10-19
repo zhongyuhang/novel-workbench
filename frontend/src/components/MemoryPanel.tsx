@@ -4,24 +4,36 @@ import {
   acceptProposal,
   analyzeChapter,
   createEntity,
+  createEntityState,
+  createRelation,
+  deleteRelation,
   listChapterSummaries,
   listEntities,
   listEvents,
   listProposals,
+  listRelations,
   rejectProposal,
   revertProposal,
   updateEntity,
   type Certainty,
   type ChapterSummaryRecord,
+  type EntityRelation,
+  type EntityState,
   type EntityStatus,
   type EntityType,
   type EntityWrite,
   type MemoryProposal,
+  type RelationStatus,
   type StoryEntity,
   type StoryEventRecord,
 } from "../api/memory.ts";
 import { ApiError, type ModelConfig } from "../api/types.ts";
 import { registerMemoryAnalyze } from "../features/memory/analyzeBridge.ts";
+
+type BibleChapter = {
+  id: string;
+  title: string;
+};
 
 type MemoryPanelProps = {
   novelId: string;
@@ -29,6 +41,7 @@ type MemoryPanelProps = {
   activeRevision: number | null;
   activeTitle: string | null;
   editorDirty: boolean;
+  chapters?: BibleChapter[];
 };
 
 const ENTITY_TYPES: Array<{ value: EntityType; label: string }> = [
@@ -44,6 +57,33 @@ const ENTITY_STATUS: Array<{ value: EntityStatus; label: string }> = [
   { value: "active", label: "启用" },
   { value: "inactive", label: "停用" },
   { value: "unknown", label: "未知" },
+];
+
+const RELATION_STATUS: Array<{ value: RelationStatus; label: string }> = [
+  { value: "active", label: "启用" },
+  { value: "ended", label: "已结束" },
+  { value: "unknown", label: "未知" },
+];
+
+const STATUS_FILTERS: Array<{ value: string; label: string }> = [
+  { value: "", label: "全部状态" },
+  { value: "entity:active", label: "设定 · 启用" },
+  { value: "entity:inactive", label: "设定 · 停用" },
+  { value: "entity:unknown", label: "设定 · 未知" },
+  { value: "relation:active", label: "关系 · 启用" },
+  { value: "relation:ended", label: "关系 · 已结束" },
+  { value: "relation:unknown", label: "关系 · 未知" },
+  { value: "proposal:pending", label: "提案 · 待审核" },
+  { value: "proposal:stale", label: "提案 · 已过期" },
+  { value: "proposal:accepted", label: "提案 · 已接受" },
+  { value: "proposal:rejected", label: "提案 · 已拒绝" },
+  { value: "proposal:reverted", label: "提案 · 已撤回" },
+  { value: "summary:current", label: "摘要 · 现行" },
+  { value: "summary:stale", label: "摘要 · 已过期" },
+  { value: "summary:rejected", label: "摘要 · 已拒绝" },
+  { value: "event:confirmed", label: "事件 · 已确认" },
+  { value: "event:inferred", label: "事件 · 推断" },
+  { value: "event:uncertain", label: "事件 · 不确定" },
 ];
 
 const PROPOSAL_LABELS: Record<MemoryProposal["proposal_type"], string> = {
@@ -74,11 +114,13 @@ export function MemoryPanel({
   activeRevision,
   activeTitle,
   editorDirty,
+  chapters = [],
 }: MemoryPanelProps) {
   const [entities, setEntities] = useState<StoryEntity[]>([]);
   const [proposals, setProposals] = useState<MemoryProposal[]>([]);
   const [summaries, setSummaries] = useState<ChapterSummaryRecord[]>([]);
   const [events, setEvents] = useState<StoryEventRecord[]>([]);
+  const [relations, setRelations] = useState<EntityRelation[]>([]);
   const [configs, setConfigs] = useState<ModelConfig[] | null>(null);
   const [draft, setDraft] = useState<EntityWrite>(emptyDraft());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -89,6 +131,24 @@ export function MemoryPanel({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [guidance, setGuidance] = useState(false);
+  const [entityFilter, setEntityFilter] = useState("");
+  const [chapterFilter, setChapterFilter] = useState("");
+  const [storylineFilter, setStorylineFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [relationFrom, setRelationFrom] = useState("");
+  const [relationTo, setRelationTo] = useState("");
+  const [relationType, setRelationType] = useState("");
+  const [relationTime, setRelationTime] = useState("");
+  const [relationLine, setRelationLine] = useState("");
+  const [relationEvidence, setRelationEvidence] = useState("");
+  const [relationStatus, setRelationStatus] = useState<RelationStatus>("active");
+  const [relationChapter, setRelationChapter] = useState("");
+  const [stateEntityId, setStateEntityId] = useState("");
+  const [stateChapterId, setStateChapterId] = useState("");
+  const [stateSummary, setStateSummary] = useState("");
+  const [stateEvidence, setStateEvidence] = useState("");
+  const [validFrom, setValidFrom] = useState("");
+  const [validUntil, setValidUntil] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -98,9 +158,10 @@ export function MemoryPanel({
       listProposals(novelId, controller.signal),
       listChapterSummaries(novelId, controller.signal),
       listEvents(novelId, controller.signal),
+      listRelations(novelId, controller.signal),
       listModelConfigs(controller.signal),
     ])
-      .then(([nextEntities, nextProposals, nextSummaries, nextEvents, nextConfigs]) => {
+      .then(([nextEntities, nextProposals, nextSummaries, nextEvents, nextRelations, nextConfigs]) => {
         if (!active) {
           return;
         }
@@ -108,6 +169,7 @@ export function MemoryPanel({
         setProposals(nextProposals);
         setSummaries(nextSummaries);
         setEvents(nextEvents);
+        setRelations(nextRelations);
         setConfigs(nextConfigs);
         setError("");
       })
@@ -126,20 +188,31 @@ export function MemoryPanel({
   const realModels = (configs ?? []).filter(
     (item) => item.is_enabled && item.provider_type === "openai_compatible",
   );
-  const staleSummaries = summaries.filter((item) => item.status === "stale");
-  const openProposals = proposals.filter((item) => item.status === "pending" || item.status === "stale");
+  const view = filterBible({
+    entities,
+    relations,
+    events,
+    summaries,
+    proposals,
+    entityFilter,
+    chapterFilter,
+    storyline: storylineFilter.trim(),
+    statusFilter,
+  });
 
   async function reload() {
-    const [nextEntities, nextProposals, nextSummaries, nextEvents] = await Promise.all([
+    const [nextEntities, nextProposals, nextSummaries, nextEvents, nextRelations] = await Promise.all([
       listEntities(novelId),
       listProposals(novelId),
       listChapterSummaries(novelId),
       listEvents(novelId),
+      listRelations(novelId),
     ]);
     setEntities(nextEntities);
     setProposals(nextProposals);
     setSummaries(nextSummaries);
     setEvents(nextEvents);
+    setRelations(nextRelations);
   }
 
   async function runAnalyze(chapterId: string, revision: number, title: string, mock: boolean) {
@@ -203,6 +276,68 @@ export function MemoryPanel({
     }
   }
 
+  async function saveRelation() {
+    setError("");
+    try {
+      await createRelation(novelId, {
+        from_entity_id: relationFrom,
+        to_entity_id: relationTo,
+        relation_type: relationType.trim(),
+        story_time_text: relationTime.trim() || null,
+        storyline: relationLine.trim() || null,
+        source_chapter_id: relationChapter || null,
+        evidence_quote: relationEvidence.trim() || null,
+        status: relationStatus,
+      });
+      setRelationType("");
+      setRelationTime("");
+      setRelationLine("");
+      setRelationEvidence("");
+      setMessage("已记录人物关系。故事时间可以留空。");
+      await reload();
+    } catch (cause: unknown) {
+      setError(cause instanceof ApiError ? cause.message : "关系没有保存。");
+    }
+  }
+
+  async function removeRelation(relationId: string) {
+    if (!window.confirm("删除这条人物关系？正式正文不会改动。")) {
+      return;
+    }
+    setBusyId(relationId);
+    setError("");
+    try {
+      await deleteRelation(relationId);
+      setMessage("已删除人物关系。");
+      await reload();
+    } catch (cause: unknown) {
+      setError(cause instanceof ApiError ? cause.message : "关系没有删除。");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function saveState() {
+    setError("");
+    try {
+      await createEntityState(stateEntityId, {
+        chapter_id: stateChapterId,
+        state_data: { summary: stateSummary.trim() },
+        evidence_quote: stateEvidence.trim() || null,
+        valid_from_text: validFrom.trim() || null,
+        valid_until_text: validUntil.trim() || null,
+      });
+      setStateSummary("");
+      setStateEvidence("");
+      setValidFrom("");
+      setValidUntil("");
+      setMessage("已记录动态状态。有效时间留空也不会挡住写作。");
+      await reload();
+    } catch (cause: unknown) {
+      setError(cause instanceof ApiError ? cause.message : "动态状态没有保存。");
+    }
+  }
+
   async function review(proposal: MemoryProposal, action: "accept" | "reject" | "revert") {
     if (action === "accept" && proposal.status === "stale") {
       const confirmed = window.confirm(
@@ -229,7 +364,7 @@ export function MemoryPanel({
         setMessage("已拒绝提案。正式设定没有改动。");
       } else {
         await revertProposal(proposal.id);
-        setMessage("已撤回这条提案写过的设定。正文没有改动。");
+        setMessage("已按字段撤回这条提案改过的设定。后来手改过的字段不会被整份覆盖。正文没有改动。");
       }
       await reload();
     } catch (cause: unknown) {
@@ -251,10 +386,18 @@ export function MemoryPanel({
     setAliasText(entity.aliases.join("、"));
   }
 
+  const chapterOptions = chapters.length
+    ? chapters
+    : activeChapterId
+      ? [{ id: activeChapterId, title: activeTitle ?? "当前章节" }]
+      : [];
+
   return (
     <section className="workspace-pane memory-pane" aria-labelledby="memory-heading">
-      <h2 id="memory-heading">设定与记忆</h2>
-      <p className="hint">分析只生成提案。接受之前，正式设定和正文都不会改。</p>
+      <h2 id="memory-heading">小说圣经</h2>
+      <p className="hint">
+        这里汇总正式设定、人物关系、动态状态、事件、摘要和待审核提案。分析只生成提案。接受之前，正式设定和正文都不会改。
+      </p>
       {guidance ? (
         <p className="banner" role="status">
           还没有可用的模型。可以改用模拟分析，或先到模型设置填写服务信息。{" "}
@@ -270,6 +413,72 @@ export function MemoryPanel({
         <p className="banner" role="status">
           {message}
         </p>
+      ) : null}
+      <div className="bible-filters">
+        <label>
+          实体
+          <select
+            aria-label="按实体筛选"
+            value={entityFilter}
+            onChange={(event) => {
+              setEntityFilter(event.target.value);
+            }}
+          >
+            <option value="">全部实体</option>
+            {entities.map((entity) => (
+              <option key={entity.id} value={entity.id}>
+                {entity.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          章节
+          <select
+            aria-label="按章节筛选"
+            value={chapterFilter}
+            onChange={(event) => {
+              setChapterFilter(event.target.value);
+            }}
+          >
+            <option value="">全部章节</option>
+            {chapterOptions.map((chapter) => (
+              <option key={chapter.id} value={chapter.id}>
+                {chapter.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          故事线
+          <input
+            aria-label="按故事线筛选"
+            value={storylineFilter}
+            placeholder="关系上的故事线标签"
+            onChange={(event) => {
+              setStorylineFilter(event.target.value);
+            }}
+          />
+        </label>
+        <label>
+          状态
+          <select
+            aria-label="按状态筛选"
+            value={statusFilter}
+            onChange={(event) => {
+              setStatusFilter(event.target.value);
+            }}
+          >
+            {STATUS_FILTERS.map((item) => (
+              <option key={item.value || "all"} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {storylineFilter.trim() ? (
+        <p className="hint">故事线目前是人物关系上的标签。还没有故事线表，章节摘要和提案不会因此被藏起来。</p>
       ) : null}
       <div className="memory-actions">
         <button
@@ -297,12 +506,12 @@ export function MemoryPanel({
         </label>
       </div>
       {useMock ? <p className="mock-badge">模拟分析</p> : null}
-      {staleSummaries.length > 0 ? (
+      {view.staleSummaries.length > 0 ? (
         <div className="stale-box">
           <h3>已过期摘要</h3>
           <p className="hint">这些摘要对应的章节修订已经变了，不能当作当前正文的事实。</p>
           <ul className="memory-list">
-            {staleSummaries.map((item) => (
+            {view.staleSummaries.map((item) => (
               <li key={item.id}>
                 <span className="stale-badge">已过期</span>
                 <strong>{item.chapter_title}</strong>
@@ -315,10 +524,10 @@ export function MemoryPanel({
           </ul>
         </div>
       ) : null}
-      <h3>提案</h3>
-      {openProposals.length === 0 ? <p className="hint">没有待处理的提案。</p> : null}
+      <h3>提案与过期项</h3>
+      {view.openProposals.length === 0 ? <p className="hint">没有待处理的提案。</p> : null}
       <ul className="memory-list">
-        {openProposals.map((proposal) => (
+        {view.openProposals.map((proposal) => (
           <li key={proposal.id} className="memory-card">
             <div className="memory-card-head">
               <strong>{PROPOSAL_LABELS[proposal.proposal_type]}</strong>
@@ -367,32 +576,31 @@ export function MemoryPanel({
       <details>
         <summary>已处理的提案</summary>
         <ul className="memory-list">
-          {proposals
-            .filter((item) => item.status !== "pending" && item.status !== "stale")
-            .map((proposal) => (
-              <li key={proposal.id}>
-                <span>{PROPOSAL_LABELS[proposal.proposal_type]}</span>
-                <span className="hint">
-                  {statusLabel(proposal.status)} · 「{proposal.source_chapter_title}」修订{" "}
-                  {proposal.source_revision}
-                </span>
-                {proposal.status === "accepted" ? (
-                  <button
-                    className="ghost"
-                    type="button"
-                    disabled={busyId === proposal.id}
-                    onClick={() => {
-                      void review(proposal, "revert");
-                    }}
-                  >
-                    撤回
-                  </button>
-                ) : null}
-              </li>
-            ))}
+          {view.closedProposals.map((proposal) => (
+            <li key={proposal.id}>
+              <span>{PROPOSAL_LABELS[proposal.proposal_type]}</span>
+              <span className="hint">
+                {statusLabel(proposal.status)} · 「{proposal.source_chapter_title}」修订{" "}
+                {proposal.source_revision}
+              </span>
+              {proposal.evidence_quote ? <blockquote>证据：{proposal.evidence_quote}</blockquote> : null}
+              {proposal.status === "accepted" ? (
+                <button
+                  className="ghost"
+                  type="button"
+                  disabled={busyId === proposal.id}
+                  onClick={() => {
+                    void review(proposal, "revert");
+                  }}
+                >
+                  撤回
+                </button>
+              ) : null}
+            </li>
+          ))}
         </ul>
       </details>
-      <h3>正式设定</h3>
+      <h3>实体档案</h3>
       <form
         className="memory-form"
         onSubmit={(event) => {
@@ -482,26 +690,24 @@ export function MemoryPanel({
           ) : null}
         </div>
       </form>
-      {entities.length === 0 ? <p className="hint">还没有正式设定。</p> : null}
+      {view.entities.length === 0 ? <p className="hint">没有符合筛选的正式设定。</p> : null}
       <ul className="memory-list">
-        {entities.map((entity) => (
+        {view.entities.map((entity) => (
           <li key={entity.id} className="memory-card">
             <div className="memory-card-head">
               <strong>{entity.name}</strong>
               <span className="hint">{typeLabel(entity.entity_type)}</span>
+              <span className={entity.status === "active" ? "ok-badge" : "stale-badge"}>
+                {entityStatusLabel(entity.status)}
+              </span>
             </div>
             {profileSummary(entity.profile) ? <p>{profileSummary(entity.profile)}</p> : null}
-            {entity.states[0] ? (
-              <p className="hint">
-                来源章节「{entity.states[0].chapter_title}」
-                {entity.states[0].source_revision !== null
-                  ? `修订 ${entity.states[0].source_revision}`
-                  : ""}
-                {entity.states[0].evidence_quote ? ` · 证据：${entity.states[0].evidence_quote}` : ""}
-              </p>
-            ) : (
-              <p className="hint">手工设定，还没有章节来源。</p>
-            )}
+            {entity.states.length === 0 ? <p className="hint">手工设定，还没有章节来源。</p> : null}
+            {entity.states
+              .filter((state) => chapterFilter === "" || state.chapter_id === chapterFilter)
+              .map((state) => (
+                <StateLine key={state.id} state={state} />
+              ))}
             <button
               className="ghost"
               type="button"
@@ -514,28 +720,478 @@ export function MemoryPanel({
           </li>
         ))}
       </ul>
-      {events.length > 0 ? (
-        <>
-          <h3>已确认事件</h3>
-          <ul className="memory-list">
-            {events.map((event) => (
-              <li key={event.id}>
-                <p>{event.description}</p>
-                <p className="hint">
-                  {CERTAINTY_LABELS[event.certainty]} · 「{event.chapter_title}」修订{" "}
-                  {event.source_revision ?? "未知"}
-                  {event.source_revision !== null && event.source_revision !== event.chapter_revision
-                    ? " · 来源修订已变化"
-                    : ""}
-                </p>
-                {event.evidence_quote ? <blockquote>证据：{event.evidence_quote}</blockquote> : null}
-              </li>
+      <h3>人物关系</h3>
+      <p className="hint">两端都必须是这本作品里的设定。故事时间和证据可以留空，留空不会挡住写作。</p>
+      <form
+        className="memory-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void saveRelation();
+        }}
+      >
+        <label>
+          从
+          <select
+            aria-label="关系起点"
+            value={relationFrom}
+            onChange={(event) => {
+              setRelationFrom(event.target.value);
+            }}
+          >
+            <option value="">选择设定</option>
+            {entities.map((entity) => (
+              <option key={entity.id} value={entity.id}>
+                {entity.name}
+              </option>
             ))}
-          </ul>
-        </>
-      ) : null}
+          </select>
+        </label>
+        <label>
+          到
+          <select
+            aria-label="关系终点"
+            value={relationTo}
+            onChange={(event) => {
+              setRelationTo(event.target.value);
+            }}
+          >
+            <option value="">选择设定</option>
+            {entities.map((entity) => (
+              <option key={entity.id} value={entity.id}>
+                {entity.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          关系类型
+          <input
+            aria-label="关系类型"
+            value={relationType}
+            onChange={(event) => {
+              setRelationType(event.target.value);
+            }}
+          />
+        </label>
+        <label>
+          故事时间
+          <input
+            aria-label="关系故事时间"
+            value={relationTime}
+            placeholder="可留空"
+            onChange={(event) => {
+              setRelationTime(event.target.value);
+            }}
+          />
+        </label>
+        <label>
+          故事线标签
+          <input
+            aria-label="关系故事线"
+            value={relationLine}
+            placeholder="可留空，不是故事线表"
+            onChange={(event) => {
+              setRelationLine(event.target.value);
+            }}
+          />
+        </label>
+        <label>
+          来源章节
+          <select
+            aria-label="关系来源章节"
+            value={relationChapter}
+            onChange={(event) => {
+              setRelationChapter(event.target.value);
+            }}
+          >
+            <option value="">暂不标注</option>
+            {chapterOptions.map((chapter) => (
+              <option key={chapter.id} value={chapter.id}>
+                {chapter.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          证据
+          <textarea
+            aria-label="关系证据"
+            value={relationEvidence}
+            onChange={(event) => {
+              setRelationEvidence(event.target.value);
+            }}
+          />
+        </label>
+        <label>
+          关系状态
+          <select
+            aria-label="关系状态"
+            value={relationStatus}
+            onChange={(event) => {
+              setRelationStatus(event.target.value as RelationStatus);
+            }}
+          >
+            {RELATION_STATUS.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          className="primary"
+          type="submit"
+          disabled={relationFrom === "" || relationTo === "" || relationType.trim() === ""}
+        >
+          记录关系
+        </button>
+      </form>
+      {view.relations.length === 0 ? <p className="hint">没有符合筛选的人物关系。</p> : null}
+      <ul className="memory-list">
+        {view.relations.map((relation) => (
+          <li key={relation.id} className="memory-card">
+            <div className="memory-card-head">
+              <strong>
+                {relation.from_entity_name} —{relation.relation_type}→ {relation.to_entity_name}
+              </strong>
+              <span className="hint">{relationStatusLabel(relation.status)}</span>
+            </div>
+            <p className="hint">
+              {relation.storyline ? `故事线 ${relation.storyline} · ` : ""}
+              {relation.story_time_text ? `故事时间 ${relation.story_time_text}` : "故事时间未填写"}
+            </p>
+            {relation.source_chapter_id ? (
+              <p className="hint">
+                来源章节「{relation.source_chapter_title ?? "未知章节"}」
+                {relation.source_revision !== null ? `修订 ${relation.source_revision}` : ""}
+              </p>
+            ) : (
+              <p className="hint">还没有来源章节。</p>
+            )}
+            {relation.evidence_quote ? (
+              <blockquote>证据：{relation.evidence_quote}</blockquote>
+            ) : (
+              <p className="hint">证据未填写。</p>
+            )}
+            <button
+              className="ghost"
+              type="button"
+              disabled={busyId === relation.id}
+              onClick={() => {
+                void removeRelation(relation.id);
+              }}
+            >
+              删除关系
+            </button>
+          </li>
+        ))}
+      </ul>
+      <h3>动态状态</h3>
+      <p className="hint">有效时间可以留空。空着不会阻止记录状态，也不会阻止继续写正文。</p>
+      <form
+        className="memory-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void saveState();
+        }}
+      >
+        <label>
+          所属设定
+          <select
+            aria-label="状态所属设定"
+            value={stateEntityId}
+            onChange={(event) => {
+              setStateEntityId(event.target.value);
+            }}
+          >
+            <option value="">选择设定</option>
+            {entities.map((entity) => (
+              <option key={entity.id} value={entity.id}>
+                {entity.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          来源章节
+          <select
+            aria-label="状态来源章节"
+            value={stateChapterId}
+            onChange={(event) => {
+              setStateChapterId(event.target.value);
+            }}
+          >
+            <option value="">选择章节</option>
+            {chapterOptions.map((chapter) => (
+              <option key={chapter.id} value={chapter.id}>
+                {chapter.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          状态
+          <input
+            aria-label="动态状态内容"
+            value={stateSummary}
+            onChange={(event) => {
+              setStateSummary(event.target.value);
+            }}
+          />
+        </label>
+        <label>
+          生效起
+          <input
+            aria-label="有效时间起"
+            value={validFrom}
+            placeholder="可留空"
+            onChange={(event) => {
+              setValidFrom(event.target.value);
+            }}
+          />
+        </label>
+        <label>
+          生效止
+          <input
+            aria-label="有效时间止"
+            value={validUntil}
+            placeholder="可留空"
+            onChange={(event) => {
+              setValidUntil(event.target.value);
+            }}
+          />
+        </label>
+        <label>
+          证据
+          <textarea
+            aria-label="状态证据"
+            value={stateEvidence}
+            onChange={(event) => {
+              setStateEvidence(event.target.value);
+            }}
+          />
+        </label>
+        <button
+          className="primary"
+          type="submit"
+          disabled={stateEntityId === "" || stateChapterId === "" || stateSummary.trim() === ""}
+        >
+          记录状态
+        </button>
+      </form>
+      {view.states.length === 0 ? <p className="hint">没有符合筛选的动态状态。</p> : null}
+      <ul className="memory-list">
+        {view.states.map((item) => (
+          <li key={item.state.id} className="memory-card">
+            <strong>{item.entityName}</strong>
+            <StateLine state={item.state} />
+          </li>
+        ))}
+      </ul>
+      <h3>故事事件</h3>
+      {view.events.length === 0 ? <p className="hint">没有符合筛选的事件。</p> : null}
+      <ul className="memory-list">
+        {view.events.map((event) => (
+          <li key={event.id}>
+            <p>{event.description}</p>
+            <p className="hint">
+              {CERTAINTY_LABELS[event.certainty]} · 「{event.chapter_title}」修订{" "}
+              {event.source_revision ?? "未知"}
+              {event.event_time_text ? ` · 故事时间 ${event.event_time_text}` : ""}
+              {event.source_revision !== null && event.source_revision !== event.chapter_revision
+                ? " · 来源修订已变化"
+                : ""}
+            </p>
+            {event.evidence_quote ? <blockquote>证据：{event.evidence_quote}</blockquote> : null}
+          </li>
+        ))}
+      </ul>
+      <h3>章节摘要</h3>
+      {view.livingSummaries.length === 0 ? <p className="hint">没有现行或已拒绝的摘要。</p> : null}
+      <ul className="memory-list">
+        {view.livingSummaries.map((item) => (
+          <li key={item.id}>
+            <div className="memory-card-head">
+              <strong>{item.chapter_title}</strong>
+              <span className={item.status === "current" ? "ok-badge" : "stale-badge"}>
+                {item.status === "current" ? "现行" : "已拒绝"}
+              </span>
+            </div>
+            <p>{item.summary}</p>
+            <p className="hint">
+              来源修订 {item.source_revision}，当前修订 {item.chapter_revision}
+            </p>
+          </li>
+        ))}
+      </ul>
     </section>
   );
+}
+
+function StateLine({ state }: { state: EntityState }) {
+  const summary = profileSummary(state.state_data);
+  const validity =
+    state.valid_from_text || state.valid_until_text
+      ? `有效时间 ${state.valid_from_text ?? "未填"} 至 ${state.valid_until_text ?? "未填"}`
+      : "有效时间未填写";
+  return (
+    <div>
+      {summary ? <p>{summary}</p> : null}
+      <p className="hint">
+        来源章节「{state.chapter_title}」
+        {state.source_revision !== null ? `修订 ${state.source_revision}` : ""} · {validity}
+      </p>
+      {state.evidence_quote ? <blockquote>证据：{state.evidence_quote}</blockquote> : null}
+    </div>
+  );
+}
+
+type BibleInput = {
+  entities: StoryEntity[];
+  relations: EntityRelation[];
+  events: StoryEventRecord[];
+  summaries: ChapterSummaryRecord[];
+  proposals: MemoryProposal[];
+  entityFilter: string;
+  chapterFilter: string;
+  storyline: string;
+  statusFilter: string;
+};
+
+function filterBible(input: BibleInput) {
+  const storylineIds = input.storyline
+    ? new Set(
+        input.relations
+          .filter((relation) => containsText(relation.storyline, input.storyline))
+          .flatMap((relation) => [relation.from_entity_id, relation.to_entity_id]),
+      )
+    : null;
+  const entities = input.entities.filter((entity) => {
+    if (input.entityFilter && entity.id !== input.entityFilter) {
+      return false;
+    }
+    if (storylineIds && !storylineIds.has(entity.id)) {
+      return false;
+    }
+    if (input.chapterFilter && !entityTouchesChapter(entity, input.relations, input.chapterFilter)) {
+      return false;
+    }
+    if (input.statusFilter.startsWith("entity:") && entity.status !== input.statusFilter.slice(7)) {
+      return false;
+    }
+    return true;
+  });
+  const visibleIds = new Set(entities.map((entity) => entity.id));
+  const relations = input.relations.filter((relation) => {
+    if (
+      input.entityFilter &&
+      relation.from_entity_id !== input.entityFilter &&
+      relation.to_entity_id !== input.entityFilter
+    ) {
+      return false;
+    }
+    if (input.chapterFilter && relation.source_chapter_id !== input.chapterFilter) {
+      return false;
+    }
+    if (input.storyline && !containsText(relation.storyline, input.storyline)) {
+      return false;
+    }
+    if (
+      input.statusFilter.startsWith("relation:") &&
+      relation.status !== input.statusFilter.slice("relation:".length)
+    ) {
+      return false;
+    }
+    return true;
+  });
+  const states = entities.flatMap((entity) =>
+    entity.states
+      .filter((state) => input.chapterFilter === "" || state.chapter_id === input.chapterFilter)
+      .map((state) => ({ entityName: entity.name, state })),
+  );
+  const events = input.events.filter((event) => {
+    if (input.chapterFilter && event.chapter_id !== input.chapterFilter) {
+      return false;
+    }
+    if (input.statusFilter.startsWith("event:") && event.certainty !== input.statusFilter.slice(6)) {
+      return false;
+    }
+    if (input.entityFilter && !eventMentions(event, input.entities.filter((item) => item.id === input.entityFilter))) {
+      return false;
+    }
+    if (storylineIds && !eventMentions(event, input.entities.filter((item) => storylineIds.has(item.id)))) {
+      return false;
+    }
+    return true;
+  });
+  const summaries = input.summaries.filter((item) => {
+    if (input.chapterFilter && item.chapter_id !== input.chapterFilter) {
+      return false;
+    }
+    if (input.statusFilter.startsWith("summary:") && item.status !== input.statusFilter.slice(8)) {
+      return false;
+    }
+    return true;
+  });
+  const proposals = input.proposals.filter((proposal) => {
+    if (input.chapterFilter && proposal.source_chapter_id !== input.chapterFilter) {
+      return false;
+    }
+    if (
+      input.statusFilter.startsWith("proposal:") &&
+      proposal.status !== input.statusFilter.slice("proposal:".length)
+    ) {
+      return false;
+    }
+    if (input.entityFilter) {
+      const entity = input.entities.find((item) => item.id === input.entityFilter);
+      const target = proposal.payload.target_entity_id;
+      const name = proposal.payload.name;
+      if (target === input.entityFilter) {
+        return true;
+      }
+      if (entity && typeof name === "string" && name === entity.name) {
+        return true;
+      }
+      return false;
+    }
+    return true;
+  });
+  return {
+    entities,
+    relations,
+    states: input.entityFilter || storylineIds ? states.filter((item) => visibleIds.has(item.state.entity_id)) : states,
+    events,
+    staleSummaries: summaries.filter((item) => item.status === "stale"),
+    livingSummaries: summaries.filter((item) => item.status !== "stale"),
+    openProposals: proposals.filter((item) => item.status === "pending" || item.status === "stale"),
+    closedProposals: proposals.filter((item) => item.status !== "pending" && item.status !== "stale"),
+  };
+}
+
+function entityTouchesChapter(entity: StoryEntity, relations: EntityRelation[], chapterId: string): boolean {
+  if (entity.states.some((state) => state.chapter_id === chapterId)) {
+    return true;
+  }
+  return relations.some(
+    (relation) =>
+      relation.source_chapter_id === chapterId &&
+      (relation.from_entity_id === entity.id || relation.to_entity_id === entity.id),
+  );
+}
+
+function eventMentions(event: StoryEventRecord, entities: StoryEntity[]): boolean {
+  if (entities.length === 0) {
+    return false;
+  }
+  const blob = `${event.description}\n${event.participants.join("\n")}`;
+  return entities.some((entity) =>
+    [entity.name, ...entity.aliases].some((name) => name !== "" && blob.includes(name)),
+  );
+}
+
+function containsText(value: string | null, needle: string): boolean {
+  return (value ?? "").toLocaleLowerCase().includes(needle.toLocaleLowerCase());
 }
 
 function proposalTitle(proposal: MemoryProposal): string {
@@ -561,6 +1217,14 @@ function profileSummary(profile: Record<string, unknown>): string {
 
 function typeLabel(value: EntityType): string {
   return ENTITY_TYPES.find((item) => item.value === value)?.label ?? "其他";
+}
+
+function entityStatusLabel(status: EntityStatus): string {
+  return ENTITY_STATUS.find((item) => item.value === status)?.label ?? "未知";
+}
+
+function relationStatusLabel(status: RelationStatus): string {
+  return RELATION_STATUS.find((item) => item.value === status)?.label ?? "未知";
 }
 
 function statusLabel(status: MemoryProposal["status"]): string {

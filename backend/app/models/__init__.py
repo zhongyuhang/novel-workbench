@@ -5,6 +5,7 @@ from app.models.ai import AiTask, ModelConfig
 from app.models.catalog import Chapter, ChapterVersion, Novel, Volume
 from app.models.memory import (
     ChapterSummary,
+    EntityRelation,
     EntityState,
     MemoryChangeProposal,
     StoryEntity,
@@ -20,6 +21,7 @@ __all__ = [
     "ChapterOutline",
     "ChapterSummary",
     "ChapterVersion",
+    "EntityRelation",
     "EntityState",
     "Foreshadowing",
     "MemoryChangeProposal",

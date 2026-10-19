@@ -5,12 +5,17 @@ import { listModelConfigs } from "../api/models.ts";
 import {
   acceptProposal,
   analyzeChapter,
+  createEntityState,
+  createRelation,
   listChapterSummaries,
   listEntities,
   listEvents,
   listProposals,
+  listRelations,
   rejectProposal,
+  type EntityRelation,
   type MemoryProposal,
+  type StoryEntity,
 } from "../api/memory.ts";
 import { MemoryPanel } from "./MemoryPanel.tsx";
 
@@ -23,12 +28,16 @@ vi.mock("../api/memory.ts", () => ({
   listProposals: vi.fn(),
   listChapterSummaries: vi.fn(),
   listEvents: vi.fn(),
+  listRelations: vi.fn(),
   analyzeChapter: vi.fn(),
   acceptProposal: vi.fn(),
   rejectProposal: vi.fn(),
   revertProposal: vi.fn(),
   createEntity: vi.fn(),
   updateEntity: vi.fn(),
+  createRelation: vi.fn(),
+  deleteRelation: vi.fn(),
+  createEntityState: vi.fn(),
 }));
 
 const proposal: MemoryProposal = {
@@ -74,6 +83,7 @@ describe("MemoryPanel", () => {
       },
     ]);
     vi.mocked(listEvents).mockResolvedValue([]);
+    vi.mocked(listRelations).mockResolvedValue([]);
     vi.mocked(acceptProposal).mockReset();
     vi.mocked(rejectProposal).mockReset();
     vi.mocked(analyzeChapter).mockReset();
@@ -148,5 +158,157 @@ describe("MemoryPanel", () => {
     expect(analyzeChapter).toHaveBeenCalledWith("chapter-1", { revision: 3, use_mock: true });
     expect(await screen.findByText(/正式设定和正文都没有自动改动/)).toBeTruthy();
     expect(acceptProposal).not.toHaveBeenCalled();
+  });
+
+  it("filters relations by storyline and keeps evidence visible", async () => {
+    const lin: StoryEntity = {
+      id: "entity-lin",
+      novel_id: "novel-1",
+      entity_type: "character",
+      name: "林晚",
+      aliases: [],
+      profile: { summary: "守城人" },
+      status: "active",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+      states: [
+        {
+          id: "state-1",
+          entity_id: "entity-lin",
+          chapter_id: "chapter-1",
+          chapter_title: "开篇",
+          source_revision: 3,
+          state_data: { summary: "左臂旧伤" },
+          evidence_quote: "左臂的旧伤又疼了起来。",
+          source_type: "manual",
+          valid_from_text: null,
+          valid_until_text: null,
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+    };
+    const gate: StoryEntity = {
+      ...lin,
+      id: "entity-gate",
+      name: "城门",
+      entity_type: "location",
+      profile: {},
+      states: [],
+    };
+    const mainRelation: EntityRelation = {
+      id: "relation-1",
+      novel_id: "novel-1",
+      from_entity_id: "entity-lin",
+      from_entity_name: "林晚",
+      to_entity_id: "entity-gate",
+      to_entity_name: "城门",
+      relation_type: "驻守",
+      story_time_text: null,
+      storyline: "主线",
+      source_chapter_id: "chapter-1",
+      source_chapter_title: "开篇",
+      source_revision: 3,
+      evidence_quote: "林晚仍驻守在城门。",
+      status: "active",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+    const sideRelation: EntityRelation = {
+      ...mainRelation,
+      id: "relation-2",
+      relation_type: "路过",
+      storyline: "支线",
+      evidence_quote: "有人路过城门。",
+    };
+    vi.mocked(listEntities).mockResolvedValue([lin, gate]);
+    vi.mocked(listRelations).mockResolvedValue([mainRelation, sideRelation]);
+    vi.mocked(listProposals).mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(
+      <MemoryPanel
+        novelId="novel-1"
+        activeChapterId="chapter-1"
+        activeRevision={3}
+        activeTitle="开篇"
+        editorDirty={false}
+        chapters={[{ id: "chapter-1", title: "开篇" }]}
+      />,
+    );
+
+    expect(await screen.findByText("证据：林晚仍驻守在城门。")).toBeTruthy();
+    expect(screen.getAllByText("证据：左臂的旧伤又疼了起来。").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/有效时间未填写/).length).toBeGreaterThan(0);
+    await user.type(screen.getByRole("textbox", { name: "按故事线筛选" }), "主线");
+    expect(screen.getAllByText(/驻守/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/路过/)).toBeNull();
+    expect(screen.getByText("证据：林晚仍驻守在城门。")).toBeTruthy();
+  });
+
+  it("records a relation without story time", async () => {
+    const lin: StoryEntity = {
+      id: "entity-lin",
+      novel_id: "novel-1",
+      entity_type: "character",
+      name: "林晚",
+      aliases: [],
+      profile: {},
+      status: "active",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+      states: [],
+    };
+    const gate: StoryEntity = {
+      ...lin,
+      id: "entity-gate",
+      name: "城门",
+      entity_type: "location",
+    };
+    vi.mocked(listEntities).mockResolvedValue([lin, gate]);
+    vi.mocked(listProposals).mockResolvedValue([]);
+    vi.mocked(createRelation).mockResolvedValue({
+      id: "relation-1",
+      novel_id: "novel-1",
+      from_entity_id: "entity-lin",
+      from_entity_name: "林晚",
+      to_entity_id: "entity-gate",
+      to_entity_name: "城门",
+      relation_type: "驻守",
+      story_time_text: null,
+      storyline: null,
+      source_chapter_id: null,
+      source_chapter_title: null,
+      source_revision: null,
+      evidence_quote: null,
+      status: "active",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    });
+    const user = userEvent.setup();
+    render(
+      <MemoryPanel
+        novelId="novel-1"
+        activeChapterId="chapter-1"
+        activeRevision={3}
+        activeTitle="开篇"
+        editorDirty={false}
+      />,
+    );
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "关系起点" }), "entity-lin");
+    await user.selectOptions(screen.getByRole("combobox", { name: "关系终点" }), "entity-gate");
+    await user.type(screen.getByRole("textbox", { name: "关系类型" }), "驻守");
+    await user.click(screen.getByRole("button", { name: "记录关系" }));
+
+    expect(createRelation).toHaveBeenCalledWith("novel-1", {
+      from_entity_id: "entity-lin",
+      to_entity_id: "entity-gate",
+      relation_type: "驻守",
+      story_time_text: null,
+      storyline: null,
+      source_chapter_id: null,
+      evidence_quote: null,
+      status: "active",
+    });
+    expect(createEntityState).not.toHaveBeenCalled();
   });
 });

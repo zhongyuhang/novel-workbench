@@ -10,7 +10,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from app.ai.prompts import ANALYZE_PROMPT_VERSION, build_analyze_prompt
@@ -33,6 +33,7 @@ from app.models.ai import ModelConfig
 from app.models.catalog import Chapter
 from app.models.memory import (
     ChapterSummary,
+    EntityRelation,
     EntityState,
     MemoryChangeProposal,
     StoryEntity,
@@ -46,9 +47,14 @@ from app.schemas.memory import (
     ChapterSummaryResponse,
     EntityCreate,
     EntityResponse,
+    EntityStateCreate,
     EntityStateResponse,
+    EntityStateUpdate,
     EntityUpdate,
     ProposalResponse,
+    RelationResponse,
+    RelationUpdate,
+    RelationWrite,
     StoryEventResponse,
 )
 from app.services.memory_extract import (
@@ -61,6 +67,15 @@ logger = logging.getLogger("app.memory")
 
 _ENTITY_TYPES = {"character", "location", "organization", "item", "rule", "other"}
 _ENTITY_STATUSES = {"active", "inactive", "unknown"}
+_RELATION_STATUSES = {"active", "ended", "unknown"}
+_ENTITY_FIELDS = ("entity_type", "name", "aliases", "profile", "status")
+_FIELD_LABELS = {
+    "entity_type": "类型",
+    "name": "名称",
+    "aliases": "别名",
+    "profile": "档案",
+    "status": "状态",
+}
 _CERTAINTIES = {"confirmed", "inferred", "uncertain"}
 _SOURCE_TYPES = {"manual", "ai_proposal", "import"}
 
@@ -153,6 +168,200 @@ def list_events(session: Session, novel_id: str) -> list[StoryEventResponse]:
         .order_by(StoryEvent.created_at.desc(), StoryEvent.id.asc())
     )
     return [_event_response(session, row) for row in session.scalars(stmt)]
+
+
+def create_entity_state(
+    session: Session,
+    entity_id: str,
+    payload: EntityStateCreate,
+) -> EntityStateResponse:
+    entity = _require_entity(session, entity_id)
+    chapter = _require_chapter(session, payload.chapter_id)
+    if chapter.novel_id != entity.novel_id:
+        raise InvalidReference("来源章节不属于这本作品。")
+    state = EntityState(
+        id=_new_id(),
+        entity_id=entity.id,
+        chapter_id=chapter.id,
+        source_revision=chapter.revision,
+        proposal_id=None,
+        state_data=_profile(payload.state_data),
+        evidence_quote=payload.evidence_quote,
+        source_type="manual",
+        valid_from_text=payload.valid_from_text,
+        valid_until_text=payload.valid_until_text,
+        created_at=_now(),
+    )
+    session.add(state)
+    session.commit()
+    session.refresh(state)
+    logger.info("entity state created")
+    return _state_response(session, state)
+
+
+def update_entity_state(
+    session: Session,
+    state_id: str,
+    payload: EntityStateUpdate,
+) -> EntityStateResponse:
+    state = _require_state(session, state_id)
+    fields = payload.model_fields_set
+    if "state_data" in fields and payload.state_data is not None:
+        state.state_data = _profile(payload.state_data)
+    if "evidence_quote" in fields:
+        state.evidence_quote = payload.evidence_quote
+    if "valid_from_text" in fields:
+        state.valid_from_text = payload.valid_from_text
+    if "valid_until_text" in fields:
+        state.valid_until_text = payload.valid_until_text
+    session.commit()
+    session.refresh(state)
+    logger.info("entity state updated")
+    return _state_response(session, state)
+
+
+def delete_entity_state(session: Session, state_id: str) -> None:
+    state = _require_state(session, state_id)
+    session.delete(state)
+    session.commit()
+    logger.info("entity state deleted")
+
+
+def list_relations(
+    session: Session,
+    novel_id: str,
+    *,
+    entity_id: str | None,
+    chapter_id: str | None,
+    status: str | None,
+    storyline: str | None,
+) -> list[RelationResponse]:
+    _require_novel(session, novel_id)
+    if entity_id is not None:
+        _entity_in_novel(session, entity_id, novel_id)
+    if chapter_id is not None:
+        chapter = _require_chapter(session, chapter_id)
+        if chapter.novel_id != novel_id:
+            raise InvalidReference("来源章节不属于这本作品。")
+    stmt = select(EntityRelation).where(
+        EntityRelation.novel_id == novel_id,
+        EntityRelation.deleted_at.is_(None),
+    )
+    if entity_id is not None:
+        stmt = stmt.where(
+            or_(
+                EntityRelation.from_entity_id == entity_id,
+                EntityRelation.to_entity_id == entity_id,
+            )
+        )
+    if chapter_id is not None:
+        stmt = stmt.where(EntityRelation.source_chapter_id == chapter_id)
+    if status is not None:
+        stmt = stmt.where(EntityRelation.status == status)
+    stmt = stmt.order_by(EntityRelation.created_at.asc(), EntityRelation.id.asc())
+    rows = list(session.scalars(stmt))
+    needle = _optional_text(storyline)
+    if needle is not None:
+        folded = needle.casefold()
+        rows = [
+            row
+            for row in rows
+            if isinstance(row.storyline, str) and folded in row.storyline.casefold()
+        ]
+    return [_relation_response(session, row) for row in rows]
+
+
+def create_relation(
+    session: Session,
+    novel_id: str,
+    payload: RelationWrite,
+) -> RelationResponse:
+    _require_novel(session, novel_id)
+    chapter_id, revision = _relation_source(
+        session,
+        novel_id,
+        payload.source_chapter_id,
+        payload.source_revision,
+    )
+    _relation_ends(session, novel_id, payload.from_entity_id, payload.to_entity_id)
+    now = _now()
+    row = EntityRelation(
+        id=_new_id(),
+        novel_id=novel_id,
+        from_entity_id=payload.from_entity_id,
+        to_entity_id=payload.to_entity_id,
+        relation_type=payload.relation_type,
+        story_time_text=payload.story_time_text,
+        storyline=payload.storyline,
+        source_chapter_id=chapter_id,
+        source_revision=revision,
+        evidence_quote=payload.evidence_quote,
+        status=payload.status,
+        created_at=now,
+        updated_at=now,
+        deleted_at=None,
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    logger.info("entity relation created")
+    return _relation_response(session, row)
+
+
+def update_relation(
+    session: Session,
+    relation_id: str,
+    payload: RelationUpdate,
+) -> RelationResponse:
+    row = _require_relation(session, relation_id)
+    fields = payload.model_fields_set
+    from_id = payload.from_entity_id if "from_entity_id" in fields else row.from_entity_id
+    to_id = payload.to_entity_id if "to_entity_id" in fields else row.to_entity_id
+    if from_id is None or to_id is None:
+        raise InvalidReference("关系的两端不能为空。")
+    _relation_ends(session, row.novel_id, from_id, to_id)
+    row.from_entity_id = from_id
+    row.to_entity_id = to_id
+    if "relation_type" in fields and payload.relation_type is not None:
+        row.relation_type = payload.relation_type
+    if "story_time_text" in fields:
+        row.story_time_text = payload.story_time_text
+    if "storyline" in fields:
+        row.storyline = payload.storyline
+    if "evidence_quote" in fields:
+        row.evidence_quote = payload.evidence_quote
+    if "status" in fields and payload.status is not None:
+        row.status = payload.status
+    if "source_chapter_id" in fields or "source_revision" in fields:
+        chapter_id = (
+            payload.source_chapter_id if "source_chapter_id" in fields else row.source_chapter_id
+        )
+        if "source_revision" in fields:
+            revision = payload.source_revision
+        elif chapter_id is None:
+            revision = None
+        else:
+            revision = row.source_revision
+        row.source_chapter_id, row.source_revision = _relation_source(
+            session,
+            row.novel_id,
+            chapter_id,
+            revision,
+        )
+    row.updated_at = _now()
+    session.commit()
+    session.refresh(row)
+    logger.info("entity relation updated")
+    return _relation_response(session, row)
+
+
+def delete_relation(session: Session, relation_id: str) -> None:
+    row = _require_relation(session, relation_id)
+    now = _now()
+    row.deleted_at = now
+    row.updated_at = now
+    session.commit()
+    logger.info("entity relation deleted")
 
 
 def analyze_chapter(
@@ -432,30 +641,40 @@ def _apply_entity_update(
         _required_text(payload.get("target_entity_id"), "提案缺少要更新的设定。"),
         proposal.novel_id,
     )
-    payload["before"] = {
-        "entity_type": entity.entity_type,
-        "name": entity.name,
-        "aliases": _aliases(entity.aliases),
-        "profile": _profile(entity.profile),
-        "status": entity.status,
-    }
+    before = _entity_snapshot(entity)
+    payload["before"] = before
+    changes: list[dict[str, object]] = []
     if "name" in payload and payload.get("name") is not None:
         name = _required_text(payload.get("name"), "设定名称无效。")
-        _ensure_unique_name(session, proposal.novel_id, name, exclude_id=entity.id)
-        entity.name = name
+        if not _json_equal(before["name"], name):
+            _ensure_unique_name(session, proposal.novel_id, name, exclude_id=entity.id)
+            entity.name = name
+            changes.append({"field": "name", "before": before["name"], "after": name})
     entity_type = (
         _choice(payload.get("entity_type"), _ENTITY_TYPES) if "entity_type" in payload else None
     )
-    if entity_type is not None:
+    if entity_type is not None and not _json_equal(before["entity_type"], entity_type):
         entity.entity_type = entity_type
+        changes.append(
+            {"field": "entity_type", "before": before["entity_type"], "after": entity_type}
+        )
     if "aliases" in payload:
-        entity.aliases = _aliases(payload.get("aliases"))
+        aliases = _aliases(payload.get("aliases"))
+        if not _json_equal(before["aliases"], aliases):
+            entity.aliases = aliases
+            changes.append({"field": "aliases", "before": before["aliases"], "after": aliases})
     if "profile" in payload:
-        entity.profile = _profile(payload.get("profile"))
+        profile = _profile(payload.get("profile"))
+        if not _json_equal(before["profile"], profile):
+            entity.profile = profile
+            changes.append({"field": "profile", "before": before["profile"], "after": profile})
     status = _choice(payload.get("status"), _ENTITY_STATUSES) if "status" in payload else None
-    if status is not None:
+    if status is not None and not _json_equal(before["status"], status):
         entity.status = status
-    entity.updated_at = _now()
+        changes.append({"field": "status", "before": before["status"], "after": status})
+    payload["field_changes"] = changes
+    if changes:
+        entity.updated_at = _now()
     state = _add_state(
         session,
         entity_id=entity.id,
@@ -482,6 +701,8 @@ def _apply_entity_state(
         proposal=proposal,
         state_data=_profile(payload.get("state_data")),
         now=_now(),
+        valid_from_text=_optional_text(payload.get("valid_from_text")),
+        valid_until_text=_optional_text(payload.get("valid_until_text")),
     )
     return _applied(entity.id, False, state.id, None, None)
 
@@ -541,6 +762,8 @@ def _add_state(
     proposal: MemoryChangeProposal,
     state_data: dict[str, object],
     now: datetime,
+    valid_from_text: str | None = None,
+    valid_until_text: str | None = None,
 ) -> EntityState:
     state = EntityState(
         id=_new_id(),
@@ -551,6 +774,8 @@ def _add_state(
         state_data=state_data,
         evidence_quote=proposal.evidence_quote or None,
         source_type="ai_proposal",
+        valid_from_text=valid_from_text,
+        valid_until_text=valid_until_text,
         created_at=now,
     )
     session.add(state)
@@ -564,17 +789,20 @@ def _revert_applied(
     applied: dict[str, Any],
 ) -> None:
     now = _now()
-    entity_id = applied.get("entity_id")
-    if isinstance(entity_id, str):
-        entity = session.get(StoryEntity, entity_id)
-        if entity is not None and entity.novel_id == proposal.novel_id:
-            if applied.get("created_entity") is True:
-                entity.deleted_at = now
-                entity.updated_at = now
-            else:
-                before = payload.get("before")
-                if isinstance(before, dict):
-                    _restore_entity(entity, before, now)
+    if proposal.proposal_type == "entity_update":
+        _revert_entity_fields(session, proposal, payload, applied, now)
+    else:
+        entity_id = applied.get("entity_id")
+        if isinstance(entity_id, str):
+            entity = session.get(StoryEntity, entity_id)
+            if entity is not None and entity.novel_id == proposal.novel_id:
+                if applied.get("created_entity") is True:
+                    entity.deleted_at = now
+                    entity.updated_at = now
+                else:
+                    before = payload.get("before")
+                    if isinstance(before, dict):
+                        _restore_entity(entity, before, now)
     state_id = applied.get("state_id")
     if isinstance(state_id, str):
         state = session.get(EntityState, state_id)
@@ -594,6 +822,8 @@ def _revert_applied(
 
 
 def _restore_entity(entity: StoryEntity, before: dict[str, Any], now: datetime) -> None:
+    """Whole-snapshot restore. Not used for entity_update."""
+
     entity_type = _choice(before.get("entity_type"), _ENTITY_TYPES)
     status = _choice(before.get("status"), _ENTITY_STATUSES)
     name = before.get("name")
@@ -606,6 +836,131 @@ def _restore_entity(entity: StoryEntity, before: dict[str, Any], now: datetime) 
     if status is not None:
         entity.status = status
     entity.updated_at = now
+
+
+def _revert_entity_fields(
+    session: Session,
+    proposal: MemoryChangeProposal,
+    payload: dict[str, Any],
+    applied: dict[str, Any],
+    now: datetime,
+) -> None:
+    """Roll back only the fields this acceptance changed.
+
+    A field edited after acceptance blocks the whole revert. Older proposals
+    that only stored a full ``before`` snapshot are refused, so a later manual
+    edit cannot be overwritten.
+    """
+
+    changes = _parse_field_changes(payload)
+    entity_id = applied.get("entity_id")
+    entity = session.get(StoryEntity, entity_id) if isinstance(entity_id, str) else None
+    if entity is None or entity.deleted_at is not None or entity.novel_id != proposal.novel_id:
+        raise TaskStateError("要撤回的设定已经不在，或已删除。撤回已取消，正式设定没有改动。")
+    conflicts = [
+        _FIELD_LABELS[item["field"]]
+        for item in changes
+        if not _json_equal(_current_field(entity, item["field"]), item["after"])
+    ]
+    if conflicts:
+        names = "、".join(conflicts)
+        raise TaskStateError(f"这些字段在接受之后又被改过：{names}。撤回已取消，正式设定没有改动。")
+    for item in changes:
+        if item["field"] != "name":
+            continue
+        before_name = item["before"]
+        if not isinstance(before_name, str) or before_name.strip() == "":
+            raise TaskStateError("字段级变更记录里的名称无效。撤回已取消，正式设定没有改动。")
+        try:
+            _ensure_unique_name(
+                session,
+                entity.novel_id,
+                before_name.strip(),
+                exclude_id=entity.id,
+            )
+        except DuplicateEntity as exc:
+            raise TaskStateError(
+                "撤回名称会和现有设定重名。撤回已取消，正式设定没有改动。"
+            ) from exc
+    if not changes:
+        return
+    for item in changes:
+        _assign_entity_field(entity, item["field"], item["before"])
+    entity.updated_at = now
+
+
+def _parse_field_changes(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    if "field_changes" not in payload or not isinstance(payload.get("field_changes"), list):
+        raise TaskStateError(
+            "这份设定更新没有字段级变更记录，不能自动撤回，以免盖掉后来的修改。正式设定没有改动。"
+        )
+    raw = payload["field_changes"]
+    parsed: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise TaskStateError("字段级变更记录不完整。撤回已取消，正式设定没有改动。")
+        field = item.get("field")
+        if not isinstance(field, str) or field not in _ENTITY_FIELDS:
+            raise TaskStateError("字段级变更记录不完整。撤回已取消，正式设定没有改动。")
+        if "before" not in item or "after" not in item:
+            raise TaskStateError("字段级变更记录不完整。撤回已取消，正式设定没有改动。")
+        parsed.append({"field": field, "before": item.get("before"), "after": item.get("after")})
+    return parsed
+
+
+def _entity_snapshot(entity: StoryEntity) -> dict[str, object]:
+    return {
+        "entity_type": entity.entity_type,
+        "name": entity.name,
+        "aliases": _aliases(entity.aliases),
+        "profile": _profile(entity.profile),
+        "status": entity.status,
+    }
+
+
+def _current_field(entity: StoryEntity, field: str) -> object:
+    if field == "aliases":
+        return _aliases(entity.aliases)
+    if field == "profile":
+        return _profile(entity.profile)
+    return getattr(entity, field)
+
+
+def _assign_entity_field(entity: StoryEntity, field: str, value: object) -> None:
+    if field == "name":
+        entity.name = _required_text(value, "字段级变更记录里的名称无效。")
+        return
+    if field == "entity_type":
+        chosen = _choice(value, _ENTITY_TYPES)
+        if chosen is None:
+            raise TaskStateError("字段级变更记录里的类型无效。撤回已取消，正式设定没有改动。")
+        entity.entity_type = chosen
+        return
+    if field == "status":
+        chosen = _choice(value, _ENTITY_STATUSES)
+        if chosen is None:
+            raise TaskStateError("字段级变更记录里的状态无效。撤回已取消，正式设定没有改动。")
+        entity.status = chosen
+        return
+    if field == "aliases":
+        entity.aliases = _aliases(value)
+        return
+    if field == "profile":
+        entity.profile = _profile(value)
+        return
+    raise TaskStateError("字段级变更记录不完整。撤回已取消，正式设定没有改动。")
+
+
+def _json_equal(left: object, right: object) -> bool:
+    return _canon(left) == _canon(right)
+
+
+def _canon(value: object) -> object:
+    if isinstance(value, dict):
+        return {str(key): _canon(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_canon(item) for item in value]
+    return value
 
 
 def _resolve_analyzer(session: Session, payload: AnalyzeRequest) -> tuple[str, str]:
@@ -706,6 +1061,8 @@ def _state_response(session: Session, state: EntityState) -> EntityStateResponse
         state_data=_profile(state.state_data),
         evidence_quote=state.evidence_quote,
         source_type=cast("Any", source_type),
+        valid_from_text=state.valid_from_text,
+        valid_until_text=state.valid_until_text,
         created_at=state.created_at,
     )
 
@@ -799,10 +1156,16 @@ def _ensure_unique_name(
             raise DuplicateEntity()
 
 
-def _entity_in_novel(session: Session, entity_id: str, novel_id: str) -> StoryEntity:
+def _entity_in_novel(
+    session: Session,
+    entity_id: str,
+    novel_id: str,
+    *,
+    message: str = "提案指向的设定不存在，或不属于这本作品。",
+) -> StoryEntity:
     entity = session.get(StoryEntity, entity_id)
     if entity is None or entity.deleted_at is not None or entity.novel_id != novel_id:
-        raise InvalidReference("提案指向的设定不存在，或不属于这本作品。")
+        raise InvalidReference(message)
     return entity
 
 
@@ -825,6 +1188,74 @@ def _require_entity(session: Session, entity_id: str) -> StoryEntity:
     if catalog_repo.get_novel(session, row.novel_id) is None:
         raise NotFound("设定不存在。")
     return row
+
+
+def _require_state(session: Session, state_id: str) -> EntityState:
+    state = session.get(EntityState, state_id)
+    if state is None:
+        raise NotFound("动态状态不存在。")
+    _require_entity(session, state.entity_id)
+    return state
+
+
+def _require_relation(session: Session, relation_id: str) -> EntityRelation:
+    row = session.get(EntityRelation, relation_id)
+    if row is None or row.deleted_at is not None:
+        raise NotFound("人物关系不存在。")
+    if catalog_repo.get_novel(session, row.novel_id) is None:
+        raise NotFound("人物关系不存在。")
+    return row
+
+
+def _relation_ends(session: Session, novel_id: str, from_id: str, to_id: str) -> None:
+    if from_id == to_id:
+        raise InvalidReference("关系的两端不能是同一个设定。")
+    missing = "关系的两端必须是这本作品里未删除的设定。"
+    _entity_in_novel(session, from_id, novel_id, message=missing)
+    _entity_in_novel(session, to_id, novel_id, message=missing)
+
+
+def _relation_source(
+    session: Session,
+    novel_id: str,
+    chapter_id: str | None,
+    revision: int | None,
+) -> tuple[str | None, int | None]:
+    if chapter_id is None:
+        if revision is not None:
+            raise InvalidReference("填写来源修订时，需要同时填写来源章节。")
+        return None, None
+    chapter = _require_chapter(session, chapter_id)
+    if chapter.novel_id != novel_id:
+        raise InvalidReference("来源章节不属于这本作品。")
+    if revision is None:
+        return chapter.id, chapter.revision
+    return chapter.id, revision
+
+
+def _relation_response(session: Session, row: EntityRelation) -> RelationResponse:
+    from_entity = session.get(StoryEntity, row.from_entity_id)
+    to_entity = session.get(StoryEntity, row.to_entity_id)
+    chapter = session.get(Chapter, row.source_chapter_id) if row.source_chapter_id else None
+    status = row.status if row.status in _RELATION_STATUSES else "unknown"
+    return RelationResponse(
+        id=row.id,
+        novel_id=row.novel_id,
+        from_entity_id=row.from_entity_id,
+        from_entity_name=from_entity.name if from_entity is not None else "已删除设定",
+        to_entity_id=row.to_entity_id,
+        to_entity_name=to_entity.name if to_entity is not None else "已删除设定",
+        relation_type=row.relation_type,
+        story_time_text=row.story_time_text,
+        storyline=row.storyline,
+        source_chapter_id=row.source_chapter_id,
+        source_chapter_title=chapter.title if chapter is not None else None,
+        source_revision=row.source_revision,
+        evidence_quote=row.evidence_quote,
+        status=cast("Any", status),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
 
 
 def _require_proposal(session: Session, proposal_id: str) -> MemoryChangeProposal:

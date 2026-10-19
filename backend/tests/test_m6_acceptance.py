@@ -260,7 +260,7 @@ def test_t017_backup_then_restore_into_a_new_database(
     assert created.status_code == 201, created.text
     body = created.json()
     assert body["app_version"] == "1.0.0"
-    assert body["alembic_revision"] == "0007_story_planning"
+    assert body["alembic_revision"] == "0008_story_bible"
     assert "database" not in body
     assert str(tmp_path) not in created.text
     assert SECRET not in created.text

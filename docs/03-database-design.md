@@ -119,9 +119,29 @@
 - `source_type` (`manual`, `ai_proposal`, `import`)
 - `source_revision` nullable，接受提案时写入，便于追溯到章节修订
 - `proposal_id` nullable FK -> memory_change_proposals
+- `valid_from_text` nullable，故事内生效起点。空着不阻塞写作或记录状态
+- `valid_until_text` nullable，故事内生效终点。空着同样不阻塞
 - `created_at`
 
-用于记录动态状态历史，不覆盖实体基础档案。
+用于记录动态状态历史，不覆盖实体基础档案。`0008_story_bible` 给已有状态补上这两个可空列，旧行都是空。状态变化本身不是矛盾；有效时间重叠时的疑似冲突留到质量修复阶段，不在本阶段误报。
+
+### entity_relations
+
+同一作品里两个设定之间的有向关系。不引入图数据库。`storyline` 只是可选标签，不是 `story_arcs` 外键；故事线表仍未建。
+
+- `id` PK
+- `novel_id` FK
+- `from_entity_id`、`to_entity_id` FK -> story_entities，不能相同，且都必须属于 `novel_id` 下未删除的设定
+- `relation_type`
+- `story_time_text` nullable。空着可以保存
+- `storyline` nullable
+- `source_chapter_id` nullable FK -> chapters，若填写则必须是同一作品
+- `source_revision` nullable
+- `evidence_quote` nullable
+- `status` (`active`, `ended`, `unknown`)
+- `created_at`, `updated_at`, `deleted_at`
+
+索引：`(novel_id)`、`(from_entity_id)`、`(to_entity_id)`。软删除后接口不再返回。
 
 ### story_events
 - `id` PK
@@ -226,7 +246,7 @@
 - `review_note` nullable
 - `created_at`, `reviewed_at`
 
-章节修订变化后，仍为 `pending` 且 `source_revision` 对不上的提案改为 `stale`，不写入正式设定。`payload.applied` 记录接受时写下的行，供撤回使用。
+章节修订变化后，仍为 `pending` 且 `source_revision` 对不上的提案改为 `stale`，不写入正式设定。`payload.applied` 记录接受时写下的行。`entity_update` 从接受之时起另写 `payload.field_changes`：只列出这次真正改过的字段，以及该字段接受前、接受后的值。撤回只回滚这些字段。某个字段如果之后又被改过，整次撤回拒绝，正式设定保持原样。没有 `field_changes` 的旧提案不能自动撤回，避免用整份 `before` 盖掉后来的手工修改。`before` 仍会留下，但不再当作回滚快照。
 
 ## 3. 关系原则
 
@@ -236,6 +256,7 @@
 - chapter 可以有多个版本、摘要和记忆提案，以及最多一份 `chapter_outlines`。
 - 场景卡片的地点和人物必须引用同一作品里的实体。
 - entity 的静态档案与 entity_states 的动态历史分开。
+- 人物关系的两端必须是同一作品的实体。故事时间、来源章节和证据都可以空。
 - AI 提案必须引用源章节和源 revision。
 - 删除章节时，优先软删除并保留历史证据；清理孤儿数据应由单独、可测试的操作执行。
 

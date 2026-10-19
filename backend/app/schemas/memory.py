@@ -105,7 +105,46 @@ class EntityStateResponse(BaseModel):
     state_data: dict[str, Any]
     evidence_quote: str | None
     source_type: Literal["manual", "ai_proposal", "import"]
+    valid_from_text: str | None
+    valid_until_text: str | None
     created_at: datetime
+
+
+class EntityStateCreate(BaseModel):
+    chapter_id: str = Field(min_length=1)
+    state_data: dict[str, Any] = Field(default_factory=dict)
+    evidence_quote: str | None = Field(default=None, max_length=4000)
+    valid_from_text: str | None = Field(default=None, max_length=200)
+    valid_until_text: str | None = Field(default=None, max_length=200)
+
+    @field_validator("state_data")
+    @classmethod
+    def clean_state(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return _bounded_object(value)
+
+    @field_validator("evidence_quote", "valid_from_text", "valid_until_text")
+    @classmethod
+    def clean_optional(cls, value: str | None) -> str | None:
+        return _blank_to_none(value)
+
+
+class EntityStateUpdate(BaseModel):
+    state_data: dict[str, Any] | None = None
+    evidence_quote: str | None = Field(default=None, max_length=4000)
+    valid_from_text: str | None = Field(default=None, max_length=200)
+    valid_until_text: str | None = Field(default=None, max_length=200)
+
+    @field_validator("state_data")
+    @classmethod
+    def clean_state(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        return _bounded_object(value)
+
+    @field_validator("evidence_quote", "valid_from_text", "valid_until_text")
+    @classmethod
+    def clean_optional(cls, value: str | None) -> str | None:
+        return _blank_to_none(value)
 
 
 class EntityResponse(BaseModel):
@@ -192,6 +231,74 @@ class ChapterSummaryResponse(BaseModel):
     updated_at: datetime
 
 
+RelationStatus = Literal["active", "ended", "unknown"]
+
+
+class RelationWrite(BaseModel):
+    from_entity_id: str = Field(min_length=1)
+    to_entity_id: str = Field(min_length=1)
+    relation_type: str = Field(min_length=1, max_length=80)
+    story_time_text: str | None = Field(default=None, max_length=200)
+    storyline: str | None = Field(default=None, max_length=80)
+    source_chapter_id: str | None = None
+    source_revision: int | None = Field(default=None, ge=1)
+    evidence_quote: str | None = Field(default=None, max_length=4000)
+    status: RelationStatus = "active"
+
+    @field_validator("relation_type")
+    @classmethod
+    def clean_type(cls, value: str) -> str:
+        return _clean_name(value)
+
+    @field_validator("story_time_text", "storyline", "evidence_quote", "source_chapter_id")
+    @classmethod
+    def clean_optional(cls, value: str | None) -> str | None:
+        return _blank_to_none(value)
+
+
+class RelationUpdate(BaseModel):
+    from_entity_id: str | None = None
+    to_entity_id: str | None = None
+    relation_type: str | None = Field(default=None, min_length=1, max_length=80)
+    story_time_text: str | None = Field(default=None, max_length=200)
+    storyline: str | None = Field(default=None, max_length=80)
+    source_chapter_id: str | None = None
+    source_revision: int | None = Field(default=None, ge=1)
+    evidence_quote: str | None = Field(default=None, max_length=4000)
+    status: RelationStatus | None = None
+
+    @field_validator("relation_type")
+    @classmethod
+    def clean_type(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _clean_name(value)
+
+    @field_validator("story_time_text", "storyline", "evidence_quote", "source_chapter_id")
+    @classmethod
+    def clean_optional(cls, value: str | None) -> str | None:
+        return _blank_to_none(value)
+
+
+class RelationResponse(BaseModel):
+    id: str
+    novel_id: str
+    from_entity_id: str
+    from_entity_name: str
+    to_entity_id: str
+    to_entity_name: str
+    relation_type: str
+    story_time_text: str | None
+    storyline: str | None
+    source_chapter_id: str | None
+    source_chapter_title: str | None
+    source_revision: int | None
+    evidence_quote: str | None
+    status: RelationStatus
+    created_at: datetime
+    updated_at: datetime
+
+
 class StoryEventResponse(BaseModel):
     id: str
     novel_id: str
@@ -205,6 +312,13 @@ class StoryEventResponse(BaseModel):
     evidence_quote: str
     certainty: Certainty
     created_at: datetime
+
+
+def _blank_to_none(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
 
 
 def _bounded_object(value: dict[str, Any]) -> dict[str, Any]:

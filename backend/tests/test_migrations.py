@@ -42,7 +42,7 @@ def test_upgrade_empty_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         }
     engine.dispose()
 
-    assert version == "0007_story_planning"
+    assert version == "0008_story_bible"
     assert {
         "alembic_version",
         "novels",
@@ -61,6 +61,7 @@ def test_upgrade_empty_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         "story_plans",
         "chapter_outlines",
         "scene_cards",
+        "entity_relations",
     } <= tables
     assert "ix_chapters_novel_id_sort_order" in indexes
     assert "ix_chapters_volume_id_sort_order" in indexes
@@ -78,6 +79,9 @@ def test_upgrade_empty_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert "ix_chapter_outlines_novel_id" in indexes
     assert "ix_scene_cards_novel_id" in indexes
     assert "ix_scene_cards_chapter_id_sort_order" in indexes
+    assert "ix_entity_relations_novel_id" in indexes
+    assert "ix_entity_relations_from_entity_id" in indexes
+    assert "ix_entity_relations_to_entity_id" in indexes
     assert "novels" in chapter_fks
     assert "volumes" in chapter_fks
 
@@ -110,7 +114,7 @@ def test_upgrade_from_previous_revision(tmp_path: Path, monkeypatch: pytest.Monk
             ).scalars()
         )
     engine.dispose()
-    assert version == "0007_story_planning"
+    assert version == "0008_story_bible"
     assert "chapters" in tables
     assert "chapter_versions" in tables
     assert "model_configs" in tables
@@ -118,6 +122,7 @@ def test_upgrade_from_previous_revision(tmp_path: Path, monkeypatch: pytest.Monk
     assert "story_plans" in tables
     assert "chapter_outlines" in tables
     assert "scene_cards" in tables
+    assert "entity_relations" in tables
 
 
 def test_upgrade_from_catalog_keeps_chapters_and_adds_versions(
@@ -176,7 +181,7 @@ def test_upgrade_from_catalog_keeps_chapters_and_adds_versions(
         table_sql = connection.execute(
             text("SELECT sql FROM sqlite_master WHERE name = 'chapter_versions'")
         ).scalar_one()
-        assert version == "0007_story_planning"
+        assert version == "0008_story_bible"
         assert "升级前正文" in str(stored)
         assert version_count == 0
         unique_name = next(row[1] for row in index_rows if row[2] == 1 and row[3] == "u")
@@ -249,7 +254,7 @@ def test_upgrade_from_chapter_versions_adds_ai_tables(
         foreign_keys = connection.execute(text("PRAGMA foreign_key_list(ai_tasks)")).all()
     engine.dispose()
 
-    assert version == "0007_story_planning"
+    assert version == "0008_story_bible"
     assert title == "版本后"
     assert "ck_ai_tasks_status" in ai_sql
     assert "ck_ai_tasks_resolution" in ai_sql
@@ -297,7 +302,7 @@ def test_upgrade_from_ai_tables_adds_memory_and_keeps_novels(
             text("SELECT sql FROM sqlite_master WHERE name = 'foreshadowing'")
         ).scalar_one()
         foreign_keys = connection.execute(text("PRAGMA foreign_key_list(entity_states)")).all()
-    assert version == "0007_story_planning"
+    assert version == "0008_story_bible"
     assert title == "记忆前"
     assert "ck_foreshadowing_status" in foreshadow_sql
     assert "abandoned" in foreshadow_sql
@@ -390,7 +395,7 @@ def test_upgrade_from_quality_adds_planning_and_keeps_chapters(
         scene_sql = connection.execute(
             text("SELECT sql FROM sqlite_master WHERE name = 'scene_cards'")
         ).scalar_one()
-    assert version == "0007_story_planning"
+    assert version == "0008_story_bible"
     assert stored[1] == 3
     assert "升级前正文" in str(stored[0])
     assert plan_count == 0
@@ -420,3 +425,122 @@ def test_upgrade_from_quality_adds_planning_and_keeps_chapters(
     assert "scene_cards" not in tables
     assert "chapters" in tables
     assert "foreshadowing" in tables
+
+
+def test_upgrade_from_planning_adds_bible_and_keeps_entities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database_path = tmp_path / "from-planning.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    config = Config(str(BACKEND_ROOT / "alembic.ini"))
+    command.upgrade(config, "0007_story_planning")
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO novels (
+                    id, title, genre, synopsis, style_guide, status,
+                    created_at, updated_at, deleted_at
+                ) VALUES (
+                    'novel-1', '圣经前', NULL, NULL, NULL, 'draft',
+                    '2026-01-01 00:00:00', '2026-01-01 00:00:00', NULL
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO chapters (
+                    id, novel_id, volume_id, title, sort_order, content,
+                    content_format, content_format_version, word_count, status,
+                    revision, created_at, updated_at, deleted_at
+                ) VALUES (
+                    'chapter-1', 'novel-1', NULL, '旧章', 0,
+                    '{"type":"doc","content":[]}',
+                    'tiptap_json', 1, 2, 'draft', 4,
+                    '2026-01-01 00:00:00', '2026-01-01 00:00:00', NULL
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO story_entities (
+                    id, novel_id, entity_type, name, aliases, profile, status,
+                    created_at, updated_at, deleted_at
+                ) VALUES (
+                    'entity-1', 'novel-1', 'character', '林晚', '[]',
+                    '{"summary":"升级前档案"}', 'active',
+                    '2026-01-01 00:00:00', '2026-01-01 00:00:00', NULL
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO entity_states (
+                    id, entity_id, chapter_id, source_revision, proposal_id,
+                    state_data, evidence_quote, source_type, created_at
+                ) VALUES (
+                    'state-1', 'entity-1', 'chapter-1', 4, NULL,
+                    '{"summary":"旧伤"}', '左臂旧伤', 'manual',
+                    '2026-01-01 00:00:00'
+                )
+                """
+            )
+        )
+
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        name = connection.execute(
+            text("SELECT name FROM story_entities WHERE id = 'entity-1'")
+        ).scalar_one()
+        validity = connection.execute(
+            text("SELECT valid_from_text, valid_until_text FROM entity_states WHERE id = 'state-1'")
+        ).one()
+        relation_count = connection.execute(
+            text("SELECT COUNT(*) FROM entity_relations")
+        ).scalar_one()
+        relation_sql = connection.execute(
+            text("SELECT sql FROM sqlite_master WHERE name = 'entity_relations'")
+        ).scalar_one()
+        revision = connection.execute(
+            text("SELECT revision FROM chapters WHERE id = 'chapter-1'")
+        ).scalar_one()
+    assert version == "0008_story_bible"
+    assert name == "林晚"
+    assert validity == (None, None)
+    assert relation_count == 0
+    assert revision == 4
+    assert "ck_entity_relations_distinct_ends" in relation_sql
+    assert "ck_entity_relations_status" in relation_sql
+
+    command.downgrade(config, "0007_story_planning")
+    with engine.connect() as connection:
+        version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        tables = set(
+            connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'table'")
+            ).scalars()
+        )
+        columns = {
+            row[1] for row in connection.execute(text("PRAGMA table_info(entity_states)")).all()
+        }
+        kept = connection.execute(
+            text("SELECT profile FROM story_entities WHERE id = 'entity-1'")
+        ).scalar_one()
+    engine.dispose()
+    assert version == "0007_story_planning"
+    assert "entity_relations" not in tables
+    assert "valid_from_text" not in columns
+    assert "valid_until_text" not in columns
+    assert "升级前档案" in str(kept)
+    assert "story_entities" in tables

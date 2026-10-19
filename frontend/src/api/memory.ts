@@ -21,7 +21,50 @@ export type EntityState = {
   state_data: Record<string, unknown>;
   evidence_quote: string | null;
   source_type: "manual" | "ai_proposal" | "import";
+  valid_from_text: string | null;
+  valid_until_text: string | null;
   created_at: string;
+};
+
+export type RelationStatus = "active" | "ended" | "unknown";
+
+export type EntityRelation = {
+  id: string;
+  novel_id: string;
+  from_entity_id: string;
+  from_entity_name: string;
+  to_entity_id: string;
+  to_entity_name: string;
+  relation_type: string;
+  story_time_text: string | null;
+  storyline: string | null;
+  source_chapter_id: string | null;
+  source_chapter_title: string | null;
+  source_revision: number | null;
+  evidence_quote: string | null;
+  status: RelationStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RelationWrite = {
+  from_entity_id: string;
+  to_entity_id: string;
+  relation_type: string;
+  story_time_text?: string | null;
+  storyline?: string | null;
+  source_chapter_id?: string | null;
+  source_revision?: number | null;
+  evidence_quote?: string | null;
+  status?: RelationStatus;
+};
+
+export type EntityStateWrite = {
+  chapter_id: string;
+  state_data: Record<string, unknown>;
+  evidence_quote?: string | null;
+  valid_from_text?: string | null;
+  valid_until_text?: string | null;
 };
 
 export type StoryEntity = {
@@ -144,6 +187,28 @@ export function listChapterSummaries(
 
 export function listEvents(novelId: string, signal?: AbortSignal): Promise<StoryEventRecord[]> {
   return apiRequest<StoryEventRecord[]>(`/api/v1/novels/${novelId}/events`, { signal });
+}
+
+export function listRelations(novelId: string, signal?: AbortSignal): Promise<EntityRelation[]> {
+  return apiRequest<EntityRelation[]>(`/api/v1/novels/${novelId}/relations`, { signal });
+}
+
+export function createRelation(novelId: string, payload: RelationWrite): Promise<EntityRelation> {
+  return apiRequest<EntityRelation>(`/api/v1/novels/${novelId}/relations`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteRelation(relationId: string): Promise<void> {
+  return apiRequest<void>(`/api/v1/relations/${relationId}`, { method: "DELETE" });
+}
+
+export function createEntityState(entityId: string, payload: EntityStateWrite): Promise<EntityState> {
+  return apiRequest<EntityState>(`/api/v1/entities/${entityId}/states`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function analyzeChapter(

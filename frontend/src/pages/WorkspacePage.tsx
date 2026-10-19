@@ -704,6 +704,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
               activeRevision={chapter?.revision ?? null}
               activeTitle={chapter?.title ?? null}
               editorDirty={unsaved}
+              chapters={chapters}
             />
           </div>
         </div>

@@ -149,6 +149,8 @@ class EntityState(Base):
     state_data: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
     evidence_quote: Mapped[str | None] = mapped_column(Text)
     source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    valid_from_text: Mapped[str | None] = mapped_column(String(200))
+    valid_until_text: Mapped[str | None] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
@@ -188,4 +190,57 @@ class StoryEvent(Base):
     evidence_quote: Mapped[str] = mapped_column(Text, nullable=False)
     certainty: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class EntityRelation(Base):
+    """A directed link between two entities in the same novel.
+
+    Story time, source chapter, and evidence may be empty. Empty time does not
+    block writing. ``storyline`` is an optional label; there is no story-arc table.
+    """
+
+    __tablename__ = "entity_relations"
+    __table_args__ = (
+        CheckConstraint(
+            "from_entity_id != to_entity_id",
+            name="ck_entity_relations_distinct_ends",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'ended', 'unknown')",
+            name="ck_entity_relations_status",
+        ),
+        Index("ix_entity_relations_novel_id", "novel_id"),
+        Index("ix_entity_relations_from_entity_id", "from_entity_id"),
+        Index("ix_entity_relations_to_entity_id", "to_entity_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    novel_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("novels.id", name="fk_entity_relations_novel_id_novels"),
+        nullable=False,
+    )
+    from_entity_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("story_entities.id", name="fk_entity_relations_from_entity_id_story_entities"),
+        nullable=False,
+    )
+    to_entity_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("story_entities.id", name="fk_entity_relations_to_entity_id_story_entities"),
+        nullable=False,
+    )
+    relation_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    story_time_text: Mapped[str | None] = mapped_column(String(200))
+    storyline: Mapped[str | None] = mapped_column(String(80))
+    source_chapter_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("chapters.id", name="fk_entity_relations_source_chapter_id_chapters"),
+    )
+    source_revision: Mapped[int | None] = mapped_column(Integer)
+    evidence_quote: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
