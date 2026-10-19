@@ -35,7 +35,8 @@
 已实现：
 
 - 前后端工程骨架、`GET /api/v1/health`、OpenAPI（`/docs`、`/openapi.json`）
-- Alembic：`0001_initial` 基线，`0002_catalog` 创建 `novels`、`volumes`、`chapters`，`0003_chapter_versions` 创建版本快照表，`0004_ai` 创建 `model_configs` 与 `ai_tasks`，`0005_memory` 创建 `story_entities`、`entity_states`、`story_events`、`chapter_summaries`、`memory_change_proposals`，`0006_quality` 创建伏笔和可选字数目标
+- Alembic：`0001_initial` 基线，`0002_catalog` 创建 `novels`、`volumes`、`chapters`，`0003_chapter_versions` 创建版本快照表，`0004_ai` 创建 `model_configs` 与 `ai_tasks`，`0005_memory` 创建 `story_entities`、`entity_states`、`story_events`、`chapter_summaries`、`memory_change_proposals`，`0006_quality` 创建伏笔和可选字数目标，`0007_story_planning` 创建作品大纲、章节大纲和场景卡片
+- 叙事规划：作品大纲、章节大纲、场景卡片和重排。状态区分草稿、已确认、待复核、已归档；只有已确认的 `counts_as_fact` 为 true。左栏目录保留，大纲是另一视图。没有大纲的章节仍可写作、保存和导出。规划保存不改章节修订号
 - 作品、卷、章节的列表、创建、读取、更新和删除。作品与章节删除是软删除；删除卷时章节改为未分卷
 - 卷重排，章节移动和复制
 - 章节正文的权威格式是 Tiptap JSON（`content_format=tiptap_json`，`content_format_version=1`）。工作台中间栏用 Tiptap 编辑，保存时只写这一份 JSON
