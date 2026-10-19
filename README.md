@@ -35,7 +35,7 @@
 已实现：
 
 - 前后端工程骨架、`GET /api/v1/health`、OpenAPI（`/docs`、`/openapi.json`）
-- Alembic：`0001_initial` 基线，`0002_catalog` 创建 `novels`、`volumes`、`chapters`，`0003_chapter_versions` 创建版本快照表，`0004_ai` 创建 `model_configs` 与 `ai_tasks`，`0005_memory` 创建 `story_entities`、`entity_states`、`story_events`、`chapter_summaries`、`memory_change_proposals`，`0006_quality` 创建伏笔和可选字数目标，`0007_story_planning` 创建作品大纲、章节大纲和场景卡片，`0008_story_bible` 创建人物关系，并为动态状态补上可空的有效时间
+- Alembic：`0001_initial` 基线，`0002_catalog` 创建 `novels`、`volumes`、`chapters`，`0003_chapter_versions` 创建版本快照表，`0004_ai` 创建 `model_configs` 与 `ai_tasks`，`0005_memory` 创建 `story_entities`、`entity_states`、`story_events`、`chapter_summaries`、`memory_change_proposals`，`0006_quality` 创建伏笔和可选字数目标，`0007_story_planning` 创建作品大纲、章节大纲和场景卡片，`0008_story_bible` 创建人物关系，并为动态状态补上可空的有效时间，`0009_quality_issues` 创建质量问题和修复候选
 - 叙事规划：作品大纲、章节大纲、场景卡片和重排。状态区分草稿、已确认、待复核、已归档；只有已确认的 `counts_as_fact` 为 true。左栏目录保留，大纲是另一视图。没有大纲的章节仍可写作、保存和导出。规划保存不改章节修订号
 - 作品、卷、章节的列表、创建、读取、更新和删除。作品与章节删除是软删除；删除卷时章节改为未分卷
 - 卷重排，章节移动和复制
@@ -54,6 +54,7 @@
 - 工作台右侧有「生成」「设定」和「质量」。目录里可以对章节点「分析记忆」。设定页列出实体、过期摘要和提案，接受或拒绝都是明确操作
 - 伏笔：按作品列出、新建和修改。状态可以是 `open`、`planned`、`resolved`、`abandoned`、`uncertain`。一本作品的伏笔不会出现在另一本里。回收章节必须属于同一本作品
 - 冲突提示：`POST /api/v1/chapters/{id}/conflict-check` 只返回疑似冲突，包含类型、正文片段、已确认事实、来源章节和引用、严重程度、置信度、建议的人工处理。没有外部模型时走本地规则，不访问网络。人物状态变化本身不会被当成矛盾。检查不会改正文，也不会改正式记忆
+- 质量问题：`POST /api/v1/novels/{id}/quality-check` 把事实、时间、人物关系、伏笔、大纲和文本层面的疑似问题存下来，每条带证据或标明证据不足。默认只跑规则。生成修复建议先给差异；采纳才通过现有修订锁写入新版本。目标修订变了返回 409，不覆盖新正文。已修复的问题可以再查，不会被旧状态藏住
 - 选区改写：在正文里选中文字后，用现有 AI 任务的 `rewrite` 和 `selection_text` 生成候选。带选区时提示词版本是 `rewrite_selection_v1`。候选要比较后再采纳或放弃。采纳使用 `replace_selection`，修订号不一致返回 `409`
 - 字数统计：`GET /api/v1/novels/{id}/stats` 用正文的字数函数统计每章和全书。可以另存一个全本目标字数，目标不会改写正文
 - 评测样例：`backend/tests/fixtures/eval/samples.json` 固定了续写、选区改写和摘要三条虚构短句，由模拟模型重复跑，不访问网络

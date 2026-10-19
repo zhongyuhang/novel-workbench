@@ -766,6 +766,19 @@ textarea {
   color: var(--ok);
 }
 
+.quality-diff {
+  margin: 0;
+  padding: 0.6rem;
+  overflow: auto;
+  max-height: 16rem;
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.82rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
 .quality-pane h3,
 .selection-rewrite h3,
 .rewrite-compare h3 {

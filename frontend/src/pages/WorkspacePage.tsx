@@ -695,6 +695,24 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
               chapters={chapters}
               activeChapterId={chapterId}
               refreshKey={`${chapter?.revision ?? 0}:${chapters.map((item) => item.word_count).join(",")}`}
+              onManuscriptUpdated={(saved) => {
+                setChapter(saved);
+                setAdoptedChapter(saved);
+                setChapters((current) =>
+                  current.map((item) =>
+                    item.id === saved.id
+                      ? {
+                          ...item,
+                          title: saved.title,
+                          status: saved.status,
+                          word_count: saved.word_count,
+                          revision: saved.revision,
+                          updated_at: saved.updated_at,
+                        }
+                      : item,
+                  ),
+                );
+              }}
             />
           </div>
           <div hidden={sideTab !== "memory"}>

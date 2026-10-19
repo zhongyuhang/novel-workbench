@@ -68,6 +68,10 @@ ai-novel-writer/
 - 切换章节前检查未保存变更。
 - AI 候选结果和正式正文使用不同状态。
 
+## 4.1 质量规则
+
+规则在 `backend/app/services/quality_rules.py`，输入是已经取出的材料，不访问数据库。修复建议在 `quality_repairs.py`。落库、状态和采纳在 `quality_issues.py`。先跑 `pytest tests/test_quality_rules.py` 看正例、反例和证据不足，再跑 `tests/test_quality_issues.py` 看修订冲突。模型检查默认关闭。
+
 ## 5. Git 约定
 
 - `main`：始终可运行。

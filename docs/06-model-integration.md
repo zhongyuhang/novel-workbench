@@ -49,6 +49,8 @@
 
 当前可重复的小样例在 `backend/tests/fixtures/eval/samples.json`，覆盖续写、选区改写和摘要。`backend/tests/test_eval_samples.py` 用模拟模型跑这些样例，不访问网络。样例是虚构短句，不给文笔打分。
 
+质量规则另有 `backend/tests/fixtures/eval/quality_samples.json`，包含会报出的正例、不该报的反例，以及证据不足、无法判断的例子。`backend/tests/test_quality_rules.py` 离线重复运行，不调用模型。作品上的模型质量检查要显式 `use_model=true`；模拟模型配置不会访问网络。
+
 ## 8. 上下文快照
 
 创建任务时，ContextCompiler 的结果写进 `ai_tasks.input_snapshot`，和指令、选区、目标修订、模型名放在一起。字段包括 `compiler_version`（当前 `e2.v1`）、`context_items`、`context_warnings`、`context_budget`、`context_total_token_estimate`、`context_hash` 和实际 `prompt`。

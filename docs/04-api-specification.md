@@ -113,6 +113,20 @@
 
 伏笔状态为 `open`、`planned`、`resolved`、`abandoned`、`uncertain`，并且只属于一本作品。冲突检查只返回疑似冲突：类型、正文片段、已确认事实、来源章节与引用、严重程度、置信度、建议的人工处理。响应里的 `manuscript_changed` 和 `formal_memory_changed` 固定为 false。没有外部模型，或请求 `use_mock=true` 时，使用本地规则，`provider_mode` 为 `mock`。人物状态变化本身不算冲突。字数统计按正文字数函数计算每章和全书，目标字数是可选项。
 
+证据化质量问题另走下面这些接口，不替换上面的冲突检查：
+
+- `POST /api/v1/novels/{novel_id}/quality-check`
+- `GET /api/v1/novels/{novel_id}/quality-issues`
+- `GET /api/v1/quality-issues/{issue_id}`
+- `PATCH /api/v1/quality-issues/{issue_id}`
+- `POST /api/v1/quality-issues/{issue_id}/repairs`
+- `POST /api/v1/quality-repairs/{candidate_id}/accept`
+- `POST /api/v1/quality-repairs/{candidate_id}/reject`
+
+`quality-check` 默认只跑规则，`use_model` 默认 false。响应里的 `manuscript_changed` 和 `formal_memory_changed` 固定为 false。`provider_mode` 为 `rule`、`mock` 或 `openai_compatible`。列表默认只返回 `pending` 和 `confirmed`。`status` 可单独筛选 `fixed`、`ignored`、`expired`；`include_closed=true` 会把这些已关闭问题一并列出。`PATCH` 只能把状态改成 `pending`、`confirmed` 或 `ignored`。
+
+生成修复建议同样不改正文。候选带 `diff_preview`。`applicable=false` 的候选不能采纳，返回 `422`。采纳要求请求里的 `target_revision` 和候选上的修订都等于当前章节修订，否则 `409 REVISION_CONFLICT`，候选变为 `conflict`，正文保持新内容。采纳成功才把正文写成新修订，`change_source` 为 `ai_accepted`，问题变为 `fixed`。正式设定内容不变。重复采纳返回 `409`。
+
 ### Planning
 
 作品级大纲、章节大纲和场景卡片。都要认证。服务层校验作品和章节属于同一本小说；场景引用的地点、人物也必须是这本作品里未删除的对应实体。规划写入不改章节正文，也不增加 `chapters.revision`。

@@ -5,6 +5,7 @@ import {
   checkConflicts,
   getNovelStats,
   listForeshadowing,
+  listQualityIssues,
   setWritingGoal,
   updateForeshadowing,
   type Foreshadowing,
@@ -20,6 +21,12 @@ vi.mock("../api/quality.ts", () => ({
   checkConflicts: vi.fn(),
   getNovelStats: vi.fn(),
   setWritingGoal: vi.fn(),
+  listQualityIssues: vi.fn(async () => []),
+  runQualityCheck: vi.fn(),
+  updateQualityIssue: vi.fn(),
+  generateRepairs: vi.fn(),
+  acceptRepair: vi.fn(),
+  rejectRepair: vi.fn(),
 }));
 
 const chapters: ChapterSummary[] = [
@@ -79,6 +86,8 @@ describe("QualityPanel", () => {
     vi.mocked(checkConflicts).mockReset();
     vi.mocked(getNovelStats).mockReset();
     vi.mocked(setWritingGoal).mockReset();
+    vi.mocked(listQualityIssues).mockReset();
+    vi.mocked(listQualityIssues).mockResolvedValue([]);
     vi.mocked(getNovelStats).mockResolvedValue(stats);
     vi.mocked(listForeshadowing).mockImplementation(async (_novelId, status) =>
       status === "open" ? [openItem] : [openItem, resolvedItem],
