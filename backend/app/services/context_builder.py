@@ -20,7 +20,13 @@ from app.core.content import document_to_text
 from app.core.errors import ContextCompileError
 from app.core.redaction import redact_text
 from app.models.catalog import Chapter, Novel, Volume
-from app.models.memory import ChapterSummary, EntityState, StoryEntity, StoryEvent
+from app.models.memory import (
+    ChapterSummary,
+    EntityRelation,
+    EntityState,
+    StoryEntity,
+    StoryEvent,
+)
 from app.models.planning import ChapterOutline, SceneCard, StoryPlan
 from app.models.quality import Foreshadowing
 from app.repositories import catalog as catalog_repo
@@ -496,6 +502,7 @@ def _collect(
     entities = _entities(session, novel.id)
     states = _latest_states(session, [entity.id for entity in entities])
     matched_names: list[str] = []
+    matched_ids: set[str] = set()
     for entity in entities:
         if entity.novel_id != novel.id:
             continue
@@ -503,7 +510,11 @@ def _collect(
         if matched is None:
             continue
         matched_names.extend(_names(entity))
+        matched_ids.add(entity.id)
         candidates.append(_entity_candidate(entity, states.get(entity.id), titles, matched=matched))
+    entity_names = {entity.id: entity.name for entity in entities if entity.novel_id == novel.id}
+    for relation in _relations_for_entities(session, novel.id, matched_ids):
+        candidates.append(_relation_candidate(relation, entity_names, titles))
     event_text = "" if selection_only else chapter_text
     for event in _related_events(session, novel.id, instruction, selection_text, event_text):
         if event.novel_id != novel.id:
@@ -700,6 +711,9 @@ def _entity_candidate(
         source_revision = state.source_revision
         revision = source_revision if source_revision is not None else "未知"
         lines.append(f"人物当前状态：来源章节「{title}」修订 {revision}")
+        validity = _validity_text(state.valid_from_text, state.valid_until_text)
+        if validity:
+            lines.append(validity)
         if state.evidence_quote:
             lines.append(f"证据：{state.evidence_quote}")
         if chapter is None:
@@ -725,6 +739,96 @@ def _entity_candidate(
         hit_reason=hit,
         droppable=not certain,
         shrinkable=certain,
+        included=True,
+        exclusion_reason=None,
+        warnings=warnings,
+    )
+
+
+def _validity_text(start: str | None, end: str | None) -> str | None:
+    start_text = start.strip() if isinstance(start, str) else ""
+    end_text = end.strip() if isinstance(end, str) else ""
+    if start_text and end_text:
+        return f"有效时间：{start_text} 至 {end_text}"
+    if start_text:
+        return f"有效时间：自 {start_text} 起"
+    if end_text:
+        return f"有效时间：至 {end_text} 止"
+    return None
+
+
+def _relations_for_entities(
+    session: Session,
+    novel_id: str,
+    entity_ids: set[str],
+) -> list[EntityRelation]:
+    if not entity_ids:
+        return []
+    rows = session.scalars(
+        select(EntityRelation)
+        .where(
+            EntityRelation.novel_id == novel_id,
+            EntityRelation.deleted_at.is_(None),
+        )
+        .order_by(EntityRelation.created_at.asc(), EntityRelation.id.asc())
+    ).all()
+    return [
+        row
+        for row in rows
+        if row.novel_id == novel_id
+        and (row.from_entity_id in entity_ids or row.to_entity_id in entity_ids)
+    ]
+
+
+def _relation_candidate(
+    relation: EntityRelation,
+    names: dict[str, str],
+    titles: dict[str, Chapter],
+) -> _Candidate:
+    left = names.get(relation.from_entity_id, "未解析的设定")
+    right = names.get(relation.to_entity_id, "未解析的设定")
+    ended = relation.status == "ended"
+    uncertain = relation.status == "unknown"
+    heading = "不确定关系（不是已确认事实）" if uncertain else "已确认关系"
+    if ended:
+        heading = "已结束的关系"
+    lines = [f"{heading}：{left} —{relation.relation_type}→ {right}"]
+    if relation.storyline:
+        lines.append(f"故事线标签：{relation.storyline}")
+    if relation.story_time_text:
+        lines.append(f"故事时间：{relation.story_time_text}")
+    else:
+        lines.append("故事时间未填写")
+    chapter = titles.get(relation.source_chapter_id) if relation.source_chapter_id else None
+    warnings: list[str] = []
+    if relation.source_chapter_id:
+        title = chapter.title if chapter is not None else "未知章节"
+        revision = relation.source_revision if relation.source_revision is not None else "未知"
+        lines.append(f"来源章节「{title}」修订 {revision}")
+        if chapter is None:
+            warnings.append("关系的来源章节不在这本作品的可见章节里。")
+        elif relation.source_revision is not None and relation.source_revision != chapter.revision:
+            warnings.append(
+                f"关系来源修订 {relation.source_revision} 落后于章节「{chapter.title}」"
+                f"当前修订 {chapter.revision}。"
+            )
+    if relation.evidence_quote:
+        lines.append(f"证据：{relation.evidence_quote}")
+    else:
+        lines.append("证据未填写")
+    return _Candidate(
+        id=f"relation:{relation.id}",
+        kind="entity_relation",
+        content="\n".join(lines),
+        source_type="entity_relation",
+        source_id=relation.id,
+        source_revision=relation.source_revision,
+        certainty="uncertain" if uncertain else "confirmed",
+        priority=15 if not uncertain else 70,
+        sequence=0,
+        hit_reason="人物关系，关联到已命中的设定",
+        droppable=True,
+        shrinkable=False,
         included=True,
         exclusion_reason=None,
         warnings=warnings,

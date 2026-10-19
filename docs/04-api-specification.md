@@ -80,6 +80,13 @@
 - `GET /api/v1/novels/{novel_id}/entities`
 - `POST /api/v1/novels/{novel_id}/entities`
 - `PATCH /api/v1/entities/{entity_id}`
+- `POST /api/v1/entities/{entity_id}/states`
+- `PATCH /api/v1/entity-states/{state_id}`
+- `DELETE /api/v1/entity-states/{state_id}`
+- `GET /api/v1/novels/{novel_id}/relations`
+- `POST /api/v1/novels/{novel_id}/relations`
+- `PATCH /api/v1/relations/{relation_id}`
+- `DELETE /api/v1/relations/{relation_id}`
 - `POST /api/v1/chapters/{chapter_id}/analyze`
 - `GET /api/v1/novels/{novel_id}/memory-proposals`
 - `POST /api/v1/memory-proposals/{proposal_id}/accept`
@@ -88,7 +95,13 @@
 - `GET /api/v1/novels/{novel_id}/chapter-summaries`
 - `GET /api/v1/novels/{novel_id}/events`
 
-分析请求带 `revision`，可选 `model_config_id` 和 `use_mock`。它只创建提案。响应里的 `formal_memory_changed` 和 `manuscript_changed` 固定为 false。没有证据的条目 `certainty` 为 `inferred` 或 `uncertain`。接受才写入正式记忆，并且不改正文。拒绝不改正式设定。撤回只回滚该提案接受时写下的记忆。章节修订变化后，相关摘要和待审核提案变为 `stale`。
+分析请求带 `revision`，可选 `model_config_id` 和 `use_mock`。它只创建提案。响应里的 `formal_memory_changed` 和 `manuscript_changed` 固定为 false。没有证据的条目 `certainty` 为 `inferred` 或 `uncertain`。接受才写入正式记忆，并且不改正文。拒绝不改正式设定。章节修订变化后，相关摘要和待审核提案变为 `stale`。
+
+动态状态的 `valid_from_text` 和 `valid_until_text` 可空。空字符串会存成空，不会因为没填时间而拒绝保存。来源章节必须属于该设定所在的作品。手工记录的 `source_type` 为 `manual`，并写下来源章节当时的修订号。
+
+人物关系的两端必须是同一作品里未删除的不同设定。`story_time_text`、`storyline`、来源章节和证据都可空。`storyline` 是关系上的标签，用来筛选；没有故事线表。列表可以用 `entity_id`、`chapter_id`、`status`、`storyline` 筛选。跨作品引用返回 `422`。删除是软删除。
+
+`entity_update` 的撤回只回滚 `field_changes` 里的字段。若其中任一字段在接受后又被改过，返回 `409 TASK_STATE`，正式设定和提案状态都不变。没有字段级记录的旧提案同样 `409`，不会用整份接受前快照覆盖。撤回成功不改正文修订。新建实体的撤回仍是软删除该实体。状态行、事件和摘要的撤回仍分别是删除该行、软删除事件、把摘要标为 `rejected`。
 
 ### Quality
 - `GET /api/v1/novels/{novel_id}/foreshadowing`

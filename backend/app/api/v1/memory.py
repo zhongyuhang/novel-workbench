@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_session
@@ -12,9 +12,16 @@ from app.schemas.memory import (
     ChapterSummaryResponse,
     EntityCreate,
     EntityResponse,
+    EntityStateCreate,
+    EntityStateResponse,
+    EntityStateUpdate,
     EntityUpdate,
     ProposalResponse,
     ProposalStatus,
+    RelationResponse,
+    RelationStatus,
+    RelationUpdate,
+    RelationWrite,
     ReviewRequest,
     StoryEventResponse,
 )
@@ -51,6 +58,87 @@ def update_entity(
     session: Annotated[Session, Depends(get_db)],
 ) -> EntityResponse:
     return memory_service.update_entity(session, entity_id, payload)
+
+
+@router.post(
+    "/entities/{entity_id}/states",
+    response_model=EntityStateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_entity_state(
+    entity_id: str,
+    payload: EntityStateCreate,
+    session: Annotated[Session, Depends(get_db)],
+) -> EntityStateResponse:
+    return memory_service.create_entity_state(session, entity_id, payload)
+
+
+@router.patch("/entity-states/{state_id}", response_model=EntityStateResponse)
+def update_entity_state(
+    state_id: str,
+    payload: EntityStateUpdate,
+    session: Annotated[Session, Depends(get_db)],
+) -> EntityStateResponse:
+    return memory_service.update_entity_state(session, state_id, payload)
+
+
+@router.delete("/entity-states/{state_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_entity_state(
+    state_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> Response:
+    memory_service.delete_entity_state(session, state_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/novels/{novel_id}/relations", response_model=list[RelationResponse])
+def list_relations(
+    novel_id: str,
+    session: Annotated[Session, Depends(get_db)],
+    entity_id: Annotated[str | None, Query()] = None,
+    chapter_id: Annotated[str | None, Query()] = None,
+    status_filter: Annotated[RelationStatus | None, Query(alias="status")] = None,
+    storyline: Annotated[str | None, Query()] = None,
+) -> list[RelationResponse]:
+    return memory_service.list_relations(
+        session,
+        novel_id,
+        entity_id=entity_id,
+        chapter_id=chapter_id,
+        status=status_filter,
+        storyline=storyline,
+    )
+
+
+@router.post(
+    "/novels/{novel_id}/relations",
+    response_model=RelationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_relation(
+    novel_id: str,
+    payload: RelationWrite,
+    session: Annotated[Session, Depends(get_db)],
+) -> RelationResponse:
+    return memory_service.create_relation(session, novel_id, payload)
+
+
+@router.patch("/relations/{relation_id}", response_model=RelationResponse)
+def update_relation(
+    relation_id: str,
+    payload: RelationUpdate,
+    session: Annotated[Session, Depends(get_db)],
+) -> RelationResponse:
+    return memory_service.update_relation(session, relation_id, payload)
+
+
+@router.delete("/relations/{relation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_relation(
+    relation_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> Response:
+    memory_service.delete_relation(session, relation_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/chapters/{chapter_id}/analyze", response_model=AnalyzeResponse)

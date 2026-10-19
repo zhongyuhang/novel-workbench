@@ -698,7 +698,8 @@ textarea {
 
 .memory-actions,
 .memory-form,
-.memory-list {
+.memory-list,
+.bible-filters {
   display: grid;
   gap: 0.7rem;
 }

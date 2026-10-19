@@ -12,6 +12,7 @@ const KIND_LABELS: Record<string, string> = {
   previous_chapter: "上一章",
   next_chapter: "下一章",
   entity: "设定",
+  entity_relation: "人物关系",
   event: "事件",
   summary: "章节摘要",
   foreshadowing: "伏笔",

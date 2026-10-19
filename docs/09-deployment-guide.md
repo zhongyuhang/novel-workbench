@@ -109,7 +109,7 @@ curl -sS http://127.0.0.1:8080/api/v1/admin/backups \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-备份目录在宿主机的 `$DATA_DIR/backups/<id>/`，里面有 `manifest.json`（应用版本、迁移版本、时间）和 `database.sqlite`。不要把这些文件提交到 git。备份是整库副本，`0007_story_planning` 的 `story_plans`、`chapter_outlines`、`scene_cards` 会跟正文和版本一起带走，恢复后仍能按原作品读到。
+备份目录在宿主机的 `$DATA_DIR/backups/<id>/`，里面有 `manifest.json`（应用版本、迁移版本、时间）和 `database.sqlite`。不要把这些文件提交到 git。备份是整库副本。`0007_story_planning` 的大纲表，以及 `0008_story_bible` 的 `entity_relations` 和状态有效时间，会跟正文和版本一起带走，恢复后仍能按原作品读到。
 
 恢复到一个新文件，确认无误后再替换正式库：
 
