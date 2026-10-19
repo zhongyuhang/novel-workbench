@@ -1,6 +1,7 @@
 """M6 acceptance: T-017 backup/restore and T-018 authenticated LAN access."""
 
 import os
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -239,12 +240,27 @@ def test_t017_backup_then_restore_into_a_new_database(
         },
     )
     assert model.status_code == 201, model.text
+    plan = auth_client.put(
+        f"/api/v1/novels/{novel['id']}/story-plan",
+        json={"logline": "备份里的大纲", "body": "全书结构"},
+    )
+    assert plan.status_code == 200, plan.text
+    outline = auth_client.put(
+        f"/api/v1/chapters/{chapter['id']}/outline",
+        json={"goal": "备份里的章节目标"},
+    )
+    assert outline.status_code == 200, outline.text
+    scene = auth_client.post(
+        f"/api/v1/chapters/{chapter['id']}/scenes",
+        json={"goal": "备份里的场景", "turning_point": "转折还在"},
+    )
+    assert scene.status_code == 201, scene.text
 
     created = auth_client.post("/api/v1/admin/backups")
     assert created.status_code == 201, created.text
     body = created.json()
     assert body["app_version"] == "1.0.0"
-    assert body["alembic_revision"] == "0006_quality"
+    assert body["alembic_revision"] == "0007_story_planning"
     assert "database" not in body
     assert str(tmp_path) not in created.text
     assert SECRET not in created.text
@@ -258,6 +274,16 @@ def test_t017_backup_then_restore_into_a_new_database(
     assert (backup_dir / "manifest.json").is_file()
     assert (backup_dir / "database.sqlite").is_file()
     assert backup_dir.is_relative_to(get_settings().resolved_data_dir)
+    with sqlite3.connect(backup_dir / "database.sqlite") as backed_up:
+        tables = {
+            row[0]
+            for row in backed_up.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        stored_plan = backed_up.execute("SELECT logline FROM story_plans").fetchone()
+        stored_scene = backed_up.execute("SELECT goal FROM scene_cards").fetchone()
+    assert {"story_plans", "chapter_outlines", "scene_cards"} <= tables
+    assert stored_plan == ("备份里的大纲",)
+    assert stored_scene == ("备份里的场景",)
 
     fresh_db = tmp_path / "restored-env" / "ai_novel_writer.db"
     completed = subprocess.run(
@@ -326,6 +352,16 @@ def test_t017_backup_then_restore_into_a_new_database(
         assert models.status_code == 200, models.text
         assert models.json()[0]["display_name"] == "备份里的模型"
         assert SECRET not in models.text
+        restored_plan = restored.get(f"/api/v1/novels/{novel_id}/story-plan")
+        assert restored_plan.status_code == 200, restored_plan.text
+        assert restored_plan.json()["plan"]["logline"] == "备份里的大纲"
+        assert restored_plan.json()["plan"]["counts_as_fact"] is False
+        restored_outline = restored.get(f"/api/v1/chapters/{chapter_id}/outline")
+        assert restored_outline.json()["outline"]["goal"] == "备份里的章节目标"
+        restored_scenes = restored.get(f"/api/v1/chapters/{chapter_id}/scenes")
+        assert restored_scenes.json()[0]["goal"] == "备份里的场景"
+        assert restored_scenes.json()[0]["turning_point"] == "转折还在"
+        assert restored_scenes.json()[0]["sort_order"] == 0
 
 
 def test_compose_file_persists_data_and_does_not_enable_reload() -> None:

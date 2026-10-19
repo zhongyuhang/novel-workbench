@@ -27,7 +27,7 @@ type ChapterEditorProps = {
 };
 
 const STATUSES: Array<{ value: ChapterStatus; label: string }> = [
-  { value: "outline", label: "大纲" },
+  { value: "outline", label: "提纲" },
   { value: "draft", label: "草稿" },
   { value: "revised", label: "修订" },
   { value: "final", label: "定稿" },

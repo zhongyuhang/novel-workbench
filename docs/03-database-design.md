@@ -43,16 +43,60 @@
 
 索引：`(novel_id, sort_order)`、`(volume_id, sort_order)`。
 
-### outlines
+`chapters.status` 里的 `outline` 只表示写作进度（界面写成「提纲」），不是章节大纲。章节大纲在 `chapter_outlines`。
+
+### 叙事规划
+
+`docs/03` 早先写过一张按 `level` 分层的 `outlines` 表。那张表没有进入 `0001`–`0006`，现在也不补建。规划用下面三张表，决定见 [ADR-006](adr/ADR-006-story-planning.md)。故事线、卷大纲本阶段没有表。
+
+备份是整份 SQLite 文件。这三张表会随库备份和恢复，不单独导出。Markdown/TXT 导出仍然只含标题、简介、卷、章和正文，不含大纲。
+
+#### story_plans
+
+每本作品最多一行。正文可空。状态默认 `draft`。`revision` 只属于这份大纲，不改 `chapters.revision`。
+
+- `id` PK
+- `novel_id` FK，唯一
+- `logline` nullable
+- `body` nullable
+- `ending_intent` nullable
+- `status` (`draft`, `confirmed`, `stale`, `archived`)
+- `revision`（大于等于 1）
+- `created_at`, `updated_at`
+
+只有 `confirmed` 可以在以后被当作创作约束。`draft`、`stale`、`archived` 都不是强制事实。正文修订变化时自动标 `stale` 还没做。
+
+#### chapter_outlines
+
+每个章节最多一行，并冗余 `novel_id`，服务层要求它和章节属于同一作品。
+
 - `id` PK
 - `novel_id` FK
-- `parent_id` nullable FK -> outlines
-- `level` (`book`, `volume`, `chapter`, `scene`)
-- `title`
-- `content`
-- `sort_order`
-- `status`
+- `chapter_id` FK，唯一
+- `goal`、`must_advance`、`required_events`、`allowed_reveals`、`forbidden_reveals`、`ending_hook` 均可空
+- `target_words` nullable，空或大于等于 1。这是本章的可选目标，不改 `writing_goals`
+- `status` 同上
+- `revision`（大于等于 1）
 - `created_at`, `updated_at`
+
+索引：`(novel_id)`。
+
+软删除章节后，大纲行留在库里，接口不再返回。不会改挂到别的作品。
+
+#### scene_cards
+
+- `id` PK
+- `novel_id` FK
+- `chapter_id` FK
+- `sort_order`（大于等于 0）
+- `goal`、`conflict`、`turning_point`、`expected_outcome`、`must_convey`、`must_not_reveal` 均可空
+- `location_entity_id` nullable FK -> story_entities。必须是同一作品的 `location`
+- `character_entity_ids` JSON，只存人物实体 ID，不存档案
+- `status` 同上
+- `revision`（大于等于 1）
+- `created_at`, `updated_at`
+
+索引：`(novel_id)`、`(chapter_id, sort_order)`。排序以重排后的 `sort_order` 为准。删除场景会腾出序号；软删除章节时场景行保留，接口隐藏。
 
 ### story_entities
 - `id` PK
@@ -184,9 +228,11 @@
 
 ## 3. 关系原则
 
-- 一个 novel 有多个 volume、chapter、entity、event。
+- 一个 novel 有多个 volume、chapter、entity、event，最多一份 `story_plans`。
 - chapter 可以没有 volume（例如尚未分卷的草稿）。
-- chapter 可以有多个版本、摘要和记忆提案。
+- chapter 可以没有大纲和场景卡片。没有大纲不影响正文、版本和导出。
+- chapter 可以有多个版本、摘要和记忆提案，以及最多一份 `chapter_outlines`。
+- 场景卡片的地点和人物必须引用同一作品里的实体。
 - entity 的静态档案与 entity_states 的动态历史分开。
 - AI 提案必须引用源章节和源 revision。
 - 删除章节时，优先软删除并保留历史证据；清理孤儿数据应由单独、可测试的操作执行。

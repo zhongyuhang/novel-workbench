@@ -92,6 +92,29 @@
 
 伏笔状态为 `open`、`planned`、`resolved`、`abandoned`、`uncertain`，并且只属于一本作品。冲突检查只返回疑似冲突：类型、正文片段、已确认事实、来源章节与引用、严重程度、置信度、建议的人工处理。响应里的 `manuscript_changed` 和 `formal_memory_changed` 固定为 false。没有外部模型，或请求 `use_mock=true` 时，使用本地规则，`provider_mode` 为 `mock`。人物状态变化本身不算冲突。字数统计按正文字数函数计算每章和全书，目标字数是可选项。
 
+### Planning
+
+作品级大纲、章节大纲和场景卡片。都要认证。服务层校验作品和章节属于同一本小说；场景引用的地点、人物也必须是这本作品里未删除的对应实体。规划写入不改章节正文，也不增加 `chapters.revision`。
+
+- `GET /api/v1/novels/{novel_id}/story-plan`：作品还没有大纲时 `plan` 为 null，不是 404。
+- `PUT /api/v1/novels/{novel_id}/story-plan`：创建或更新。已有大纲时必须带 `expected_revision`，不一致返回 `409 REVISION_CONFLICT`。
+- `POST /api/v1/novels/{novel_id}/story-plan/confirm`：把状态改为 `confirmed`。这是标成已确认的唯一入口。
+- `GET /api/v1/novels/{novel_id}/chapter-outlines`：只列出未软删除章节的大纲。
+- `GET /api/v1/chapters/{chapter_id}/outline`：没有大纲时 `outline` 为 null。
+- `PUT /api/v1/chapters/{chapter_id}/outline`
+- `POST /api/v1/chapters/{chapter_id}/outline/confirm`
+- `GET /api/v1/chapters/{chapter_id}/scenes`
+- `POST /api/v1/chapters/{chapter_id}/scenes`
+- `PATCH /api/v1/scenes/{scene_id}`
+- `DELETE /api/v1/scenes/{scene_id}`
+- `POST /api/v1/chapters/{chapter_id}/scenes/reorder`：请求体是这一章全部 `scene_ids`，按新顺序排列。缺项、重复或其他章节的卡片返回 `422`。
+
+状态是 `draft`、`confirmed`、`stale`、`archived`。响应里的 `counts_as_fact` 只有 `confirmed` 为 true。作品大纲和章节大纲的普通保存不能把状态写成 `confirmed`；内容有变化且没有另选状态时，已确认的大纲会回到 `draft`。场景卡片可以在创建或修改时自带状态。
+
+跨作品的章节、地点或人物引用返回 `422 INVALID_REFERENCE`。软删除后的章节再读大纲或场景返回 `404`，库里的规划行仍指向原来的 `novel_id` 和 `chapter_id`。未登录返回 `401`。
+
+本阶段没有故事线、卷大纲，也没有「生成大纲候选」接口。上下文编译器还不读取这些表。
+
 ### Model settings
 - `GET /api/v1/settings/models`
 - `POST /api/v1/settings/models`

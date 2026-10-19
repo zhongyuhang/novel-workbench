@@ -18,6 +18,7 @@ import { ApiError, type Chapter, type ChapterSummary, type Novel, type Volume } 
 import { AiPanel } from "../components/AiPanel.tsx";
 import { ChapterEditor } from "../components/ChapterEditor.tsx";
 import { MemoryPanel } from "../components/MemoryPanel.tsx";
+import { ChapterPlanEditor, OutlinePanel } from "../components/OutlinePanel.tsx";
 import { QualityPanel } from "../components/QualityPanel.tsx";
 import { requestMemoryAnalyze } from "../features/memory/analyzeBridge.ts";
 import { HealthBadge } from "../components/HealthBadge.tsx";
@@ -53,6 +54,8 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [sideTab, setSideTab] = useState<"write" | "memory" | "quality">("write");
+  const [leftView, setLeftView] = useState<"toc" | "outline">("toc");
+  const [centerView, setCenterView] = useState<"manuscript" | "outline">("manuscript");
   const unsavedRef = useRef(false);
   const skipGuardRef = useRef(false);
 
@@ -192,6 +195,22 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
     tryNavigate(workspaceHash(novelId, id));
   }
 
+  function openChapterIn(id: string, view: "manuscript" | "outline") {
+    const leavingManuscript =
+      centerView === "manuscript" && (id !== chapterId || view !== "manuscript");
+    if (
+      leavingManuscript &&
+      !allowChapterLeave(unsavedRef.current, (message) => window.confirm(message))
+    ) {
+      return;
+    }
+    setCenterView(view);
+    if (id === chapterId) {
+      return;
+    }
+    forceNavigate(workspaceHash(novelId, id));
+  }
+
   const toc = buildToc(volumes, chapters);
 
   return (
@@ -212,7 +231,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
           <h1>{novel?.title ?? "读取中"}</h1>
         </div>
         <div className="topbar-meta">
-          <p className="milestone">M4 设定与记忆</p>
+          <p className="milestone">E1 叙事规划</p>
           <a className="ghost" href="#/settings">
             模型设置
           </a>
@@ -251,10 +270,37 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
         </p>
       ) : null}
       <div className="workspace-columns">
-        <nav className="workspace-pane toc-pane" aria-label="目录">
+        <nav className="workspace-pane toc-pane" aria-label="目录与大纲">
           <div className="pane-toolbar">
-            <h2>目录</h2>
+            <div className="view-tabs" role="tablist" aria-label="左栏视图">
+              <button
+                className={leftView === "toc" ? "primary" : "ghost"}
+                type="button"
+                role="tab"
+                aria-selected={leftView === "toc"}
+                onClick={() => {
+                  setLeftView("toc");
+                }}
+              >
+                目录
+              </button>
+              <button
+                className={leftView === "outline" ? "primary" : "ghost"}
+                type="button"
+                role="tab"
+                aria-selected={leftView === "outline"}
+                onClick={() => {
+                  setLeftView("outline");
+                }}
+              >
+                大纲
+              </button>
+            </div>
+            {leftView === "toc" ? (
+              <h2 className="visually-hidden">目录</h2>
+            ) : null}
             <button
+              hidden={leftView !== "toc"}
               className="ghost"
               type="button"
               disabled={busy || loading}
@@ -268,11 +314,22 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
               新建卷
             </button>
           </div>
-          {loading ? <p role="status">正在读取目录</p> : null}
-          {!loading && chapters.length === 0 && volumes.length === 0 ? (
+          {leftView === "outline" ? (
+            <OutlinePanel
+              novelId={novelId}
+              chapters={chapters}
+              activeChapterId={chapterId}
+              onOpenChapter={(id) => {
+                openChapterIn(id, "outline");
+              }}
+            />
+          ) : null}
+          {leftView === "toc" && loading ? <p role="status">正在读取目录</p> : null}
+          {leftView === "toc" && !loading && chapters.length === 0 && volumes.length === 0 ? (
             <p className="hint">还没有卷或章节。</p>
           ) : null}
-          {toc.map((group) => (
+          {leftView === "toc"
+            ? toc.map((group) => (
             <section key={group.key} className="toc-group">
               <div className="toc-group-head">
                 {renamingId === group.volume?.id ? (
@@ -385,7 +442,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
                       className="toc-link"
                       type="button"
                       onClick={() => {
-                        openChapter(item.id);
+                        openChapterIn(item.id, "manuscript");
                       }}
                     >
                       <span>{item.title}</span>
@@ -489,10 +546,51 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
                 在此新建章节
               </button>
             </section>
-          ))}
+          ))
+            : null}
         </nav>
         <main className="workspace-pane editor-pane">
           {chapter && chapter.id === chapterId ? (
+            <div className="view-tabs" role="tablist" aria-label="章节视图">
+              <button
+                className={centerView === "manuscript" ? "primary" : "ghost"}
+                type="button"
+                role="tab"
+                aria-selected={centerView === "manuscript"}
+                onClick={() => {
+                  if (!chapter) {
+                    return;
+                  }
+                  openChapterIn(chapter.id, "manuscript");
+                }}
+              >
+                正文
+              </button>
+              <button
+                className={centerView === "outline" ? "primary" : "ghost"}
+                type="button"
+                role="tab"
+                aria-selected={centerView === "outline"}
+                onClick={() => {
+                  if (!chapter) {
+                    return;
+                  }
+                  openChapterIn(chapter.id, "outline");
+                }}
+              >
+                章节大纲
+              </button>
+            </div>
+          ) : null}
+          {chapter && chapter.id === chapterId && centerView === "outline" ? (
+            <ChapterPlanEditor
+              key={`${novelId}:${chapter.id}`}
+              novelId={novelId}
+              chapterId={chapter.id}
+              chapterTitle={chapter.title}
+            />
+          ) : null}
+          {chapter && chapter.id === chapterId && centerView === "manuscript" ? (
             <ChapterEditor
               key={chapter.id}
               chapter={chapter}
@@ -520,12 +618,13 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
                 );
               }}
             />
-          ) : (
+          ) : null}
+          {!chapter || chapter.id !== chapterId ? (
             <div className="empty">
               <p className="empty-title">{chapterId ? "正在打开章节" : "选择一章"}</p>
               <p>从左侧目录打开章节，或在未分卷下新建。正文保存在服务器，刷新后仍在。</p>
             </div>
-          )}
+          ) : null}
         </main>
         <div className="side-pane">
           <div className="side-tabs" role="tablist" aria-label="写作侧栏">

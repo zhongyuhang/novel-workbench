@@ -10,12 +10,14 @@ from app.models.memory import (
     StoryEntity,
     StoryEvent,
 )
+from app.models.planning import ChapterOutline, SceneCard, StoryPlan
 from app.models.quality import Foreshadowing, WritingGoal
 
 __all__ = [
     "AiTask",
     "Base",
     "Chapter",
+    "ChapterOutline",
     "ChapterSummary",
     "ChapterVersion",
     "EntityState",
@@ -23,8 +25,10 @@ __all__ = [
     "MemoryChangeProposal",
     "ModelConfig",
     "Novel",
+    "SceneCard",
     "StoryEntity",
     "StoryEvent",
+    "StoryPlan",
     "Volume",
     "WritingGoal",
 ]
