@@ -103,6 +103,14 @@ class DuplicateEntity(AppError):
     message = "这本作品里已经有同名设定。"
 
 
+class ContextCompileError(AppError):
+    """Context compilation failed. Generation must not continue without context."""
+
+    status_code = 422
+    code = "CONTEXT_COMPILE_FAILED"
+    message = "上下文编译失败，已停止生成。没有在缺少上下文的情况下调用模型。"
+
+
 class ProviderRequestFailed(AppError):
     """Safe provider failure. The message must not contain secrets or response bodies."""
 

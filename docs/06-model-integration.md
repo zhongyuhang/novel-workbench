@@ -48,3 +48,15 @@
 维护固定的小说测试集：延续前章、遵守设定、按字数生成、选区改写、摘要事实、JSON schema、断流超时恢复。质量评价由可重复测试和人工审阅共同组成。
 
 当前可重复的小样例在 `backend/tests/fixtures/eval/samples.json`，覆盖续写、选区改写和摘要。`backend/tests/test_eval_samples.py` 用模拟模型跑这些样例，不访问网络。样例是虚构短句，不给文笔打分。
+
+## 8. 上下文快照
+
+创建任务时，ContextCompiler 的结果写进 `ai_tasks.input_snapshot`，和指令、选区、目标修订、模型名放在一起。字段包括 `compiler_version`（当前 `e2.v1`）、`context_items`、`context_warnings`、`context_budget`、`context_total_token_estimate`、`context_hash` 和实际 `prompt`。
+
+`token_estimate` 和预算都是字符数，不是供应商的分词结果。`context_hash` 覆盖编译时的全文和纳入决定。单条材料的存档副本超过 4000 字会缩短，并在警告里说明；送给模型的硬规则仍是全文。
+
+提示词存在任务行上，因为后台生成读的就是这份提示词，所以不能为了缩小数据库把它截断。若用户把密钥形状的文本写进指令，存档前会打成 `[REDACTED]`，模型看到的也是打码后的提示。模型配置里的 API Key 和 `secret_ref` 不会进入快照。
+
+快照跟任务行一起留下，没有单独的清理任务。单用户 SQLite 不按时间删历史任务。旧任务没有 `compiler_version` 时，`GET /api/v1/ai/tasks/{id}/context` 返回 `legacy=true`，不编造来源列表。
+
+编译抛错时创建任务的接口返回 `422 CONTEXT_COMPILE_FAILED`。空的作品仍然可以编译：结果里只有系统规则和本次指令，这和编译失败不是一回事。

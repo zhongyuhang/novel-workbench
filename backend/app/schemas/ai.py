@@ -22,6 +22,17 @@ def _clean_name(value: str) -> str:
     return cleaned
 
 
+def clean_material_ids(value: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    for item in value:
+        text = item.strip()
+        if text == "" or len(text) > 80:
+            raise ValueError("材料编号无效")
+        if text not in cleaned:
+            cleaned.append(text)
+    return cleaned
+
+
 class ModelConfigWrite(BaseModel):
     display_name: str = Field(min_length=1, max_length=200)
     provider_type: ProviderType = "openai_compatible"
@@ -162,6 +173,9 @@ class AiTaskCreate(BaseModel):
     mock_behavior: str | None = Field(default=None, max_length=32)
     mock_tokens: list[str] | None = None
     mock_script_id: str | None = Field(default=None, max_length=64)
+    context_budget: int | None = Field(default=None, ge=200, le=20000)
+    pinned_include: list[str] = Field(default_factory=list, max_length=40)
+    pinned_exclude: list[str] = Field(default_factory=list, max_length=40)
 
     @field_validator("instruction", "selection_text")
     @classmethod
@@ -169,6 +183,11 @@ class AiTaskCreate(BaseModel):
         if value is None:
             return None
         return value.strip()
+
+    @field_validator("pinned_include", "pinned_exclude")
+    @classmethod
+    def clean_pins(cls, value: list[str]) -> list[str]:
+        return clean_material_ids(value)
 
     @field_validator("mock_tokens")
     @classmethod

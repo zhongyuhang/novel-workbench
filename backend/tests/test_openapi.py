@@ -43,6 +43,8 @@ def test_openapi_lists_m3_routes(client: TestClient) -> None:
     assert "post" in document["paths"]["/api/v1/chapters/{chapter_id}/restore"]
     assert "post" in document["paths"]["/api/v1/novels/{novel_id}/export"]
     assert "post" in document["paths"]["/api/v1/ai/tasks"]
+    assert "post" in document["paths"]["/api/v1/ai/tasks/context/compile"]
+    assert "get" in document["paths"]["/api/v1/ai/tasks/{task_id}/context"]
     assert "get" in document["paths"]["/api/v1/ai/tasks/{task_id}/events"]
     assert "post" in document["paths"]["/api/v1/ai/tasks/{task_id}/cancel"]
     assert "post" in document["paths"]["/api/v1/ai/tasks/{task_id}/accept"]

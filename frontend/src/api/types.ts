@@ -178,6 +178,39 @@ export type AiTaskCreateInput = {
     must_avoid?: string;
   };
   use_mock?: boolean;
+  context_budget?: number;
+  pinned_include?: string[];
+  pinned_exclude?: string[];
+};
+
+export type ContextItem = {
+  id: string;
+  kind: string;
+  content: string;
+  source_type: string;
+  source_id: string | null;
+  source_revision: number | null;
+  certainty: string;
+  priority: number;
+  token_estimate: number;
+  included: boolean;
+  exclusion_reason: string | null;
+  hit_reason: string;
+  warnings: string[];
+};
+
+export type CompiledContext = {
+  task_type: string;
+  novel_id: string;
+  chapter_id: string | null;
+  target_revision: number | null;
+  items: ContextItem[];
+  total_token_estimate: number;
+  budget: number;
+  warnings: string[];
+  compiler_version: string;
+  context_hash: string;
+  legacy: boolean;
 };
 
 export class ApiError extends Error {

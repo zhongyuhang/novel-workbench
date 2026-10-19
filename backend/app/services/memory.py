@@ -38,6 +38,7 @@ from app.models.memory import (
     StoryEntity,
     StoryEvent,
 )
+from app.models.planning import ChapterOutline, SceneCard
 from app.repositories import catalog as catalog_repo
 from app.schemas.memory import (
     AnalyzeRequest,
@@ -280,7 +281,12 @@ def revert_proposal(
 
 
 def mark_chapter_memory_stale(session: Session, chapter_id: str, revision: int) -> None:
-    """Mark summaries and pending proposals that still describe an older revision."""
+    """Mark summaries, pending proposals, and confirmed chapter plans as stale.
+
+    Confirmed chapter outlines and scene cards describe the previous manuscript.
+    Their text is left unchanged. Draft and archived rows stay as they are.
+    The novel-level story plan is not expired by one chapter revision.
+    """
 
     now = _now()
     session.execute(
@@ -300,6 +306,22 @@ def mark_chapter_memory_stale(session: Session, chapter_id: str, revision: int) 
             MemoryChangeProposal.source_revision != revision,
         )
         .values(status="stale")
+    )
+    session.execute(
+        update(ChapterOutline)
+        .where(
+            ChapterOutline.chapter_id == chapter_id,
+            ChapterOutline.status == "confirmed",
+        )
+        .values(status="stale", revision=ChapterOutline.revision + 1, updated_at=now)
+    )
+    session.execute(
+        update(SceneCard)
+        .where(
+            SceneCard.chapter_id == chapter_id,
+            SceneCard.status == "confirmed",
+        )
+        .values(status="stale", revision=SceneCard.revision + 1, updated_at=now)
     )
 
 

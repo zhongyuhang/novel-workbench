@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { acceptAiTask, createAiTask, rejectAiTask, streamAiTask } from "../api/ai.ts";
+import { acceptAiTask, compileContext, createAiTask, getTaskContext, rejectAiTask, streamAiTask } from "../api/ai.ts";
 import { listModelConfigs } from "../api/models.ts";
 import type { Chapter, ModelConfig } from "../api/types.ts";
 import { AiPanel } from "./AiPanel.tsx";
@@ -16,6 +16,8 @@ vi.mock("../api/ai.ts", () => ({
   cancelAiTask: vi.fn(),
   acceptAiTask: vi.fn(),
   rejectAiTask: vi.fn(),
+  compileContext: vi.fn(),
+  getTaskContext: vi.fn(),
 }));
 
 const chapter: Chapter = {
@@ -72,6 +74,21 @@ describe("AiPanel", () => {
     vi.mocked(streamAiTask).mockReset();
     vi.mocked(acceptAiTask).mockReset();
     vi.mocked(rejectAiTask).mockReset();
+    vi.mocked(compileContext).mockReset();
+    vi.mocked(getTaskContext).mockReset();
+    vi.mocked(getTaskContext).mockResolvedValue({
+      task_type: "continue",
+      novel_id: "novel-1",
+      chapter_id: chapter.id,
+      target_revision: 2,
+      items: [],
+      total_token_estimate: 0,
+      budget: 0,
+      warnings: ["当时只保存了整段提示，没有条目级来源。"],
+      compiler_version: "",
+      context_hash: "",
+      legacy: true,
+    });
   });
 
   it("t006 shows configuration guidance and does not start a task", async () => {
@@ -285,5 +302,99 @@ describe("AiPanel", () => {
       target_revision: 2,
       apply_mode: "replace_selection",
     });
+  });
+
+  it("pins context material and sends it with the next task", async () => {
+    vi.mocked(listModelConfigs).mockResolvedValue([model]);
+    const preview = {
+      task_type: "continue",
+      novel_id: "novel-1",
+      chapter_id: chapter.id,
+      target_revision: 2,
+      items: [
+        {
+          id: "hard-rule",
+          kind: "hard_rule",
+          content: "作品硬规则：短句",
+          source_type: "novel",
+          source_id: "novel-1",
+          source_revision: null,
+          certainty: "confirmed",
+          priority: 1,
+          token_estimate: 9,
+          included: true,
+          exclusion_reason: null,
+          hit_reason: "作品硬规则",
+          warnings: [],
+        },
+        {
+          id: "outline:draft",
+          kind: "chapter_outline",
+          content: "未确认章节大纲（不是事实）：草稿目标",
+          source_type: "chapter_outline",
+          source_id: "draft",
+          source_revision: 1,
+          certainty: "draft",
+          priority: 2,
+          token_estimate: 12,
+          included: false,
+          exclusion_reason: "草稿不能当作事实",
+          hit_reason: "章节大纲未确认",
+          warnings: [],
+        },
+      ],
+      total_token_estimate: 9,
+      budget: 6000,
+      warnings: ["预算还有余量"],
+      compiler_version: "e2.v1",
+      context_hash: "abc",
+      legacy: false,
+    };
+    vi.mocked(compileContext).mockResolvedValue(preview);
+    vi.mocked(createAiTask).mockResolvedValue({
+      id: "task-context",
+      novel_id: "novel-1",
+      chapter_id: chapter.id,
+      task_type: "continue",
+      status: "queued",
+      model_config_id: null,
+      provider_mode: "mock",
+      model_name: "mock",
+      prompt_version: "m4.v1",
+      output_text: null,
+      error_code: null,
+      error_message_safe: null,
+      input_tokens: null,
+      output_tokens: null,
+      resolution: null,
+      started_at: null,
+      finished_at: null,
+      created_at: "2026-01-01T00:00:00Z",
+    });
+    vi.mocked(streamAiTask).mockResolvedValue();
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole("button", { name: "查看本次上下文" }));
+
+    expect(await screen.findByText(/作品硬规则：短句/)).toBeTruthy();
+    expect(screen.getByText(/草稿不能当作事实/)).toBeTruthy();
+    expect(screen.getByText(/预算还有余量/)).toBeTruthy();
+    const includeButtons = screen.getAllByRole("button", { name: "固定纳入" });
+    await user.click(includeButtons[1]);
+    await user.click(screen.getByRole("button", { name: "重新编译" }));
+
+    expect(compileContext).toHaveBeenLastCalledWith(
+      expect.objectContaining({ pinned_include: ["outline:draft"], pinned_exclude: [] }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "用模拟模型试运行" }));
+    expect(createAiTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        use_mock: true,
+        pinned_include: ["outline:draft"],
+        pinned_exclude: [],
+      }),
+    );
   });
 });

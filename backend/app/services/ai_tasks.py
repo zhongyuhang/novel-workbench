@@ -16,6 +16,8 @@ from app.ai.runtime import AiRuntime
 from app.ai.tasks import IllegalTaskTransition, TaskStatus, transition
 from app.core.content import apply_candidate_text, document_to_text
 from app.core.errors import (
+    AppError,
+    ContextCompileError,
     InvalidReference,
     ModelConfigInvalid,
     ModelNotConfigured,
@@ -32,8 +34,16 @@ from app.schemas.ai import (
     AiTaskResponse,
 )
 from app.schemas.catalog import ChapterResponse
+from app.schemas.context import CompiledContext, ContextCompileRequest
 from app.services.catalog import apply_accepted_candidate
-from app.services.context_builder import build_memory_context
+from app.services.context_builder import (
+    DEFAULT_CONTEXT_BUDGET,
+    compile_context,
+    context_from_snapshot,
+    fit_snapshot,
+    render_included,
+    snapshot_context_fields,
+)
 
 logger = logging.getLogger("app.ai.tasks")
 
@@ -60,13 +70,19 @@ def create_ai_task(session: Session, payload: AiTaskCreate, runtime: AiRuntime) 
     chapter_text = document_to_text(chapter.content) if chapter is not None else ""
     selection = payload.selection_text or ""
     constraints = payload.constraints.model_dump() if payload.constraints is not None else None
-    memory_context = build_memory_context(
+    compiled = _compile_or_fail(
         session,
         novel_id=novel.id,
         chapter_id=chapter.id if chapter is not None else None,
+        task_type=payload.task_type,
         instruction=payload.instruction,
         selection_text=selection,
         chapter_text=chapter_text,
+        target_revision=payload.target_revision,
+        constraints=constraints,
+        budget=payload.context_budget or DEFAULT_CONTEXT_BUDGET,
+        pinned_include=payload.pinned_include,
+        pinned_exclude=payload.pinned_exclude,
     )
     prompt = build_prompt(
         task_type=payload.task_type,
@@ -74,7 +90,7 @@ def create_ai_task(session: Session, payload: AiTaskCreate, runtime: AiRuntime) 
         chapter_text=chapter_text,
         selection_text=selection,
         constraints=constraints,
-        memory_context=memory_context,
+        memory_context=render_included(compiled),
     )
     snapshot: dict[str, object] = {
         "instruction": payload.instruction,
@@ -85,11 +101,12 @@ def create_ai_task(session: Session, payload: AiTaskCreate, runtime: AiRuntime) 
         "provider_mode": provider_mode,
         "model_name": config.model_name if config is not None else "mock",
         "display_name": config.display_name if config is not None else "模拟模型",
-        "prompt": prompt,
         "mock_behavior": payload.mock_behavior or "stream",
         "mock_tokens": payload.mock_tokens,
         "mock_script_id": payload.mock_script_id,
     }
+    snapshot.update(snapshot_context_fields(compiled, prompt))
+    snapshot = fit_snapshot(snapshot)
     if config is not None and config.provider_type != "mock":
         parameters = config.parameters if isinstance(config.parameters, dict) else {}
         snapshot["timeout_seconds"] = parameters.get("timeout_seconds", 60)
@@ -134,6 +151,87 @@ def create_ai_task(session: Session, payload: AiTaskCreate, runtime: AiRuntime) 
 
 def get_ai_task(session: Session, task_id: str) -> AiTaskResponse:
     return _response(_require(session, task_id))
+
+
+def preview_context(session: Session, payload: ContextCompileRequest) -> CompiledContext:
+    """Compile without creating a task and without writing memory or outlines."""
+
+    novel = catalog_repo.get_novel(session, payload.novel_id)
+    if novel is None:
+        raise NotFound("作品不存在。")
+    chapter: Chapter | None = None
+    if payload.chapter_id is not None:
+        chapter = catalog_repo.get_chapter(session, payload.chapter_id)
+        if chapter is None or chapter.novel_id != novel.id:
+            raise InvalidReference("章节不存在，或不属于这本作品。")
+        if payload.target_revision is not None and chapter.revision != payload.target_revision:
+            raise RevisionConflict()
+    elif payload.target_revision is not None:
+        raise InvalidReference("没有章节时不能提交修订号。")
+    chapter_text = document_to_text(chapter.content) if chapter is not None else ""
+    constraints = payload.constraints.model_dump() if payload.constraints is not None else None
+    return _compile_or_fail(
+        session,
+        novel_id=novel.id,
+        chapter_id=chapter.id if chapter is not None else None,
+        task_type=payload.task_type,
+        instruction=payload.instruction,
+        selection_text=payload.selection_text or "",
+        chapter_text=chapter_text,
+        target_revision=payload.target_revision,
+        constraints=constraints,
+        budget=payload.context_budget or DEFAULT_CONTEXT_BUDGET,
+        pinned_include=payload.pinned_include,
+        pinned_exclude=payload.pinned_exclude,
+    )
+
+
+def get_task_context(session: Session, task_id: str) -> CompiledContext:
+    task = _require(session, task_id)
+    snapshot = task.input_snapshot if isinstance(task.input_snapshot, dict) else {}
+    return context_from_snapshot(
+        task_type=task.task_type,
+        novel_id=task.novel_id,
+        chapter_id=task.chapter_id,
+        snapshot=snapshot,
+    )
+
+
+def _compile_or_fail(
+    session: Session,
+    *,
+    novel_id: str,
+    chapter_id: str | None,
+    task_type: str,
+    instruction: str,
+    selection_text: str,
+    chapter_text: str,
+    target_revision: int | None,
+    constraints: dict[str, object] | None,
+    budget: int,
+    pinned_include: list[str],
+    pinned_exclude: list[str],
+) -> CompiledContext:
+    try:
+        return compile_context(
+            session,
+            novel_id=novel_id,
+            chapter_id=chapter_id,
+            task_type=task_type,
+            instruction=instruction,
+            selection_text=selection_text,
+            chapter_text=chapter_text,
+            target_revision=target_revision,
+            constraints=constraints,
+            budget=budget,
+            pinned_include=pinned_include,
+            pinned_exclude=pinned_exclude,
+        )
+    except AppError:
+        raise
+    except Exception:
+        logger.error("context compile failed")
+        raise ContextCompileError() from None
 
 
 def cancel_ai_task(session: Session, task_id: str, runtime: AiRuntime) -> AiTaskResponse:
