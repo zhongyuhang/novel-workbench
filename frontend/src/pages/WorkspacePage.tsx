@@ -14,6 +14,7 @@ import {
   reorderVolumes,
   updateVolume,
 } from "../api/catalog.ts";
+import { exportPortable } from "../api/portable.ts";
 import { ApiError, type Chapter, type ChapterSummary, type Novel, type Volume } from "../api/types.ts";
 import { AiPanel } from "../components/AiPanel.tsx";
 import { ChapterEditor } from "../components/ChapterEditor.tsx";
@@ -259,6 +260,18 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
               }}
             >
               导出 TXT
+            </button>
+            <button
+              className="ghost"
+              type="button"
+              disabled={busy || !novel}
+              onClick={() => {
+                void run(async () => {
+                  await downloadPortable(novelId);
+                });
+              }}
+            >
+              导出作品包
             </button>
           </div>
           <HealthBadge state={health} />
@@ -777,10 +790,19 @@ async function shiftVolume(
 
 async function downloadExport(novelId: string, format: "markdown" | "txt") {
   const file = await exportNovel(novelId, format);
-  const url = URL.createObjectURL(file.blob);
+  saveDownload(file.blob, file.filename);
+}
+
+async function downloadPortable(novelId: string) {
+  const file = await exportPortable(novelId);
+  saveDownload(file.blob, file.filename);
+}
+
+function saveDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = file.filename;
+  link.download = filename;
   document.body.append(link);
   link.click();
   link.remove();

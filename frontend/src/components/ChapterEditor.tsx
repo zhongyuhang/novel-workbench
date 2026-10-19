@@ -672,7 +672,7 @@ function originLabel(version: {
     return "来源：从旧版本恢复。这次恢复本身是新修订。";
   }
   if (version.change_source === "import") {
-    return "来源：导入。作品包导入尚未实现，整库备份会带上已有版本。";
+    return "来源：作品包导入。这一条是导入时的正文快照，修订号没有因此增加。";
   }
   return "来源：采纳后的正文修订。";
 }

@@ -14,3 +14,4 @@ class BackupResponse(BaseModel):
 
 class BackupListResponse(BaseModel):
     items: list[BackupResponse]
+    latest_success_at: datetime | None = None

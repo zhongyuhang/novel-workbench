@@ -275,6 +275,7 @@ def test_t017_backup_then_restore_into_a_new_database(
     listed = auth_client.get("/api/v1/admin/backups")
     assert listed.status_code == 200, listed.text
     assert listed.json()["items"][0]["id"] == body["id"]
+    assert listed.json()["latest_success_at"] == body["created_at"]
     assert SECRET not in listed.text
 
     backup_dir = Path(get_settings().resolved_data_dir) / "backups" / body["id"]

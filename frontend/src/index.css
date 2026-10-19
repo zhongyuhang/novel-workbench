@@ -416,6 +416,32 @@ textarea {
   color: var(--accent);
 }
 
+.maintenance {
+  margin-top: 1.5rem;
+}
+
+.file-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.file-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.preview-card {
+  margin-top: 0.75rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+}
+
 .banner {
   margin: 0.75rem 0 0;
   padding: 0.7rem 0.85rem;

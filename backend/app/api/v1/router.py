@@ -11,6 +11,7 @@ from app.api.v1 import (
     memory,
     novels,
     planning,
+    portable,
     quality,
     settings,
     volumes,
@@ -28,3 +29,4 @@ router.include_router(ai.router)
 router.include_router(memory.router)
 router.include_router(quality.router)
 router.include_router(planning.router)
+router.include_router(portable.router)

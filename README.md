@@ -44,6 +44,7 @@
 - `PUT /api/v1/chapters/{id}` 必须带客户端看到的 `revision`。不一致时返回 `409`，不会覆盖已保存正文，也不会写入被拒绝的那一版快照。`save_kind=autosave` 只更新当前正文；`save_kind=manual` 在正文相对上一份快照有变化时写入 `chapter_versions`
 - `GET /api/v1/chapters/{id}/versions` 列出版本，带修订时间、来源和可空的 AI 任务或修复候选编号。`GET .../versions/{version_id}` 预览纯文本。`GET .../versions/diff` 比较两个版本，或和当前正文比较。`POST /api/v1/chapters/{id}/restore` 在确认后把所选快照写成新修订，旧版本和中间版本都保留
 - `POST /api/v1/novels/{id}/export` 导出 Markdown 或 TXT。顺序与目录一致：先未分卷，再按卷的 `sort_order`，卷内按章节 `sort_order`。导出包含标题、简介、卷名、章节标题和正文
+- `POST /api/v1/novels/{id}/portable-export` 导出作品包（ZIP，`ai-novel-writer-portable-v1`，格式版本 1）。包内有作品结构、Tiptap 正文、按同一目录顺序排列的 Markdown/TXT，以及大纲、设定、人物关系、事件、伏笔、摘要、质量问题和章节版本。API Key、访问口令和密钥密文不进入作品包。`POST /api/v1/novels/import/preview` 预检，`POST /api/v1/novels/import` 导入为一本新作品：冲突编号会重映射，不覆盖已有作品；不支持的格式版本返回 `422`，失败回滚、不留半成品。见 [ADR-011](docs/adr/ADR-011-portable-package.md)
 - 模型设置：添加、修改、测试和删除 OpenAI 兼容配置。API Key 用 `APP_SECRET_ENCRYPTION_KEY` 加密后写入 `secret_ref`。接口只返回是否已配置和脱敏尾号
 - AI 任务：续写、改写、润色、扩写、缩写、校对。`POST /api/v1/ai/tasks` 创建任务，`GET /api/v1/ai/tasks/{id}/events` 用 SSE 推送 `task.started`、`token`、`task.completed`、`task.failed`、`task.cancelled` 和 `heartbeat`。可以取消。完成只表示候选就绪。创建任务时会按当前作品组装上下文：硬规则、当前章节约束、相邻章节、已确认设定，以及在预算内的摘要。检索只用名称匹配、LIKE 和相邻章节，不使用向量库，也不会读到其他作品的设定
 - 采纳候选会按当前修订号做乐观锁更新正文，并写入 `change_source=ai_accepted` 的版本，版本上记下这次 AI 任务。正文、快照和任务决议在同一事务里提交；失败不留半完成状态。同一任务重复采纳不会把候选再写进正文。修订号不一致或任务针对的是旧修订时返回 `409`，不覆盖。放弃候选不改正文。SSE 断开后仍可按任务 ID 读回状态和候选。取消后的迟到片段不会改最终候选或正文
@@ -60,7 +61,7 @@
 - 评测样例：`backend/tests/fixtures/eval/samples.json` 固定了续写、选区改写和摘要三条虚构短句，由模拟模型重复跑，不访问网络
 - 作品库页面和三栏工作台。模型设置在 `#/settings`
 - 单用户会话。口令在服务端按 PBKDF2 哈希校验。只绑定 `127.0.0.1` 的开发和测试环境在未配置访问口令时可以用空口令换取令牌。`APP_ENV=production`，或 `APP_HOST` 不是回环地址时，必须配置口令或 `APP_ACCESS_PASSWORD_HASH`，未登录访问作品和备份接口会返回 401。页面在需要口令时显示「访问口令」
-- 备份：已登录后 `POST /api/v1/admin/backups` 写入 `DATA_DIR/backups/<id>/`，包含 SQLite 一致性副本和清单（应用版本、迁移版本、时间）。`GET /api/v1/admin/backups` 只返回这些元数据。恢复用 `python -m app.cli.restore`，不提供网页恢复。健康检查 `GET /api/v1/health` 仍然公开
+- 备份：已登录后 `POST /api/v1/admin/backups` 写入 `DATA_DIR/backups/<id>/`，包含 SQLite 一致性副本和清单（应用版本、迁移版本、时间）。`GET /api/v1/admin/backups` 返回这些元数据，以及 `latest_success_at`（最近一次成功备份的时间，没有备份时为 null）。作品库显示这个时间。恢复用 `python -m app.cli.restore`，不提供网页恢复。健康检查 `GET /api/v1/health` 仍然公开
 - Docker Compose 位于 `deploy/compose.yaml`：Caddy 反代，API 容器提供前端静态文件和 FastAPI，数据挂在宿主机目录。生产进程不开启自动重载
 
 M0–M6 的计划范围已经完成。多租户、公开注册、向量库和训练模型不在这一版里。

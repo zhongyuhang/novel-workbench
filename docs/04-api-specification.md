@@ -168,9 +168,12 @@
 响应中不返回 API Key 明文。
 
 ### Export / backup
-- `POST /api/v1/novels/{novel_id}/export`
+- `POST /api/v1/novels/{novel_id}/export`：Markdown 或 TXT。只含标题、简介、卷、章和正文，顺序与目录一致。
+- `POST /api/v1/novels/{novel_id}/portable-export`：一本作品的 ZIP。格式 `ai-novel-writer-portable-v1`，`format_version` 为 1。含结构、Tiptap 正文、同顺序的 Markdown/TXT，以及大纲、设定、关系、事件、伏笔、摘要、质量问题和章节版本。响应是文件，不是 JSON。API Key 和访问口令不在包内。见 ADR-011。
+- `POST /api/v1/novels/import/preview`：上传字段名为 `file`。只读预检，返回 `can_import`、作品标题，以及新增、跳过、冲突、无效计数。不支持的格式或版本返回 `422`，`code` 为 `UNSUPPORTED_PACKAGE`，不写库。
+- `POST /api/v1/novels/import`：同一份包通过预检后，在一次事务里插入一本新作品，返回 `201`。冲突主键重映射，不更新已有作品。无效行返回 `422 PACKAGE_INVALID`。写入中途失败回滚，返回 `500 PACKAGE_IMPORT_FAILED`。模型配置不入库，需要重新配置。
 - `POST /api/v1/admin/backups`：做一次 SQLite 一致性备份。需要认证。响应只含 `id`、`app_version`、`alembic_revision`、`created_at`，不返回数据库文件。
-- `GET /api/v1/admin/backups`：列出上述元数据，需要认证。
+- `GET /api/v1/admin/backups`：列出上述元数据，并带 `latest_success_at`（最新一份成功备份的 `created_at`，没有备份时为 null）。需要认证。
 - 恢复操作第一版通过 CLI 完成：`python -m app.cli.restore --backup <目录> --database <新文件>`。不要在 Web 页面暴露恢复接口。目标文件已存在时命令拒绝覆盖，除非显式加上 `--force`（先把现有文件改名）。
 
 ## 3. SSE 协议
@@ -198,8 +201,9 @@
 - `403`：已认证但无权限。
 - `404`：资源不存在。
 - `409`：版本冲突或非法状态迁移。
-- `422`：参数校验失败，或上下文编译失败（`CONTEXT_COMPILE_FAILED`）。
+- `422`：参数校验失败，上下文编译失败（`CONTEXT_COMPILE_FAILED`），或不支持的作品包（`UNSUPPORTED_PACKAGE`）与无法导入的作品包（`PACKAGE_INVALID`）。
 - `429`：请求频率限制。
+- `500`：作品包写入中途失败（`PACKAGE_IMPORT_FAILED`）。此时事务已回滚，没有半成品。
 - `502`：模型供应商返回无效响应。
 - `503`：模型暂时不可用。
 - `504`：模型请求超时。
