@@ -40,3 +40,5 @@ MVP 合并前：后端测试全部通过；前端类型检查和构建通过；�
 ## 4. AI 质量测试
 
 不要求每次文本完全一致。要验证：结构化输出可解析；硬约束传入上下文；事实提取含证据；失败不污染正式数据；未采纳不改正文。
+
+质量规则样例在 `backend/tests/fixtures/eval/quality_samples.json`。正例要有证据，反例不得报成冲突，无法比较的时间要标成证据不足。`pytest tests/test_quality_rules.py tests/test_quality_issues.py` 覆盖落库、差异预览、修订冲突不覆盖，以及已修复问题再次出现后回到待处理。

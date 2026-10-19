@@ -214,7 +214,7 @@ def test_t017_backup_then_restore_into_a_new_database(
         f"/api/v1/chapters/{chapter['id']}",
         json={
             "revision": chapter["revision"],
-            "content": _paragraph("备份里的句子"),
+            "content": _paragraph("备份里的句子。。"),
             "content_format": "tiptap_json",
             "save_kind": "manual",
         },
@@ -255,12 +255,19 @@ def test_t017_backup_then_restore_into_a_new_database(
         json={"goal": "备份里的场景", "turning_point": "转折还在"},
     )
     assert scene.status_code == 201, scene.text
+    checked = auth_client.post(f"/api/v1/novels/{novel['id']}/quality-check", json={})
+    assert checked.status_code == 200, checked.text
+    assert checked.json()["manuscript_changed"] is False
+    issue = next(
+        item for item in checked.json()["issues"] if item["rule_id"] == "text.repeated_punctuation"
+    )
+    assert issue["evidence_status"] == "sufficient"
 
     created = auth_client.post("/api/v1/admin/backups")
     assert created.status_code == 201, created.text
     body = created.json()
     assert body["app_version"] == "1.0.0"
-    assert body["alembic_revision"] == "0008_story_bible"
+    assert body["alembic_revision"] == "0009_quality_issues"
     assert "database" not in body
     assert str(tmp_path) not in created.text
     assert SECRET not in created.text
@@ -281,9 +288,15 @@ def test_t017_backup_then_restore_into_a_new_database(
         }
         stored_plan = backed_up.execute("SELECT logline FROM story_plans").fetchone()
         stored_scene = backed_up.execute("SELECT goal FROM scene_cards").fetchone()
-    assert {"story_plans", "chapter_outlines", "scene_cards"} <= tables
+        stored_issue = backed_up.execute(
+            "SELECT rule_id, manuscript_snippet FROM quality_issues"
+        ).fetchone()
+    assert {"story_plans", "chapter_outlines", "scene_cards", "quality_issues"} <= tables
+    assert "quality_repair_candidates" in tables
     assert stored_plan == ("备份里的大纲",)
     assert stored_scene == ("备份里的场景",)
+    assert stored_issue is not None
+    assert stored_issue[0] == "text.repeated_punctuation"
 
     fresh_db = tmp_path / "restored-env" / "ai_novel_writer.db"
     completed = subprocess.run(
@@ -340,10 +353,15 @@ def test_t017_backup_then_restore_into_a_new_database(
         assert chapters.status_code == 200, chapters.text
         chapter_id = chapters.json()[0]["id"]
         current = restored.get(f"/api/v1/chapters/{chapter_id}")
-        assert current.json()["content"]["content"][0]["content"][0]["text"] == "备份里的句子"
+        assert current.json()["content"]["content"][0]["content"][0]["text"] == "备份里的句子。。"
         versions = restored.get(f"/api/v1/chapters/{chapter_id}/versions")
         assert versions.status_code == 200, versions.text
-        assert versions.json()[0]["preview"] == "备份里的句子"
+        assert versions.json()[0]["preview"] == "备份里的句子。。"
+        restored_issues = restored.get(f"/api/v1/novels/{novel_id}/quality-issues")
+        assert restored_issues.status_code == 200, restored_issues.text
+        assert any(
+            item["rule_id"] == "text.repeated_punctuation" for item in restored_issues.json()
+        )
         entities = restored.get(f"/api/v1/novels/{novel_id}/entities")
         assert entities.status_code == 200, entities.text
         assert entities.json()[0]["name"] == "林晚"

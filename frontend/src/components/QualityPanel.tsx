@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ChapterSummary } from "../api/types.ts";
+import type { Chapter, ChapterSummary } from "../api/types.ts";
 import { ApiError } from "../api/types.ts";
 import {
   checkConflicts,
@@ -13,12 +13,14 @@ import {
   type ForeshadowingStatus,
   type NovelStats,
 } from "../api/quality.ts";
+import { QualityIssuesSection } from "./QualityIssuesSection.tsx";
 
 type QualityPanelProps = {
   novelId: string;
   chapters: ChapterSummary[];
   activeChapterId: string | null;
   refreshKey: string;
+  onManuscriptUpdated?: (chapter: Chapter) => void;
 };
 
 const STATUSES: Array<{ value: ForeshadowingStatus; label: string }> = [
@@ -45,7 +47,13 @@ const SEVERITY_LABEL = {
   high: "高",
 } as const;
 
-export function QualityPanel({ novelId, chapters, activeChapterId, refreshKey }: QualityPanelProps) {
+export function QualityPanel({
+  novelId,
+  chapters,
+  activeChapterId,
+  refreshKey,
+  onManuscriptUpdated,
+}: QualityPanelProps) {
   const [statusFilter, setStatusFilter] = useState<"" | ForeshadowingStatus>("");
   const [items, setItems] = useState<Foreshadowing[]>([]);
   const [stats, setStats] = useState<NovelStats | null>(null);
@@ -172,7 +180,14 @@ export function QualityPanel({ novelId, chapters, activeChapterId, refreshKey }:
   return (
     <aside className="workspace-pane quality-pane" aria-labelledby="quality-heading">
       <h2 id="quality-heading">创作质量</h2>
-      <p className="hint">伏笔、疑似冲突和字数都只是辅助。这里没有自动改稿，也不会写入正式记忆。</p>
+      <p className="hint">
+        伏笔、疑似冲突、质量问题和字数都只是辅助。建议不会自动改稿，也不会写入正式记忆。
+      </p>
+      <QualityIssuesSection
+        novelId={novelId}
+        activeChapterId={activeChapterId}
+        onManuscriptUpdated={onManuscriptUpdated}
+      />
       {error ? (
         <p className="banner banner-error" role="alert">
           {error}

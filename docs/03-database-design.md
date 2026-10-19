@@ -189,6 +189,54 @@
 - `target_words`（大于等于 1）
 - `created_at`, `updated_at`
 
+### quality_issues
+
+`0009_quality_issues` 新增。质量检查写入这里，不改正文，也不改正式设定。见 ADR-009。
+
+- `id` PK
+- `novel_id` FK
+- `chapter_id` FK
+- `issue_type`（`fact_continuity`、`time_continuity`、`character_continuity`、`foreshadowing`、`outline_execution`、`text_surface`）
+- `severity`（`low`、`medium`、`high`）
+- `confidence`：0 到 100 的整数，接口再换算成 0 到 1
+- `status`（`pending`、`confirmed`、`ignored`、`fixed`、`expired`）
+- `manuscript_snippet`：用来定位的正文片段，可为空字符串
+- `target_revision` nullable：发现问题时的章节修订
+- `location_note` nullable
+- `evidence_status`（`sufficient`、`insufficient`）
+- `evidence`、`related_refs` JSON
+- `rule_id`、`rule_version`
+- `analysis_version` nullable：只有模型检查写入
+- `provider_mode`（`rule`、`mock`、`openai_compatible`）
+- `suggested_action`
+- `fingerprint`：与 `novel_id` 唯一，重复检查更新同一行
+- `fixed_revision` nullable
+- `recheck_count`
+- `created_at`, `updated_at`
+
+索引：`(novel_id)`、`(novel_id, status)`。
+
+### quality_repair_candidates
+
+一条修复建议。`proposed` 不会写入正文。
+
+- `id` PK
+- `issue_id` FK -> quality_issues
+- `novel_id` FK
+- `chapter_id` FK
+- `target_revision`（大于等于 1）
+- `apply_mode`（`replace_selection`、`append`）
+- `applicable`
+- `original_snippet`、`replacement_text`
+- `rationale`
+- `diff_preview`：纯文本差异，采纳前给作者看
+- `provider_mode`（`rule`、`mock`、`openai_compatible`）
+- `prompt_version`
+- `status`（`proposed`、`accepted`、`rejected`、`conflict`）
+- `created_at`, `updated_at`
+
+索引：`(issue_id)`。
+
 ### chapter_versions
 - `id` PK
 - `chapter_id` FK

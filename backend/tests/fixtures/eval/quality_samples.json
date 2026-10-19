@@ -1,0 +1,217 @@
+[
+  {
+    "id": "fact-positive",
+    "expect": "issue",
+    "issue_type": "fact_continuity",
+    "evidence_status": "sufficient",
+    "focus_chapter_id": "c2",
+    "chapters": [
+      {
+        "id": "c1",
+        "title": "前文",
+        "reading_index": 0,
+        "revision": 1,
+        "text": "阿宁是左撇子。"
+      },
+      {
+        "id": "c2",
+        "title": "后文",
+        "reading_index": 1,
+        "revision": 2,
+        "text": "阿宁是右撇子。"
+      }
+    ],
+    "events": [
+      {
+        "id": "e1",
+        "chapter_id": "c1",
+        "description": "阿宁是左撇子",
+        "evidence_quote": "阿宁是左撇子",
+        "event_time_text": null,
+        "participants": ["阿宁"],
+        "source_revision": 1
+      }
+    ]
+  },
+  {
+    "id": "state-change-negative",
+    "expect": "none",
+    "chapters": [
+      {
+        "id": "c1",
+        "title": "赶路",
+        "reading_index": 0,
+        "revision": 1,
+        "text": "阿宁离开了京城，来到江南。"
+      }
+    ],
+    "states": [
+      {
+        "id": "s1",
+        "entity_id": "ent-1",
+        "entity_name": "阿宁",
+        "chapter_id": "c1",
+        "values": {"location": "京城"},
+        "evidence_quote": "人在京城",
+        "valid_from_text": null,
+        "valid_until_text": null
+      },
+      {
+        "id": "s2",
+        "entity_id": "ent-1",
+        "entity_name": "阿宁",
+        "chapter_id": "c1",
+        "values": {"location": "江南"},
+        "evidence_quote": "来到江南",
+        "valid_from_text": null,
+        "valid_until_text": null
+      }
+    ]
+  },
+  {
+    "id": "time-undetermined",
+    "expect": "undetermined",
+    "issue_type": "time_continuity",
+    "evidence_status": "insufficient",
+    "chapters": [
+      {
+        "id": "c1",
+        "title": "春",
+        "reading_index": 0,
+        "revision": 1,
+        "text": "阿宁还在京城。"
+      },
+      {
+        "id": "c2",
+        "title": "后",
+        "reading_index": 1,
+        "revision": 1,
+        "text": "阿宁到了江南。"
+      }
+    ],
+    "states": [
+      {
+        "id": "s1",
+        "entity_id": "ent-1",
+        "entity_name": "阿宁",
+        "chapter_id": "c1",
+        "values": {"location": "京城"},
+        "evidence_quote": "人在京城",
+        "valid_from_text": "某个春天",
+        "valid_until_text": "花开时"
+      },
+      {
+        "id": "s2",
+        "entity_id": "ent-1",
+        "entity_name": "阿宁",
+        "chapter_id": "c2",
+        "values": {"location": "江南"},
+        "evidence_quote": "到了江南",
+        "valid_from_text": "那年",
+        "valid_until_text": "后来"
+      }
+    ]
+  },
+  {
+    "id": "character-mood-negative",
+    "expect": "none",
+    "chapters": [
+      {
+        "id": "c1",
+        "title": "午后",
+        "reading_index": 0,
+        "revision": 1,
+        "text": "阿宁今天很生气。"
+      }
+    ],
+    "relations": [
+      {
+        "id": "r1",
+        "from_name": "阿宁",
+        "to_name": "周伯",
+        "relation_type": "师父",
+        "evidence_quote": "阿宁拜周伯为师",
+        "source_chapter_id": "c1"
+      }
+    ]
+  },
+  {
+    "id": "foreshadow-payoff-positive",
+    "expect": "issue",
+    "issue_type": "foreshadowing",
+    "evidence_status": "sufficient",
+    "chapters": [
+      {
+        "id": "c1",
+        "title": "埋下",
+        "reading_index": 0,
+        "revision": 1,
+        "text": "抽屉里有一把铜钥匙。"
+      },
+      {
+        "id": "c2",
+        "title": "计划回收",
+        "reading_index": 1,
+        "revision": 1,
+        "text": "他经过抽屉，没有打开。"
+      },
+      {
+        "id": "c3",
+        "title": "之后",
+        "reading_index": 2,
+        "revision": 1,
+        "text": "故事已经走到城外。"
+      }
+    ],
+    "foreshadowing": [
+      {
+        "id": "f1",
+        "description": "抽屉里的铜钥匙",
+        "status": "planned",
+        "introduced_chapter_id": "c1",
+        "payoff_chapter_id": "c2",
+        "evidence_quote": "抽屉里有一把铜钥匙"
+      }
+    ]
+  },
+  {
+    "id": "outline-leak-positive",
+    "expect": "issue",
+    "issue_type": "outline_execution",
+    "evidence_status": "sufficient",
+    "focus_chapter_id": "c1",
+    "chapters": [
+      {
+        "id": "c1",
+        "title": "本章",
+        "reading_index": 0,
+        "revision": 2,
+        "text": "他终于说出铜钥匙在井里。"
+      }
+    ],
+    "outlines": [
+      {
+        "id": "o1",
+        "chapter_id": "c1",
+        "required_events": null,
+        "must_advance": null,
+        "forbidden_reveals": "铜钥匙在井里"
+      }
+    ]
+  },
+  {
+    "id": "repeated-paragraph-positive",
+    "expect": "issue",
+    "issue_type": "text_surface",
+    "evidence_status": "sufficient",
+    "chapters": [
+      {
+        "id": "c1",
+        "title": "重复",
+        "reading_index": 0,
+        "revision": 1,
+        "text": "阿宁推开了那扇门。\n\n阿宁推开了那扇门。"
+      }
+    ]
+  }
+]

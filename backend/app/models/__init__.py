@@ -12,7 +12,7 @@ from app.models.memory import (
     StoryEvent,
 )
 from app.models.planning import ChapterOutline, SceneCard, StoryPlan
-from app.models.quality import Foreshadowing, WritingGoal
+from app.models.quality import Foreshadowing, QualityIssue, QualityRepairCandidate, WritingGoal
 
 __all__ = [
     "AiTask",
@@ -24,6 +24,8 @@ __all__ = [
     "EntityRelation",
     "EntityState",
     "Foreshadowing",
+    "QualityIssue",
+    "QualityRepairCandidate",
     "MemoryChangeProposal",
     "ModelConfig",
     "Novel",
