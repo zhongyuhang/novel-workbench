@@ -3,9 +3,12 @@
 import re
 
 _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"(?i)\b(api[_-]?key|authorization|secret|password)\b\s*[:=]\s*\S+"),
+    re.compile(
+        r"(?i)\b(api[_-]?key|authorization|secret|password|access_token|refresh_token)\b\s*[:=]\s*\S+"
+    ),
     re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-+/=]+"),
     re.compile(r"\bsk-[A-Za-z0-9_\-]{8,}\b"),
+    re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"),
 )
 
 

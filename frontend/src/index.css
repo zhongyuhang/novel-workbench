@@ -766,6 +766,36 @@ textarea {
   color: var(--ok);
 }
 
+.diff-view {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+
+.diff-line {
+  margin: 0;
+  padding: 0.15rem 0.4rem;
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.85rem;
+}
+
+.diff-insert {
+  background: var(--ok-soft);
+}
+
+.diff-delete {
+  background: var(--down-soft);
+}
+
+.diff-equal {
+  color: var(--muted);
+}
+
+.version-preview {
+  margin-top: 0.75rem;
+}
+
 .quality-diff {
   margin: 0;
   padding: 0.6rem;
@@ -797,6 +827,10 @@ textarea {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.6rem;
+}
+
+.rewrite-compare .diff-view {
+  grid-column: 1 / -1;
 }
 
 .rewrite-compare p,

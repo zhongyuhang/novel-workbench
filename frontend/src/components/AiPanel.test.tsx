@@ -1,7 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { acceptAiTask, compileContext, createAiTask, getTaskContext, rejectAiTask, streamAiTask } from "../api/ai.ts";
+import { acceptAiTask, cancelAiTask, compileContext, createAiTask, getAiTask, getTaskContext, rejectAiTask, streamAiTask } from "../api/ai.ts";
+import { ApiError } from "../api/types.ts";
+import type { AiTask } from "../api/types.ts";
 import { listModelConfigs } from "../api/models.ts";
 import type { Chapter, ModelConfig } from "../api/types.ts";
 import { AiPanel } from "./AiPanel.tsx";
@@ -18,6 +20,7 @@ vi.mock("../api/ai.ts", () => ({
   rejectAiTask: vi.fn(),
   compileContext: vi.fn(),
   getTaskContext: vi.fn(),
+  getAiTask: vi.fn(),
 }));
 
 const chapter: Chapter = {
@@ -54,6 +57,33 @@ const model: ModelConfig = {
   updated_at: "2026-01-01T00:00:00Z",
 };
 
+function taskFixture(
+  id: string,
+  status: AiTask["status"],
+  output: string | null,
+): AiTask {
+  return {
+    id,
+    novel_id: "novel-1",
+    chapter_id: chapter.id,
+    task_type: "continue",
+    status,
+    model_config_id: null,
+    provider_mode: "mock",
+    model_name: "mock",
+    prompt_version: "m3.v1",
+    output_text: output,
+    error_code: null,
+    error_message_safe: status === "failed" ? "模型请求超时。正文没有被修改。" : null,
+    input_tokens: null,
+    output_tokens: null,
+    resolution: null,
+    started_at: null,
+    finished_at: null,
+    created_at: "2026-01-01T00:00:00Z",
+  };
+}
+
 function renderPanel(onAccepted = vi.fn()) {
   return render(
     <AiPanel
@@ -76,6 +106,9 @@ describe("AiPanel", () => {
     vi.mocked(rejectAiTask).mockReset();
     vi.mocked(compileContext).mockReset();
     vi.mocked(getTaskContext).mockReset();
+    vi.mocked(cancelAiTask).mockReset();
+    vi.mocked(getAiTask).mockReset();
+    vi.mocked(getAiTask).mockImplementation(async (id: string) => taskFixture(id, "completed", "候选"));
     vi.mocked(getTaskContext).mockResolvedValue({
       task_type: "continue",
       novel_id: "novel-1",
@@ -396,5 +429,45 @@ describe("AiPanel", () => {
         pinned_exclude: [],
       }),
     );
+  });
+
+  it("reads the saved candidate when the event stream drops", async () => {
+    vi.mocked(listModelConfigs).mockResolvedValue([model]);
+    vi.mocked(createAiTask).mockResolvedValue(taskFixture("task-drop", "queued", null));
+    vi.mocked(streamAiTask).mockRejectedValue(new Error("stream closed"));
+    vi.mocked(getAiTask).mockResolvedValue(taskFixture("task-drop", "completed", "服务器上的候选"));
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole("button", { name: "用模拟模型试运行" }));
+
+    expect(await screen.findByLabelText("候选文本")).toHaveProperty("textContent", expect.stringContaining("服务器上的候选"));
+    expect(screen.queryByText("stream closed")).toBeNull();
+    expect(getAiTask).toHaveBeenCalledWith("task-drop");
+  });
+
+  it("shows the stored candidate when cancel arrives after the task already finished", async () => {
+    vi.mocked(listModelConfigs).mockResolvedValue([model]);
+    vi.mocked(createAiTask).mockResolvedValue(taskFixture("task-late", "queued", null));
+    let releaseStream = () => {};
+    const streamHeld = new Promise<void>((resolve) => {
+      releaseStream = resolve;
+    });
+    vi.mocked(streamAiTask).mockImplementation(async (_taskId, onEvent) => {
+      onEvent({ event: "token", data: { text: "甲" } });
+      await streamHeld;
+    });
+    vi.mocked(cancelAiTask).mockRejectedValue(new ApiError(409, "TASK_STATE", "任务已经结束，不能再取消。", "req-1"));
+    vi.mocked(getAiTask).mockResolvedValue(taskFixture("task-late", "completed", "甲乙"));
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole("button", { name: "用模拟模型试运行" }));
+    await user.click(await screen.findByRole("button", { name: "取消" }));
+
+    expect(await screen.findByText("任务已经结束，不能再取消。")).toBeTruthy();
+    expect(screen.getByLabelText("候选文本").textContent).toContain("甲乙");
+    expect(screen.queryByText("已取消。正文没有被改写。")).toBeNull();
+    releaseStream();
   });
 });

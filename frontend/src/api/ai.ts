@@ -38,6 +38,10 @@ export function createAiTask(payload: AiTaskCreateInput): Promise<AiTask> {
   });
 }
 
+export function getAiTask(taskId: string, signal?: AbortSignal): Promise<AiTask> {
+  return apiRequest<AiTask>(`/api/v1/ai/tasks/${taskId}`, { signal });
+}
+
 export function cancelAiTask(taskId: string): Promise<AiTask> {
   return apiRequest<AiTask>(`/api/v1/ai/tasks/${taskId}/cancel`, { method: "POST" });
 }

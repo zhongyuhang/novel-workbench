@@ -4,6 +4,8 @@ import type {
   ChapterStatus,
   ChapterSummary,
   ChapterVersion,
+  ChapterVersionDetail,
+  ChapterVersionDiff,
   Novel,
   NovelStatus,
   SaveKind,
@@ -116,6 +118,30 @@ export function listChapterVersions(
   signal?: AbortSignal,
 ): Promise<ChapterVersion[]> {
   return apiRequest<ChapterVersion[]>(`/api/v1/chapters/${chapterId}/versions`, { signal });
+}
+
+export function getChapterVersion(
+  chapterId: string,
+  versionId: string,
+  signal?: AbortSignal,
+): Promise<ChapterVersionDetail> {
+  return apiRequest<ChapterVersionDetail>(
+    `/api/v1/chapters/${chapterId}/versions/${versionId}`,
+    { signal },
+  );
+}
+
+export function diffChapterVersions(
+  chapterId: string,
+  leftId: string,
+  rightId: string,
+  signal?: AbortSignal,
+): Promise<ChapterVersionDiff> {
+  const params = new URLSearchParams({ left_id: leftId, right_id: rightId });
+  return apiRequest<ChapterVersionDiff>(
+    `/api/v1/chapters/${chapterId}/versions/diff?${params.toString()}`,
+    { signal },
+  );
 }
 
 export function restoreChapter(

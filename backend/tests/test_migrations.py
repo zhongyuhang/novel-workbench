@@ -42,7 +42,7 @@ def test_upgrade_empty_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         }
     engine.dispose()
 
-    assert version == "0009_quality_issues"
+    assert version == "0010_version_provenance"
     assert {
         "alembic_version",
         "novels",
@@ -119,7 +119,7 @@ def test_upgrade_from_previous_revision(tmp_path: Path, monkeypatch: pytest.Monk
             ).scalars()
         )
     engine.dispose()
-    assert version == "0009_quality_issues"
+    assert version == "0010_version_provenance"
     assert "chapters" in tables
     assert "chapter_versions" in tables
     assert "model_configs" in tables
@@ -186,7 +186,7 @@ def test_upgrade_from_catalog_keeps_chapters_and_adds_versions(
         table_sql = connection.execute(
             text("SELECT sql FROM sqlite_master WHERE name = 'chapter_versions'")
         ).scalar_one()
-        assert version == "0009_quality_issues"
+        assert version == "0010_version_provenance"
         assert "升级前正文" in str(stored)
         assert version_count == 0
         unique_name = next(row[1] for row in index_rows if row[2] == 1 and row[3] == "u")
@@ -259,7 +259,7 @@ def test_upgrade_from_chapter_versions_adds_ai_tables(
         foreign_keys = connection.execute(text("PRAGMA foreign_key_list(ai_tasks)")).all()
     engine.dispose()
 
-    assert version == "0009_quality_issues"
+    assert version == "0010_version_provenance"
     assert title == "版本后"
     assert "ck_ai_tasks_status" in ai_sql
     assert "ck_ai_tasks_resolution" in ai_sql
@@ -307,7 +307,7 @@ def test_upgrade_from_ai_tables_adds_memory_and_keeps_novels(
             text("SELECT sql FROM sqlite_master WHERE name = 'foreshadowing'")
         ).scalar_one()
         foreign_keys = connection.execute(text("PRAGMA foreign_key_list(entity_states)")).all()
-    assert version == "0009_quality_issues"
+    assert version == "0010_version_provenance"
     assert title == "记忆前"
     assert "ck_foreshadowing_status" in foreshadow_sql
     assert "abandoned" in foreshadow_sql
@@ -400,7 +400,7 @@ def test_upgrade_from_quality_adds_planning_and_keeps_chapters(
         scene_sql = connection.execute(
             text("SELECT sql FROM sqlite_master WHERE name = 'scene_cards'")
         ).scalar_one()
-    assert version == "0009_quality_issues"
+    assert version == "0010_version_provenance"
     assert stored[1] == 3
     assert "升级前正文" in str(stored[0])
     assert plan_count == 0
@@ -520,7 +520,7 @@ def test_upgrade_from_planning_adds_bible_and_keeps_entities(
         revision = connection.execute(
             text("SELECT revision FROM chapters WHERE id = 'chapter-1'")
         ).scalar_one()
-    assert version == "0009_quality_issues"
+    assert version == "0010_version_provenance"
     assert name == "林晚"
     assert validity == (None, None)
     assert relation_count == 0
@@ -606,7 +606,7 @@ def test_upgrade_from_story_bible_adds_quality_issues(
         stored = connection.execute(
             text("SELECT revision, content FROM chapters WHERE id = 'chapter-1'")
         ).one()
-    assert version == "0009_quality_issues"
+    assert version == "0010_version_provenance"
     assert issue_count == 0
     assert repair_count == 0
     assert stored[0] == 3
@@ -633,3 +633,95 @@ def test_upgrade_from_story_bible_adds_quality_issues(
     assert kept == "旧章"
     assert "chapters" in tables
     assert "entity_relations" in tables
+
+
+def test_upgrade_from_quality_issues_adds_version_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database_path = tmp_path / "from-quality.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    config = Config(str(BACKEND_ROOT / "alembic.ini"))
+    command.upgrade(config, "0009_quality_issues")
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO novels (
+                    id, title, genre, synopsis, style_guide, status,
+                    created_at, updated_at, deleted_at
+                ) VALUES (
+                    'novel-1', '可靠性前', NULL, NULL, NULL, 'draft',
+                    '2026-01-01 00:00:00', '2026-01-01 00:00:00', NULL
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO chapters (
+                    id, novel_id, volume_id, title, sort_order, content,
+                    content_format, content_format_version, word_count, status,
+                    revision, created_at, updated_at, deleted_at
+                ) VALUES (
+                    'chapter-1', 'novel-1', NULL, '旧章', 0,
+                    '{"type":"doc","content":[]}',
+                    'tiptap_json', 1, 2, 'draft', 4,
+                    '2026-01-01 00:00:00', '2026-01-01 00:00:00', NULL
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO chapter_versions (
+                    id, chapter_id, revision, content_snapshot, content_format,
+                    content_format_version, change_source, change_note, created_at
+                ) VALUES (
+                    'version-1', 'chapter-1', 4, '{"type":"doc","content":[]}',
+                    'tiptap_json', 1, 'manual', NULL, '2026-01-02 00:00:00'
+                )
+                """
+            )
+        )
+
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        row = connection.execute(
+            text(
+                """
+                SELECT revision, change_source, ai_task_id, repair_candidate_id
+                FROM chapter_versions WHERE id = 'version-1'
+                """
+            )
+        ).one()
+        links = connection.execute(text("PRAGMA foreign_key_list(chapter_versions)")).all()
+    assert version == "0010_version_provenance"
+    assert row == (4, "manual", None, None)
+    assert any(item[2] == "ai_tasks" and item[3] == "ai_task_id" for item in links)
+    assert any(
+        item[2] == "quality_repair_candidates" and item[3] == "repair_candidate_id"
+        for item in links
+    )
+
+    command.downgrade(config, "0009_quality_issues")
+    with engine.connect() as connection:
+        version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        columns = {
+            item[1]
+            for item in connection.execute(text("PRAGMA table_info(chapter_versions)")).all()
+        }
+        kept = connection.execute(
+            text("SELECT change_source FROM chapter_versions WHERE id = 'version-1'")
+        ).scalar_one()
+    engine.dispose()
+    assert version == "0009_quality_issues"
+    assert "ai_task_id" not in columns
+    assert "repair_candidate_id" not in columns
+    assert kept == "manual"

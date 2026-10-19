@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -16,13 +16,18 @@ from app.core.content import (
     CANONICAL_CONTENT_FORMAT,
     CANONICAL_CONTENT_FORMAT_VERSION,
     canonical_dump,
+    document_to_text,
     empty_document,
     validate_document,
     word_count,
 )
-from app.core.errors import InvalidReference, NotFound, RevisionConflict
+from app.core.errors import InvalidReference, NotFound, RevisionConflict, TaskStateError
 from app.core.manuscript import preview_text
+from app.core.text_diff import TextHunk, diff_lines
+from app.models.ai import AiTask
 from app.models.catalog import Chapter, ChapterVersion, Novel, Volume
+from app.models.memory import MemoryChangeProposal
+from app.models.quality import QualityIssue, QualityRepairCandidate
 from app.repositories import catalog as catalog_repo
 from app.schemas.catalog import (
     ChapterCreate,
@@ -51,7 +56,37 @@ class ChapterVersionRecord:
     change_note: str | None
     word_count: int
     preview: str
+    ai_task_id: str | None
+    repair_candidate_id: str | None
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class VersionDetail:
+    record: ChapterVersionRecord
+    text: str
+    memory_proposal_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class DiffSide:
+    id: str | None
+    revision: int
+    change_source: str | None
+    change_note: str | None
+    created_at: datetime
+    word_count: int
+    label: str
+    ai_task_id: str | None
+    repair_candidate_id: str | None
+    memory_proposal_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class VersionDiff:
+    left: DiffSide
+    right: DiffSide
+    hunks: tuple[TextHunk, ...]
 
 
 def create_novel(session: Session, payload: NovelCreate) -> Novel:
@@ -270,6 +305,34 @@ def list_chapter_versions(session: Session, chapter_id: str) -> list[ChapterVers
     return [_version_record(row) for row in catalog_repo.list_versions(session, chapter_id)]
 
 
+def get_chapter_version(session: Session, chapter_id: str, version_id: str) -> VersionDetail:
+    chapter = _require_chapter(session, chapter_id)
+    version = _require_version(session, chapter.id, version_id)
+    record = _version_record(version)
+    return VersionDetail(
+        record=record,
+        text=_version_text(version),
+        memory_proposal_ids=tuple(_memory_proposal_ids(session, chapter.id, version.revision)),
+    )
+
+
+def diff_chapter_versions(
+    session: Session,
+    chapter_id: str,
+    left_id: str,
+    right_id: str,
+) -> VersionDiff:
+    chapter = _require_chapter(session, chapter_id)
+    if left_id == right_id:
+        raise InvalidReference("请选择两个不同的版本或当前正文。")
+    left = _diff_side(session, chapter, left_id)
+    right = _diff_side(session, chapter, right_id)
+    hunks = tuple(
+        diff_lines(_side_text(session, chapter, left), _side_text(session, chapter, right))
+    )
+    return VersionDiff(left=left, right=right, hunks=hunks)
+
+
 def restore_chapter(session: Session, chapter_id: str, payload: ChapterRestore) -> Chapter:
     chapter = _require_chapter(session, chapter_id)
     if chapter.revision != payload.revision:
@@ -323,48 +386,67 @@ def apply_accepted_candidate(
     expected_revision: int,
     document: dict[str, object],
     change_note: str | None,
+    ai_task_id: str | None = None,
+    repair_candidate_id: str | None = None,
+    repair_issue_id: str | None = None,
 ) -> Chapter:
-    """Write an accepted candidate with the same optimistic lock as a manual save."""
+    """Write an accepted candidate in one transaction with its resolution.
 
-    chapter = _require_chapter(session, chapter_id)
-    if chapter.revision != expected_revision:
-        raise RevisionConflict()
-    validated = validate_document(copy.deepcopy(document))
-    new_revision = chapter.revision + 1
-    result = cast(
-        CursorResult[tuple[object, ...]],
-        session.execute(
-            update(Chapter)
-            .where(
-                Chapter.id == chapter.id,
-                Chapter.revision == expected_revision,
-                Chapter.deleted_at.is_(None),
-            )
-            .values(
-                content=copy.deepcopy(validated),
-                content_format=CANONICAL_CONTENT_FORMAT,
-                content_format_version=CANONICAL_CONTENT_FORMAT_VERSION,
-                word_count=word_count(validated),
-                revision=new_revision,
-                updated_at=_now(),
-            )
-        ),
-    )
-    if result.rowcount != 1:
+    A failure rolls the chapter, snapshot, task resolution, and repair status
+    back together. Callers must not commit a partial accept before this returns.
+    """
+
+    try:
+        chapter = _require_chapter(session, chapter_id)
+        if chapter.revision != expected_revision:
+            raise RevisionConflict()
+        validated = validate_document(copy.deepcopy(document))
+        new_revision = chapter.revision + 1
+        result = cast(
+            CursorResult[tuple[object, ...]],
+            session.execute(
+                update(Chapter)
+                .where(
+                    Chapter.id == chapter.id,
+                    Chapter.revision == expected_revision,
+                    Chapter.deleted_at.is_(None),
+                )
+                .values(
+                    content=copy.deepcopy(validated),
+                    content_format=CANONICAL_CONTENT_FORMAT,
+                    content_format_version=CANONICAL_CONTENT_FORMAT_VERSION,
+                    word_count=word_count(validated),
+                    revision=new_revision,
+                    updated_at=_now(),
+                )
+            ),
+        )
+        if result.rowcount != 1:
+            raise RevisionConflict()
+        _add_version(
+            session,
+            chapter_id=chapter.id,
+            revision=new_revision,
+            document=validated,
+            change_source="ai_accepted",
+            change_note=change_note,
+            ai_task_id=ai_task_id,
+            repair_candidate_id=repair_candidate_id,
+        )
+        if ai_task_id is not None:
+            _claim_ai_resolution(session, ai_task_id, chapter)
+        if repair_candidate_id is not None:
+            _claim_repair(session, repair_candidate_id, repair_issue_id, chapter, new_revision)
+        mark_chapter_memory_stale(session, chapter.id, new_revision)
+        session.commit()
+    except IntegrityError:
         session.rollback()
-        raise RevisionConflict()
-    _add_version(
-        session,
-        chapter_id=chapter.id,
-        revision=new_revision,
-        document=validated,
-        change_source="ai_accepted",
-        change_note=change_note,
-    )
-    mark_chapter_memory_stale(session, chapter.id, new_revision)
-    _commit_version_write(session, wrote_chapter=True)
+        raise RevisionConflict() from None
+    except Exception:
+        session.rollback()
+        raise
     logger.info("ai candidate accepted")
-    return _reload_chapter(session, chapter.id)
+    return _reload_chapter(session, chapter_id)
 
 
 def delete_chapter(session: Session, chapter_id: str) -> None:
@@ -443,6 +525,8 @@ def _add_version(
     change_source: str,
     change_note: str | None,
     content_format_version: int = CANONICAL_CONTENT_FORMAT_VERSION,
+    ai_task_id: str | None = None,
+    repair_candidate_id: str | None = None,
 ) -> None:
     session.add(
         ChapterVersion(
@@ -454,10 +538,137 @@ def _add_version(
             content_format_version=content_format_version,
             change_source=change_source,
             change_note=change_note,
+            ai_task_id=ai_task_id,
+            repair_candidate_id=repair_candidate_id,
             created_at=_now(),
         )
     )
     logger.info("chapter version recorded")
+
+
+def _claim_ai_resolution(session: Session, task_id: str, chapter: Chapter) -> None:
+    result = cast(
+        CursorResult[tuple[object, ...]],
+        session.execute(
+            update(AiTask)
+            .where(
+                AiTask.id == task_id,
+                AiTask.chapter_id == chapter.id,
+                AiTask.novel_id == chapter.novel_id,
+                AiTask.status == "completed",
+                AiTask.resolution.is_(None),
+            )
+            .values(resolution="accepted")
+        ),
+    )
+    if result.rowcount != 1:
+        raise TaskStateError("这份候选已经处理过。")
+
+
+def _claim_repair(
+    session: Session,
+    candidate_id: str,
+    issue_id: str | None,
+    chapter: Chapter,
+    new_revision: int,
+) -> None:
+    now = _now()
+    result = cast(
+        CursorResult[tuple[object, ...]],
+        session.execute(
+            update(QualityRepairCandidate)
+            .where(
+                QualityRepairCandidate.id == candidate_id,
+                QualityRepairCandidate.status == "proposed",
+                QualityRepairCandidate.chapter_id == chapter.id,
+                QualityRepairCandidate.novel_id == chapter.novel_id,
+            )
+            .values(status="accepted", updated_at=now)
+        ),
+    )
+    if result.rowcount != 1:
+        raise TaskStateError("这份建议已经处理过。")
+    if issue_id is None:
+        return
+    issue_result = cast(
+        CursorResult[tuple[object, ...]],
+        session.execute(
+            update(QualityIssue)
+            .where(
+                QualityIssue.id == issue_id,
+                QualityIssue.novel_id == chapter.novel_id,
+                QualityIssue.status != "expired",
+            )
+            .values(status="fixed", fixed_revision=new_revision, updated_at=now)
+        ),
+    )
+    if issue_result.rowcount != 1:
+        raise TaskStateError("问题已过期，请先重新检查。")
+
+
+def _require_version(session: Session, chapter_id: str, version_id: str) -> ChapterVersion:
+    version = catalog_repo.get_version(session, version_id)
+    if version is None or version.chapter_id != chapter_id:
+        raise NotFound("版本不存在。")
+    return version
+
+
+def _diff_side(session: Session, chapter: Chapter, side_id: str) -> DiffSide:
+    if side_id == "current":
+        document = chapter.content if isinstance(chapter.content, dict) else empty_document()
+        return DiffSide(
+            id=None,
+            revision=chapter.revision,
+            change_source=None,
+            change_note=None,
+            created_at=chapter.updated_at,
+            word_count=word_count(document),
+            label="当前正文",
+            ai_task_id=None,
+            repair_candidate_id=None,
+            memory_proposal_ids=tuple(_memory_proposal_ids(session, chapter.id, chapter.revision)),
+        )
+    version = _require_version(session, chapter.id, side_id)
+    record = _version_record(version)
+    return DiffSide(
+        id=record.id,
+        revision=record.revision,
+        change_source=record.change_source,
+        change_note=record.change_note,
+        created_at=record.created_at,
+        word_count=record.word_count,
+        label=f"修订 {record.revision}",
+        ai_task_id=record.ai_task_id,
+        repair_candidate_id=record.repair_candidate_id,
+        memory_proposal_ids=tuple(_memory_proposal_ids(session, chapter.id, record.revision)),
+    )
+
+
+def _side_text(session: Session, chapter: Chapter, side: DiffSide) -> str:
+    if side.id is None:
+        document = chapter.content if isinstance(chapter.content, dict) else empty_document()
+        return document_to_text(document)
+    version = _require_version(session, chapter.id, side.id)
+    return _version_text(version)
+
+
+def _version_text(version: ChapterVersion) -> str:
+    document = version.content_snapshot if isinstance(version.content_snapshot, dict) else {}
+    if not isinstance(document, dict) or document.get("type") != "doc":
+        return ""
+    return document_to_text(document)
+
+
+def _memory_proposal_ids(session: Session, chapter_id: str, revision: int) -> list[str]:
+    rows = session.scalars(
+        select(MemoryChangeProposal.id)
+        .where(
+            MemoryChangeProposal.source_chapter_id == chapter_id,
+            MemoryChangeProposal.source_revision == revision,
+        )
+        .order_by(MemoryChangeProposal.created_at.asc(), MemoryChangeProposal.id.asc())
+    )
+    return list(rows)
 
 
 def _commit_version_write(session: Session, *, wrote_chapter: bool) -> None:
@@ -490,6 +701,8 @@ def _version_record(row: ChapterVersion) -> ChapterVersionRecord:
         change_note=row.change_note,
         word_count=word_count(document),
         preview=preview_text(document),
+        ai_task_id=row.ai_task_id,
+        repair_candidate_id=row.repair_candidate_id,
         created_at=row.created_at,
     )
 

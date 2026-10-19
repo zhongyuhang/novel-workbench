@@ -86,15 +86,21 @@ def apply_candidate_text(
     if mode == "replace_selection":
         if selection == "":
             return validate_document(text_to_document(cleaned))
-        if selection not in source:
-            raise SelectionNotFound()
+        _require_unique_selection(source, selection)
         return validate_document(text_to_document(source.replace(selection, cleaned, 1)))
     if mode == "insert":
-        if selection not in source:
-            raise SelectionNotFound()
+        _require_unique_selection(source, selection)
         inserted = source.replace(selection, f"{selection}\n\n{cleaned}", 1)
         return validate_document(text_to_document(inserted))
     raise InvalidDocument("不支持的采纳方式。")
+
+
+def _require_unique_selection(source: str, selection: str) -> None:
+    count = source.count(selection)
+    if count == 0:
+        raise SelectionNotFound()
+    if count != 1:
+        raise SelectionNotFound("选区在正文里出现了多次，不能确定要替换哪一处，没有改写正文。")
 
 
 def _paragraphs(text: str) -> list[dict[str, object]]:

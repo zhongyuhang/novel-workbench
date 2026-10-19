@@ -292,11 +292,14 @@ def accept_ai_task(
     if output == "":
         raise TaskStateError("候选是空的，没有改写正文。")
     chapter = catalog_repo.get_chapter(session, task.chapter_id)
-    if chapter is None:
-        raise NotFound("章节不存在。")
+    if chapter is None or chapter.novel_id != task.novel_id:
+        raise InvalidReference("任务和章节不属于同一本作品。")
     if chapter.revision != payload.target_revision:
         raise RevisionConflict()
     snapshot = task.input_snapshot if isinstance(task.input_snapshot, dict) else {}
+    recorded = snapshot.get("target_revision")
+    if type(recorded) is not int or recorded != chapter.revision:
+        raise RevisionConflict("任务针对的修订已经不是当前正文，没有写入。")
     selection = snapshot.get("selection_text")
     selection_text = selection if isinstance(selection, str) else ""
     document = apply_candidate_text(
@@ -306,13 +309,13 @@ def accept_ai_task(
         selection_text=selection_text,
     )
     label = TASK_LABELS.get(task.task_type, task.task_type)
-    task.resolution = "accepted"
     saved = apply_accepted_candidate(
         session,
         chapter.id,
         expected_revision=payload.target_revision,
         document=document,
         change_note=f"采纳{label}候选",
+        ai_task_id=task.id,
     )
     session.expire_all()
     task = _require(session, task_id)
