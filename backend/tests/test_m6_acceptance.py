@@ -267,7 +267,7 @@ def test_t017_backup_then_restore_into_a_new_database(
     assert created.status_code == 201, created.text
     body = created.json()
     assert body["app_version"] == "1.0.0"
-    assert body["alembic_revision"] == "0009_quality_issues"
+    assert body["alembic_revision"] == "0010_version_provenance"
     assert "database" not in body
     assert str(tmp_path) not in created.text
     assert SECRET not in created.text
@@ -293,6 +293,8 @@ def test_t017_backup_then_restore_into_a_new_database(
         ).fetchone()
     assert {"story_plans", "chapter_outlines", "scene_cards", "quality_issues"} <= tables
     assert "quality_repair_candidates" in tables
+    version_columns = {row[1] for row in backed_up.execute("PRAGMA table_info(chapter_versions)")}
+    assert {"ai_task_id", "repair_candidate_id"} <= version_columns
     assert stored_plan == ("备份里的大纲",)
     assert stored_scene == ("备份里的场景",)
     assert stored_issue is not None
