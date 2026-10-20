@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field, field_validator
 
 PlanningStatus = Literal["draft", "confirmed", "stale", "archived"]
 EditablePlanningStatus = Literal["draft", "stale", "archived"]
+StoryArcType = Literal["main", "subplot", "character", "other"]
+OutlineProviderMode = Literal["mock", "openai_compatible"]
 
 
 def _blank_to_none(value: str | None) -> str | None:
@@ -202,6 +204,166 @@ class SceneReorder(BaseModel):
     scene_ids: list[str] = Field(min_length=1, max_length=200)
 
 
+class StoryArcCreate(BaseModel):
+    arc_type: StoryArcType = "main"
+    title: str = Field(min_length=1, max_length=200)
+    summary: str | None = Field(default=None, max_length=4000)
+    status: EditablePlanningStatus | None = None
+
+    @field_validator("title", "summary")
+    @classmethod
+    def clean_text(cls, value: str | None) -> str | None:
+        return _blank_to_none(value)
+
+    @field_validator("title")
+    @classmethod
+    def title_required(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("故事线需要一个标题")
+        return value
+
+
+class StoryArcPatch(BaseModel):
+    arc_type: StoryArcType | None = None
+    title: str | None = Field(default=None, max_length=200)
+    summary: str | None = Field(default=None, max_length=4000)
+    status: EditablePlanningStatus | None = None
+    expected_revision: int = Field(ge=1)
+
+    @field_validator("title", "summary")
+    @classmethod
+    def clean_text(cls, value: str | None) -> str | None:
+        return _blank_to_none(value)
+
+
+class StoryArcReorder(BaseModel):
+    arc_ids: list[str] = Field(min_length=1, max_length=200)
+
+
+class StoryArcResponse(BaseModel):
+    id: str
+    novel_id: str
+    arc_type: StoryArcType
+    title: str
+    summary: str | None
+    sort_order: int
+    status: PlanningStatus
+    revision: int
+    counts_as_fact: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class VolumeOutlineWrite(BaseModel):
+    goal: str | None = Field(default=None, max_length=500)
+    key_events: str | None = Field(default=None, max_length=4000)
+    start_state: str | None = Field(default=None, max_length=2000)
+    end_state: str | None = Field(default=None, max_length=2000)
+    status: EditablePlanningStatus | None = None
+    expected_revision: int | None = Field(default=None, ge=1)
+
+    @field_validator("goal", "key_events", "start_state", "end_state")
+    @classmethod
+    def clean_text(cls, value: str | None) -> str | None:
+        return _blank_to_none(value)
+
+
+class VolumeOutlineResponse(BaseModel):
+    id: str
+    novel_id: str
+    volume_id: str
+    goal: str | None
+    key_events: str | None
+    start_state: str | None
+    end_state: str | None
+    status: PlanningStatus
+    revision: int
+    counts_as_fact: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class VolumeOutlineView(BaseModel):
+    novel_id: str
+    volume_id: str
+    outline: VolumeOutlineResponse | None
+
+
+class OutlineCandidateScene(BaseModel):
+    goal: str | None = Field(default=None, max_length=500)
+    conflict: str | None = Field(default=None, max_length=2000)
+    turning_point: str | None = Field(default=None, max_length=2000)
+    expected_outcome: str | None = Field(default=None, max_length=2000)
+    must_convey: str | None = Field(default=None, max_length=2000)
+    must_not_reveal: str | None = Field(default=None, max_length=2000)
+
+    @field_validator(
+        "goal",
+        "conflict",
+        "turning_point",
+        "expected_outcome",
+        "must_convey",
+        "must_not_reveal",
+    )
+    @classmethod
+    def clean_text(cls, value: str | None) -> str | None:
+        return _blank_to_none(value)
+
+
+class OutlineCandidateRequest(BaseModel):
+    use_mock: bool = True
+    model_config_id: str | None = Field(default=None, max_length=36)
+    include_scenes: bool = True
+
+    @field_validator("model_config_id")
+    @classmethod
+    def clean_model(cls, value: str | None) -> str | None:
+        return _clean_id(value)
+
+
+class OutlineCandidatePreview(BaseModel):
+    novel_id: str
+    chapter_id: str
+    provider_mode: OutlineProviderMode
+    simulated: bool
+    confirmed: Literal[False] = False
+    manuscript_changed: Literal[False] = False
+    written: Literal[False] = False
+    note: str
+    goal: str | None
+    must_advance: str | None
+    required_events: str | None
+    allowed_reveals: str | None
+    forbidden_reveals: str | None
+    target_words: int | None
+    ending_hook: str | None
+    scenes: list[OutlineCandidateScene]
+
+
+class OutlineCandidateAccept(BaseModel):
+    goal: str | None = Field(default=None, max_length=500)
+    must_advance: str | None = Field(default=None, max_length=4000)
+    required_events: str | None = Field(default=None, max_length=4000)
+    allowed_reveals: str | None = Field(default=None, max_length=4000)
+    forbidden_reveals: str | None = Field(default=None, max_length=4000)
+    target_words: int | None = Field(default=None, ge=1, le=200_000)
+    ending_hook: str | None = Field(default=None, max_length=1000)
+    scenes: list[OutlineCandidateScene] = Field(default_factory=list, max_length=12)
+    expected_revision: int | None = Field(default=None, ge=1)
+
+    @field_validator(
+        "goal",
+        "must_advance",
+        "required_events",
+        "allowed_reveals",
+        "forbidden_reveals",
+        "ending_hook",
+    )
+    @classmethod
+    def clean_text(cls, value: str | None) -> str | None:
+        return _blank_to_none(value)
+
+
 class EntityRef(BaseModel):
     id: str
     name: str | None
@@ -229,3 +391,9 @@ class SceneCardResponse(BaseModel):
     counts_as_fact: bool
     created_at: datetime
     updated_at: datetime
+
+
+class OutlineCandidateAcceptResult(BaseModel):
+    outline: ChapterOutlineResponse
+    scenes: list[SceneCardResponse]
+    manuscript_changed: Literal[False] = False

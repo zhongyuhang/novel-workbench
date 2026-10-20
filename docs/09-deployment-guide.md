@@ -109,7 +109,7 @@ curl -sS http://127.0.0.1:8080/api/v1/admin/backups \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-备份目录在宿主机的 `$DATA_DIR/backups/<id>/`，里面有 `manifest.json`（应用版本、迁移版本、时间）和 `database.sqlite`。不要把这些文件提交到 git。备份是整库副本。大纲、人物关系、质量问题和修复候选、正文、版本，以及 `0010_version_provenance` 加在版本上的任务和修复来源，都会一起带走，恢复后仍能按原作品读到。`GET /api/v1/admin/backups` 的 `latest_success_at` 就是这份清单里最新的 `created_at`。作品库用它提示最近一次成功备份；还没有备份时提示先做一次。升级顺序仍是 `alembic upgrade head`，不要改写 `0001` 到 `0010`。
+备份目录在宿主机的 `$DATA_DIR/backups/<id>/`，里面有 `manifest.json`（应用版本、迁移版本、时间）和 `database.sqlite`。不要把这些文件提交到 git。备份是整库副本。大纲、故事线、卷大纲、人物关系、质量问题和修复候选、正文、版本，以及 `0010_version_provenance` 加在版本上的任务和修复来源，都会一起带走，恢复后仍能按原作品读到。`GET /api/v1/admin/backups` 的 `latest_success_at` 就是这份清单里最新的 `created_at`。作品库用它提示最近一次成功备份；还没有备份时提示先做一次。升级顺序仍是 `alembic upgrade head`，不要改写 `0001` 到 `0011`。
 
 单本作品换机器用作品包，不用整库文件。工作台「导出作品包」得到 ZIP（`ai-novel-writer-portable-v1`）。在另一台已登录的作品库选择「导入作品包」，先看预检计数，再确认导入为一本新作品。不支持的格式版本会直接说明版本号，并且不写库。作品包不含 API Key。整库恢复和作品包导入互不替代：恢复会换掉整个 SQLite 文件，导入只追加一本新作品。
 

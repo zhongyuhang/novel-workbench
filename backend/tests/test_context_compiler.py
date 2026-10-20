@@ -203,6 +203,100 @@ def test_cross_novel_material_never_enters_context(auth_client: TestClient) -> N
     assert any("没有读取其他作品" in warning for warning in pinned["warnings"])
 
 
+def test_confirmed_arc_and_volume_outline_stay_inside_one_novel(auth_client: TestClient) -> None:
+    novel_id, chapter = _chapter(auth_client, "甲书上下文", "硬规则甲")
+    volume = auth_client.post(f"/api/v1/novels/{novel_id}/volumes", json={"title": "上卷"}).json()
+    moved = auth_client.post(
+        f"/api/v1/chapters/{chapter['id']}/move",
+        json={"volume_id": volume["id"], "sort_order": 0},
+    )
+    assert moved.status_code == 200, moved.text
+    arc = auth_client.post(
+        f"/api/v1/novels/{novel_id}/story-arcs",
+        json={"arc_type": "main", "title": "甲书主线", "summary": "甲书故事线摘要"},
+    )
+    assert arc.status_code == 201, arc.text
+    draft_compiled = _compile(auth_client, novel_id, moved.json(), instruction="顺着写")
+    draft_arc = _item_containing(draft_compiled, "甲书故事线摘要")
+    assert draft_arc["included"] is False
+    assert draft_arc["kind"] == "story_arc"
+    assert "不是事实" in str(draft_arc["content"])
+
+    confirmed_arc = auth_client.post(
+        f"/api/v1/story-arcs/{arc.json()['id']}/confirm",
+        json={"expected_revision": arc.json()["revision"]},
+    )
+    assert confirmed_arc.status_code == 200, confirmed_arc.text
+    volume_outline = auth_client.put(
+        f"/api/v1/volumes/{volume['id']}/outline",
+        json={"goal": "甲书卷目标", "key_events": "甲书关键事件"},
+    )
+    assert volume_outline.status_code == 200, volume_outline.text
+    draft_volume = _compile(auth_client, novel_id, moved.json(), instruction="顺着写")
+    draft_volume_item = _item_containing(draft_volume, "甲书卷目标")
+    assert draft_volume_item["included"] is False
+    assert draft_volume_item["priority"] == 2
+
+    confirmed_volume = auth_client.post(
+        f"/api/v1/volumes/{volume['id']}/outline/confirm",
+        json={"expected_revision": volume_outline.json()["revision"]},
+    )
+    assert confirmed_volume.status_code == 200, confirmed_volume.text
+    other = auth_client.post("/api/v1/novels", json={"title": "乙书上下文"}).json()
+    other_volume = auth_client.post(
+        f"/api/v1/novels/{other['id']}/volumes",
+        json={"title": "乙卷"},
+    ).json()
+    other_chapter = auth_client.post(
+        f"/api/v1/novels/{other['id']}/chapters",
+        json={"title": "乙章", "volume_id": other_volume["id"]},
+    ).json()
+    other_arc = auth_client.post(
+        f"/api/v1/novels/{other['id']}/story-arcs",
+        json={"arc_type": "subplot", "title": "乙书支线", "summary": "乙书故事线机密"},
+    )
+    assert other_arc.status_code == 201, other_arc.text
+    auth_client.post(
+        f"/api/v1/story-arcs/{other_arc.json()['id']}/confirm",
+        json={"expected_revision": other_arc.json()["revision"]},
+    )
+    other_outline = auth_client.put(
+        f"/api/v1/volumes/{other_volume['id']}/outline",
+        json={"goal": "乙书卷大纲机密"},
+    )
+    assert other_outline.status_code == 200, other_outline.text
+    auth_client.post(
+        f"/api/v1/volumes/{other_volume['id']}/outline/confirm",
+        json={"expected_revision": other_outline.json()["revision"]},
+    )
+
+    compiled = _compile(auth_client, novel_id, moved.json(), instruction="顺着甲书写")
+    included_arc = _item_containing(compiled, "甲书故事线摘要")
+    included_volume = _item_containing(compiled, "甲书卷目标")
+    assert included_arc["included"] is True
+    assert included_arc["certainty"] == "confirmed"
+    assert included_arc["priority"] == 2
+    assert included_arc["hit_reason"] == "已确认故事线"
+    assert included_volume["included"] is True
+    assert included_volume["kind"] == "volume_outline"
+    assert included_volume["priority"] == 2
+    assert included_volume["hit_reason"] == "已确认卷大纲"
+    blob = json.dumps(compiled, ensure_ascii=False)
+    assert "乙书故事线机密" not in blob
+    assert "乙书卷大纲机密" not in blob
+    pinned = _compile(
+        auth_client,
+        novel_id,
+        moved.json(),
+        instruction="顺着写",
+        pinned_include=[f"arc:{other_arc.json()['id']}"],
+    )
+    pinned_blob = json.dumps(pinned, ensure_ascii=False)
+    assert "乙书故事线机密" not in pinned_blob
+    assert any("没有读取其他作品" in warning for warning in pinned["warnings"])
+    assert other_chapter["id"] not in pinned_blob
+
+
 def test_stale_summary_and_revision_mismatch_are_warnings(auth_client: TestClient) -> None:
     novel_id, chapter = _chapter(auth_client, "过期来源", "硬规则甲")
     previous = auth_client.post(

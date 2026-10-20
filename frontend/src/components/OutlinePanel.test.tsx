@@ -9,10 +9,16 @@ import {
   getStoryPlan,
   listChapterOutlines,
   listScenes,
+  listStoryArcs,
+  listVolumeOutlines,
+  previewOutlineCandidate,
+  acceptOutlineCandidate,
+  createStoryArc,
   reorderScenes,
   saveChapterOutline,
   saveStoryPlan,
   type ChapterOutline,
+  type OutlineCandidatePreview,
   type SceneCard,
   type StoryPlan,
 } from "../api/planning.ts";
@@ -35,6 +41,17 @@ vi.mock("../api/planning.ts", async () => {
     updateScene: vi.fn(),
     deleteScene: vi.fn(),
     reorderScenes: vi.fn(),
+    listStoryArcs: vi.fn(),
+    listVolumeOutlines: vi.fn(),
+    createStoryArc: vi.fn(),
+    updateStoryArc: vi.fn(),
+    deleteStoryArc: vi.fn(),
+    reorderStoryArcs: vi.fn(),
+    confirmStoryArc: vi.fn(),
+    saveVolumeOutline: vi.fn(),
+    confirmVolumeOutline: vi.fn(),
+    previewOutlineCandidate: vi.fn(),
+    acceptOutlineCandidate: vi.fn(),
   };
 });
 
@@ -119,6 +136,8 @@ describe("OutlinePanel", () => {
     vi.mocked(listChapterOutlines).mockReset();
     vi.mocked(getStoryPlan).mockResolvedValue({ novel_id: "novel-1", plan: null });
     vi.mocked(listChapterOutlines).mockResolvedValue([]);
+    vi.mocked(listStoryArcs).mockResolvedValue([]);
+    vi.mocked(listVolumeOutlines).mockResolvedValue([]);
   });
 
   it("saves a draft novel outline and confirms it without treating the draft as fact", async () => {
@@ -127,6 +146,7 @@ describe("OutlinePanel", () => {
       <OutlinePanel
         novelId="novel-1"
         chapters={chapters}
+        volumes={[]}
         activeChapterId={null}
         onOpenChapter={() => {}}
       />,
@@ -157,6 +177,58 @@ describe("OutlinePanel", () => {
     await user.click(screen.getByRole("button", { name: "确认作品大纲" }));
     expect(confirmStoryPlan).toHaveBeenCalledWith("novel-1", 1);
     expect(await screen.findByText("已确认。之后才会当作创作约束。")).toBeTruthy();
+  });
+
+  it("adds a story arc as a draft", async () => {
+    const user = userEvent.setup();
+    render(
+      <OutlinePanel
+        novelId="novel-1"
+        chapters={chapters}
+        volumes={[]}
+        activeChapterId={null}
+        onOpenChapter={() => {}}
+      />,
+    );
+    expect(await screen.findByText("还没有故事线。")).toBeTruthy();
+    await user.type(screen.getByLabelText("新故事线标题"), "城门主线");
+    vi.mocked(createStoryArc).mockResolvedValue({
+      id: "arc-1",
+      novel_id: "novel-1",
+      arc_type: "main",
+      title: "城门主线",
+      summary: null,
+      sort_order: 0,
+      status: "draft",
+      revision: 1,
+      counts_as_fact: false,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    });
+    vi.mocked(listStoryArcs).mockResolvedValue([
+      {
+        id: "arc-1",
+        novel_id: "novel-1",
+        arc_type: "main",
+        title: "城门主线",
+        summary: null,
+        sort_order: 0,
+        status: "draft",
+        revision: 1,
+        counts_as_fact: false,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+    ]);
+    await user.click(screen.getByRole("button", { name: "添加故事线" }));
+    expect(createStoryArc).toHaveBeenCalledWith("novel-1", {
+      arc_type: "main",
+      title: "城门主线",
+      summary: null,
+      status: "draft",
+    });
+    expect(await screen.findByLabelText("故事线标题 城门主线")).toBeTruthy();
+    expect(screen.getAllByText("未确认，不会当作强制事实。").length).toBeGreaterThan(0);
   });
 });
 
@@ -224,5 +296,48 @@ describe("ChapterPlanEditor", () => {
     const goals = screen.getAllByLabelText(/场景目标/);
     expect((goals[0] as HTMLInputElement).value).toBe("回钥匙孔");
     expect((goals[1] as HTMLInputElement).value).toBe("问钟");
+  });
+
+  it("previews a simulated outline candidate before writing a draft", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getChapterOutline).mockResolvedValue({
+      novel_id: "novel-1",
+      chapter_id: "chapter-1",
+      outline: null,
+    });
+    const preview: OutlineCandidatePreview = {
+      novel_id: "novel-1",
+      chapter_id: "chapter-1",
+      provider_mode: "mock",
+      simulated: true,
+      confirmed: false,
+      manuscript_changed: false,
+      written: false,
+      note: "模拟模型生成，尚未写入正式大纲，也不是已确认事实。",
+      goal: "模拟候选：推进城门",
+      must_advance: "往前一步",
+      required_events: null,
+      allowed_reveals: null,
+      forbidden_reveals: "不要提前写出结局",
+      target_words: null,
+      ending_hook: "留下问题",
+      scenes: [{ goal: "进入城门", conflict: null, turning_point: null, expected_outcome: null, must_convey: null, must_not_reveal: null }],
+    };
+    vi.mocked(previewOutlineCandidate).mockResolvedValue(preview);
+    render(<ChapterPlanEditor novelId="novel-1" chapterId="chapter-1" chapterTitle="城门" />);
+    await user.click(await screen.findByRole("button", { name: "生成大纲候选（模拟）" }));
+    expect(await screen.findByText("模拟 · 未确认")).toBeTruthy();
+    expect(screen.getByText(/尚未写入正式大纲/)).toBeTruthy();
+    expect(saveChapterOutline).not.toHaveBeenCalled();
+
+    vi.mocked(acceptOutlineCandidate).mockResolvedValue({
+      outline: { ...draftOutline, goal: "模拟候选：推进城门" },
+      scenes: [],
+      manuscript_changed: false,
+    });
+    vi.mocked(listScenes).mockResolvedValue([]);
+    await user.click(screen.getByRole("button", { name: "写入草稿大纲" }));
+    expect(acceptOutlineCandidate).toHaveBeenCalledWith("chapter-1", preview, undefined);
+    expect(await screen.findByDisplayValue("模拟候选：推进城门")).toBeTruthy();
   });
 });

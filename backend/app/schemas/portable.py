@@ -11,6 +11,8 @@ class PortableCounts(BaseModel):
     chapters: int = 0
     chapter_versions: int = 0
     story_plans: int = 0
+    story_arcs: int = 0
+    volume_outlines: int = 0
     chapter_outlines: int = 0
     scene_cards: int = 0
     entities: int = 0

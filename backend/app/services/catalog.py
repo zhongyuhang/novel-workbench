@@ -41,6 +41,7 @@ from app.schemas.catalog import (
     VolumeUpdate,
 )
 from app.services.memory import mark_chapter_memory_stale
+from app.services.planning import discard_volume_outline, mark_volume_outline_stale
 
 logger = logging.getLogger("app.catalog")
 
@@ -183,6 +184,7 @@ def delete_volume(session: Session, volume_id: str) -> None:
     detached = catalog_repo.list_chapters_in_group(session, volume.novel_id, volume.id)
     unassigned = catalog_repo.list_chapters_in_group(session, volume.novel_id, None)
     _renumber(unassigned + detached, None)
+    discard_volume_outline(session, volume.id)
     session.delete(volume)
     session.commit()
 
@@ -227,6 +229,7 @@ def create_chapter(session: Session, novel_id: str, payload: ChapterCreate) -> C
         deleted_at=None,
     )
     session.add(chapter)
+    mark_volume_outline_stale(session, novel_id, payload.volume_id)
     session.commit()
     session.refresh(chapter)
     return chapter
@@ -458,6 +461,7 @@ def delete_chapter(session: Session, chapter_id: str) -> None:
     session.flush()
     remaining = catalog_repo.list_chapters_in_group(session, novel_id, volume_id)
     _renumber(remaining, volume_id)
+    mark_volume_outline_stale(session, novel_id, volume_id)
     session.commit()
 
 
@@ -484,6 +488,8 @@ def move_chapter(session: Session, chapter_id: str, payload: ChapterMove) -> Cha
     _renumber(target, payload.volume_id)
     if source_volume_id != payload.volume_id:
         _renumber(source, source_volume_id)
+    mark_volume_outline_stale(session, chapter.novel_id, source_volume_id)
+    mark_volume_outline_stale(session, chapter.novel_id, payload.volume_id)
     session.commit()
     session.refresh(chapter)
     return chapter
@@ -511,6 +517,7 @@ def duplicate_chapter(session: Session, chapter_id: str) -> Chapter:
         deleted_at=None,
     )
     session.add(chapter)
+    mark_volume_outline_stale(session, source.novel_id, source.volume_id)
     session.commit()
     session.refresh(chapter)
     return chapter

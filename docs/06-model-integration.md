@@ -53,7 +53,7 @@
 
 ## 8. 上下文快照
 
-创建任务时，ContextCompiler 的结果写进 `ai_tasks.input_snapshot`，和指令、选区、目标修订、模型名放在一起。字段包括 `compiler_version`（当前 `e2.v1`）、`context_items`、`context_warnings`、`context_budget`、`context_total_token_estimate`、`context_hash` 和实际 `prompt`。
+创建任务时，ContextCompiler 的结果写进 `ai_tasks.input_snapshot`，和指令、选区、目标修订、模型名放在一起。字段包括 `compiler_version`（当前 `e7.v1`）、`context_items`、`context_warnings`、`context_budget`、`context_total_token_estimate`、`context_hash` 和实际 `prompt`。
 
 `token_estimate` 和预算都是字符数，不是供应商的分词结果。`context_hash` 覆盖编译时的全文和纳入决定。单条材料的存档副本超过 4000 字会缩短，并在警告里说明；送给模型的硬规则仍是全文。
 

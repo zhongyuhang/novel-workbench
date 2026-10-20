@@ -10,14 +10,25 @@ from app.schemas.planning import (
     ChapterOutlineResponse,
     ChapterOutlineView,
     ChapterOutlineWrite,
+    OutlineCandidateAccept,
+    OutlineCandidateAcceptResult,
+    OutlineCandidatePreview,
+    OutlineCandidateRequest,
     PlanningConfirm,
     SceneCardPatch,
     SceneCardResponse,
     SceneCardWrite,
     SceneReorder,
+    StoryArcCreate,
+    StoryArcPatch,
+    StoryArcReorder,
+    StoryArcResponse,
     StoryPlanResponse,
     StoryPlanView,
     StoryPlanWrite,
+    VolumeOutlineResponse,
+    VolumeOutlineView,
+    VolumeOutlineWrite,
 )
 from app.services import planning as planning_service
 
@@ -133,3 +144,121 @@ def reorder_scenes(
     session: Annotated[Session, Depends(get_db)],
 ) -> list[SceneCardResponse]:
     return planning_service.reorder_scenes(session, chapter_id, payload)
+
+
+@router.get("/novels/{novel_id}/story-arcs", response_model=list[StoryArcResponse])
+def list_story_arcs(
+    novel_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> list[StoryArcResponse]:
+    return planning_service.list_story_arcs(session, novel_id)
+
+
+@router.post(
+    "/novels/{novel_id}/story-arcs",
+    response_model=StoryArcResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_story_arc(
+    novel_id: str,
+    payload: StoryArcCreate,
+    session: Annotated[Session, Depends(get_db)],
+) -> StoryArcResponse:
+    return planning_service.create_story_arc(session, novel_id, payload)
+
+
+@router.patch("/story-arcs/{arc_id}", response_model=StoryArcResponse)
+def update_story_arc(
+    arc_id: str,
+    payload: StoryArcPatch,
+    session: Annotated[Session, Depends(get_db)],
+) -> StoryArcResponse:
+    return planning_service.update_story_arc(session, arc_id, payload)
+
+
+@router.delete("/story-arcs/{arc_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_story_arc(
+    arc_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> Response:
+    planning_service.delete_story_arc(session, arc_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/novels/{novel_id}/story-arcs/reorder", response_model=list[StoryArcResponse])
+def reorder_story_arcs(
+    novel_id: str,
+    payload: StoryArcReorder,
+    session: Annotated[Session, Depends(get_db)],
+) -> list[StoryArcResponse]:
+    return planning_service.reorder_story_arcs(session, novel_id, payload)
+
+
+@router.post("/story-arcs/{arc_id}/confirm", response_model=StoryArcResponse)
+def confirm_story_arc(
+    arc_id: str,
+    payload: PlanningConfirm,
+    session: Annotated[Session, Depends(get_db)],
+) -> StoryArcResponse:
+    return planning_service.confirm_story_arc(session, arc_id, payload)
+
+
+@router.get(
+    "/novels/{novel_id}/volume-outlines",
+    response_model=list[VolumeOutlineResponse],
+)
+def list_volume_outlines(
+    novel_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> list[VolumeOutlineResponse]:
+    return planning_service.list_volume_outlines(session, novel_id)
+
+
+@router.get("/volumes/{volume_id}/outline", response_model=VolumeOutlineView)
+def get_volume_outline(
+    volume_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> VolumeOutlineView:
+    return planning_service.get_volume_outline(session, volume_id)
+
+
+@router.put("/volumes/{volume_id}/outline", response_model=VolumeOutlineResponse)
+def save_volume_outline(
+    volume_id: str,
+    payload: VolumeOutlineWrite,
+    session: Annotated[Session, Depends(get_db)],
+) -> VolumeOutlineResponse:
+    return planning_service.save_volume_outline(session, volume_id, payload)
+
+
+@router.post("/volumes/{volume_id}/outline/confirm", response_model=VolumeOutlineResponse)
+def confirm_volume_outline(
+    volume_id: str,
+    payload: PlanningConfirm,
+    session: Annotated[Session, Depends(get_db)],
+) -> VolumeOutlineResponse:
+    return planning_service.confirm_volume_outline(session, volume_id, payload)
+
+
+@router.post(
+    "/chapters/{chapter_id}/outline-candidate",
+    response_model=OutlineCandidatePreview,
+)
+def preview_outline_candidate(
+    chapter_id: str,
+    payload: OutlineCandidateRequest,
+    session: Annotated[Session, Depends(get_db)],
+) -> OutlineCandidatePreview:
+    return planning_service.preview_outline_candidate(session, chapter_id, payload)
+
+
+@router.post(
+    "/chapters/{chapter_id}/outline-candidate/accept",
+    response_model=OutlineCandidateAcceptResult,
+)
+def accept_outline_candidate(
+    chapter_id: str,
+    payload: OutlineCandidateAccept,
+    session: Annotated[Session, Depends(get_db)],
+) -> OutlineCandidateAcceptResult:
+    return planning_service.accept_outline_candidate(session, chapter_id, payload)

@@ -331,6 +331,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
             <OutlinePanel
               novelId={novelId}
               chapters={chapters}
+              volumes={volumes}
               activeChapterId={chapterId}
               onOpenChapter={(id) => {
                 openChapterIn(id, "outline");

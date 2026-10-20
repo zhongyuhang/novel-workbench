@@ -449,3 +449,158 @@ def _place_and_person(
     assert place.status_code == 201, place.text
     assert person.status_code == 201, person.text
     return place.json()["id"], person.json()["id"]
+
+
+def test_story_arc_crud_reorder_and_cross_novel_rejection(auth_client: TestClient) -> None:
+    first, _chapter_id, _revision = _novel_and_chapter(auth_client, "甲书")
+    second = auth_client.post("/api/v1/novels", json={"title": "乙书"}).json()
+    created = auth_client.post(
+        f"/api/v1/novels/{first}/story-arcs",
+        json={"arc_type": "main", "title": "城门主线", "summary": "先关城门"},
+    )
+    side = auth_client.post(
+        f"/api/v1/novels/{first}/story-arcs",
+        json={"arc_type": "subplot", "title": "钥匙支线"},
+    )
+    foreign = auth_client.post(
+        f"/api/v1/novels/{second['id']}/story-arcs",
+        json={"arc_type": "character", "title": "乙的人物线", "summary": "乙书机密线"},
+    )
+    assert created.status_code == 201, created.text
+    assert side.status_code == 201, side.text
+    assert foreign.status_code == 201, foreign.text
+    assert created.json()["status"] == "draft"
+    assert created.json()["counts_as_fact"] is False
+    assert created.json()["sort_order"] == 0
+    assert side.json()["sort_order"] == 1
+
+    mixed = auth_client.post(
+        f"/api/v1/novels/{first}/story-arcs/reorder",
+        json={"arc_ids": [side.json()["id"], foreign.json()["id"]]},
+    )
+    assert mixed.status_code == 422
+    assert mixed.json()["error"]["code"] == "INVALID_REFERENCE"
+
+    ordered = auth_client.post(
+        f"/api/v1/novels/{first}/story-arcs/reorder",
+        json={"arc_ids": [side.json()["id"], created.json()["id"]]},
+    )
+    assert ordered.status_code == 200, ordered.text
+    assert [item["title"] for item in ordered.json()] == ["钥匙支线", "城门主线"]
+
+    confirmed = auth_client.post(
+        f"/api/v1/story-arcs/{created.json()['id']}/confirm",
+        json={"expected_revision": created.json()["revision"]},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["counts_as_fact"] is True
+    assert confirmed.json()["novel_id"] == first
+
+    listed = auth_client.get(f"/api/v1/novels/{first}/story-arcs")
+    assert [item["id"] for item in listed.json()] == [side.json()["id"], created.json()["id"]]
+    other_listed = auth_client.get(f"/api/v1/novels/{second['id']}/story-arcs").json()
+    assert [item["title"] for item in other_listed] == ["乙的人物线"]
+    assert "城门主线" not in {item["title"] for item in other_listed}
+
+    removed = auth_client.delete(f"/api/v1/story-arcs/{side.json()['id']}")
+    assert removed.status_code == 204, removed.text
+    remaining = auth_client.get(f"/api/v1/novels/{first}/story-arcs").json()
+    assert [item["title"] for item in remaining] == ["城门主线"]
+    assert remaining[0]["sort_order"] == 0
+
+
+def test_volume_outline_confirm_and_stale_without_touching_title_or_chapter_revision(
+    auth_client: TestClient,
+) -> None:
+    novel_id, chapter_id, revision = _novel_and_chapter(auth_client, "卷大纲作品")
+    volume = auth_client.post(
+        f"/api/v1/novels/{novel_id}/volumes",
+        json={"title": "上卷"},
+    ).json()
+    moved = auth_client.post(
+        f"/api/v1/chapters/{chapter_id}/move",
+        json={"volume_id": volume["id"], "sort_order": 0},
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["revision"] == revision
+
+    saved = auth_client.put(
+        f"/api/v1/volumes/{volume['id']}/outline",
+        json={"goal": "找到钥匙", "key_events": "关门", "start_state": "门外", "end_state": "城里"},
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["status"] == "draft"
+    assert saved.json()["counts_as_fact"] is False
+    assert saved.json()["novel_id"] == novel_id
+    confirmed = auth_client.post(
+        f"/api/v1/volumes/{volume['id']}/outline/confirm",
+        json={"expected_revision": saved.json()["revision"]},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["counts_as_fact"] is True
+
+    volume_after = auth_client.get(f"/api/v1/novels/{novel_id}/volumes").json()
+    assert volume_after[0]["title"] == "上卷"
+    chapter_after_plan = auth_client.get(f"/api/v1/chapters/{chapter_id}")
+    assert chapter_after_plan.json()["revision"] == revision
+
+    written = auth_client.put(
+        f"/api/v1/chapters/{chapter_id}",
+        json={"revision": revision, "save_kind": "manual", "content": PARAGRAPH},
+    )
+    assert written.status_code == 200, written.text
+    assert written.json()["revision"] == revision + 1
+    stale = auth_client.get(f"/api/v1/volumes/{volume['id']}/outline").json()["outline"]
+    assert stale["status"] == "stale"
+    assert stale["counts_as_fact"] is False
+    assert stale["goal"] == "找到钥匙"
+    assert stale["revision"] == confirmed.json()["revision"] + 1
+    assert auth_client.get(f"/api/v1/novels/{novel_id}/volumes").json()[0]["title"] == "上卷"
+
+
+def test_outline_candidate_preview_does_not_write_until_accept(auth_client: TestClient) -> None:
+    novel_id, chapter_id, revision = _novel_and_chapter(auth_client, "候选作品")
+    preview = auth_client.post(
+        f"/api/v1/chapters/{chapter_id}/outline-candidate",
+        json={"use_mock": True, "include_scenes": True},
+    )
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["simulated"] is True
+    assert body["confirmed"] is False
+    assert body["written"] is False
+    assert body["manuscript_changed"] is False
+    assert body["provider_mode"] == "mock"
+    assert "模拟" in body["note"]
+    assert body["goal"].startswith("模拟候选")
+    assert auth_client.get(f"/api/v1/chapters/{chapter_id}/outline").json()["outline"] is None
+    assert auth_client.get(f"/api/v1/chapters/{chapter_id}/scenes").json() == []
+    stored = auth_client.get(f"/api/v1/chapters/{chapter_id}").json()
+    assert stored["revision"] == revision
+
+    accepted = auth_client.post(
+        f"/api/v1/chapters/{chapter_id}/outline-candidate/accept",
+        json={
+            "goal": body["goal"],
+            "must_advance": body["must_advance"],
+            "required_events": body["required_events"],
+            "forbidden_reveals": body["forbidden_reveals"],
+            "ending_hook": body["ending_hook"],
+            "scenes": body["scenes"],
+            "status": "confirmed",
+        },
+    )
+    assert accepted.status_code == 200, accepted.text
+    outline = accepted.json()["outline"]
+    assert outline["status"] == "draft"
+    assert outline["counts_as_fact"] is False
+    assert outline["goal"] == body["goal"]
+    assert accepted.json()["manuscript_changed"] is False
+    assert len(accepted.json()["scenes"]) == len(body["scenes"])
+    assert all(item["status"] == "draft" for item in accepted.json()["scenes"])
+    reread = auth_client.get(f"/api/v1/chapters/{chapter_id}").json()
+    assert reread["revision"] == revision
+    assert reread["word_count"] == stored["word_count"]
+    assert auth_client.get(f"/api/v1/novels/{novel_id}/chapter-outlines").json()[0]["status"] == (
+        "draft"
+    )

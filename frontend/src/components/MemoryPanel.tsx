@@ -478,7 +478,7 @@ export function MemoryPanel({
         </label>
       </div>
       {storylineFilter.trim() ? (
-        <p className="hint">故事线目前是人物关系上的标签。还没有故事线表，章节摘要和提案不会因此被藏起来。</p>
+        <p className="hint">这里按人物关系上的故事线标签筛选，不读取大纲里的故事线，也不会因此藏起章节摘要和提案。</p>
       ) : null}
       <div className="memory-actions">
         <button
