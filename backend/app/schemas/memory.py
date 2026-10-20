@@ -196,6 +196,7 @@ class AnalyzeResponse(BaseModel):
     status: Literal["completed"]
     provider_mode: ProviderMode
     model_name: str
+    model_config_id: str | None = None
     prompt_version: str
     proposal_count: int
     proposals: list[ProposalResponse]

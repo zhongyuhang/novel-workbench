@@ -52,7 +52,25 @@ LOG_LEVEL=INFO
 
 ## 7. 不用 Docker 的本地运行
 
-开发和单机试跑不需要 Docker。步骤以仓库根目录的 README「本地开发」为准：后端 `uvicorn app.main:app --reload --host 127.0.0.1 --port 8000`，前端 `npm run dev`。这种绑定只监听本机，未设置 `APP_ACCESS_PASSWORD` 时可以用空口令换会话。
+开发和单机试跑不需要 Docker。先生成 Fernet 主密钥并写入 `backend/.env` 的 `APP_SECRET_ENCRYPTION_KEY`。没有这把密钥时进程会退出，不会把模型 API Key 存成明文。
+
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env
+alembic upgrade head
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+前端开发服务器是 `http://127.0.0.1:43117`。这种绑定只监听本机，未设置 `APP_ACCESS_PASSWORD` 时可以用空口令换会话。
 
 生产或局域网不要使用 `--reload`，也不要把 `APP_HOST` 留在 `127.0.0.1` 的同时又让进程监听 `0.0.0.0`。`APP_HOST` 必须和实际监听地址一致。非回环地址会强制要求口令。
 
@@ -109,7 +127,7 @@ curl -sS http://127.0.0.1:8080/api/v1/admin/backups \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-备份目录在宿主机的 `$DATA_DIR/backups/<id>/`，里面有 `manifest.json`（应用版本、迁移版本、时间）和 `database.sqlite`。不要把这些文件提交到 git。备份是整库副本。大纲、故事线、卷大纲、人物关系、质量问题和修复候选、正文、版本，以及 `0010_version_provenance` 加在版本上的任务和修复来源，都会一起带走，恢复后仍能按原作品读到。`GET /api/v1/admin/backups` 的 `latest_success_at` 就是这份清单里最新的 `created_at`。作品库用它提示最近一次成功备份；还没有备份时提示先做一次。升级顺序仍是 `alembic upgrade head`，不要改写 `0001` 到 `0011`。
+备份目录在宿主机的 `$DATA_DIR/backups/<id>/`，里面有 `manifest.json`（应用版本、迁移版本、时间）和 `database.sqlite`。不要把这些文件提交到 git。备份是整库副本，包含模型配置的密钥密文和自定义 Header 密文。清单会标明密文在库里、解密依赖 `APP_SECRET_ENCRYPTION_KEY`，但清单和数据库都不含主密钥。恢复后要用同一把主密钥才能解密；密钥丢失则这些密文无法恢复，必须在备份之外单独保存。大纲、故事线、卷大纲、人物关系、质量问题和修复候选、正文、版本，以及版本上的任务和修复来源，都会一起带走，恢复后仍能按原作品读到。`GET /api/v1/admin/backups` 的 `latest_success_at` 就是这份清单里最新的 `created_at`。作品库用它提示最近一次成功备份；还没有备份时提示先做一次。升级顺序仍是 `alembic upgrade head`，不要改写 `0001` 到 `0012`。
 
 单本作品换机器用作品包，不用整库文件。工作台「导出作品包」得到 ZIP（`ai-novel-writer-portable-v1`）。在另一台已登录的作品库选择「导入作品包」，先看预检计数，再确认导入为一本新作品。不支持的格式版本会直接说明版本号，并且不写库。作品包不含 API Key。整库恢复和作品包导入互不替代：恢复会换掉整个 SQLite 文件，导入只追加一本新作品。
 

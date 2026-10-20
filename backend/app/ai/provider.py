@@ -26,14 +26,17 @@ class ModelEndpoint:
     temperature: float | None = None
     max_output_tokens: int | None = None
     parameters: Mapping[str, object] = field(default_factory=dict)
+    extra_headers: Mapping[str, str] = field(default_factory=dict)
 
     def __repr__(self) -> str:
         masked = mask_api_key(self.api_key) if self.api_key else ""
+        header_names = ",".join(sorted(self.extra_headers))
         return (
             "ModelEndpoint("
             f"base_url={self.base_url!r}, model_name={self.model_name!r}, "
             f"api_key={masked!r}, timeout_seconds={self.timeout_seconds!r}, "
-            f"supports_streaming={self.supports_streaming!r})"
+            f"supports_streaming={self.supports_streaming!r}, "
+            f"extra_headers={header_names!r})"
         )
 
 

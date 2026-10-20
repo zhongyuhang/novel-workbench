@@ -161,7 +161,7 @@
 - `GET /api/v1/volumes/{volume_id}/outline`：没有大纲时 `outline` 为 null。
 - `PUT /api/v1/volumes/{volume_id}/outline`：每卷最多一行。不改卷名，不增加章节修订。
 - `POST /api/v1/volumes/{volume_id}/outline/confirm`
-- `POST /api/v1/chapters/{chapter_id}/outline-candidate`：生成章节大纲和场景卡片候选，只返回预览。`use_mock` 默认 true。响应里 `simulated`、`confirmed=false`、`written=false`、`manuscript_changed=false`。不写规划表，不改正文。
+- `POST /api/v1/chapters/{chapter_id}/outline-candidate`：生成章节大纲和场景卡片候选，只返回预览。`use_mock` 默认 true。可选 `model_config_id`；不模拟且未指定时用默认模型。响应带回 `model_config_id` 和 `model_name`，以及 `simulated`、`confirmed=false`、`written=false`、`manuscript_changed=false`。不写规划表，不改正文。
 - `POST /api/v1/chapters/{chapter_id}/outline-candidate/accept`：把预览写入正式规划，状态固定为 `draft`，不会写成 `confirmed`。已有章节大纲时要带 `expected_revision`。场景以草稿追加，不删除原有场景。正文和 `chapters.revision` 不变。
 
 状态是 `draft`、`confirmed`、`stale`、`archived`。响应里的 `counts_as_fact` 只有 `confirmed` 为 true。作品大纲、章节大纲、故事线和卷大纲的普通保存不能把状态写成 `confirmed`；内容有变化且没有另选状态时，已确认的行会回到 `draft`。场景卡片可以在创建或修改时自带状态。
@@ -171,13 +171,19 @@
 上下文编译器只把 `counts_as_fact=true` 的作品大纲、故事线摘要、当前章节所在卷的卷大纲、当前章节大纲和场景卡片当作高优先级材料。`draft` 可以列出来，但不会纳入。章节正文修订变化时，该章已确认的章节大纲和场景卡片，以及该章所在卷的已确认卷大纲，改为 `stale`，正文不变；作品级大纲不因此自动过期。卷内章节新增、复制、删除或移动时，该卷已确认卷大纲同样改为 `stale`。只改卷名不会。
 
 ### Model settings
+- `GET /api/v1/settings/models/presets`：服务商预设。只含默认地址和提示
 - `GET /api/v1/settings/models`
 - `POST /api/v1/settings/models`
-- `PATCH /api/v1/settings/models/{config_id}`
-- `POST /api/v1/settings/models/test`
-- `DELETE /api/v1/settings/models/{config_id}`
+- `GET /api/v1/settings/models/{config_id}`
+- `PATCH /api/v1/settings/models/{config_id}`：密钥留空保持；`clear_api_key=true` 才清除
+- `POST /api/v1/settings/models/test`：可测未保存草稿。带 `config_id` 且没有覆盖字段时，会写回测试状态
+- `POST /api/v1/settings/models/{config_id}/test`：用已保存配置做一次最小 Chat Completions，并记下测试结果
+- `PUT /api/v1/settings/models/{config_id}/default`：只有 `last_test_status=success` 可以设为默认
+- `DELETE /api/v1/settings/models/{config_id}`：当前默认模型返回 `409 DEFAULT_MODEL_PROTECTED`
 
-响应中不返回 API Key 明文。
+响应含 `api_key_configured`、`api_key_hint`、`custom_header_names`、`is_default`、`last_test_status`、`last_test_error_code`。不返回 API Key 或 Header 值。创建、测试和调用都会拒绝回环、内网和云元数据地址，除非主机在 `MODEL_BASE_URL_ALLOWLIST`。重定向不跟随。
+
+续写、润色、改写、扩写、章节分析、大纲候选、冲突检查和质量检查都接受 `model_config_id`。不传时用已启用的默认模型；还没有默认时，沿用最近更新的已启用外部模型。任务行记下 `model_config_id`，快照记下模型标识。大纲候选的预览同样带回所用配置。
 
 ### Export / backup
 - `POST /api/v1/novels/{novel_id}/export`：Markdown 或 TXT。只含标题、简介、卷、章和正文，顺序与目录一致。

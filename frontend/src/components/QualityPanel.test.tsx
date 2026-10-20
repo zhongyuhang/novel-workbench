@@ -14,6 +14,10 @@ import {
 import type { ChapterSummary } from "../api/types.ts";
 import { QualityPanel } from "./QualityPanel.tsx";
 
+vi.mock("../api/models.ts", () => ({
+  listModelConfigs: vi.fn(async () => []),
+}));
+
 vi.mock("../api/quality.ts", () => ({
   listForeshadowing: vi.fn(),
   createForeshadowing: vi.fn(),

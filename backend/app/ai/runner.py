@@ -10,11 +10,13 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.ai.broker import TaskBroker
+from app.ai.gateway import endpoint_from_config
 from app.ai.prompts import PROMPT_VERSION
 from app.ai.provider import GenerationRequest, ModelEndpoint, ModelProvider, ProviderError
 from app.ai.registry import get_provider
 from app.ai.tasks import IllegalTaskTransition, TaskStatus, transition
-from app.core.secrets import SecretStorageError, decrypt_api_key
+from app.core.errors import AppError
+from app.core.secrets import SecretStorageError
 from app.models.ai import AiTask, ModelConfig
 
 logger = logging.getLogger("app.ai.runner")
@@ -84,7 +86,7 @@ def _execute(
             endpoint = _endpoint(session, task, snapshot)
             provider = get_provider(endpoint)
             provider.validate_config(endpoint)
-        except (ProviderError, SecretStorageError) as exc:
+        except (ProviderError, SecretStorageError, AppError) as exc:
             code, message = _safe_failure(exc)
             _mark(
                 session,
@@ -235,29 +237,7 @@ def _endpoint(session: Session, task: AiTask, snapshot: dict[str, object]) -> Mo
         raise ProviderError("MODEL_NOT_CONFIGURED", "模型配置已经不可用。正文没有被修改。")
     if config.provider_type == "mock":
         raise ProviderError("MODEL_CONFIG_INVALID", "模拟模型配置和任务记录不一致。")
-    if not config.secret_ref:
-        raise ProviderError("MODEL_CONFIG_INVALID", "这个模型还没有可用的 API Key。")
-    try:
-        api_key = decrypt_api_key(config.secret_ref)
-    except SecretStorageError as exc:
-        raise ProviderError(
-            "SECRET_STORAGE_UNAVAILABLE",
-            "服务器无法解密模型密钥。请检查加密主密钥后重新保存配置。",
-        ) from exc
-    parameters = config.parameters if isinstance(config.parameters, dict) else {}
-    capabilities = config.capabilities if isinstance(config.capabilities, dict) else {}
-    return ModelEndpoint(
-        base_url=config.base_url,
-        model_name=config.model_name,
-        api_key=api_key,
-        timeout_seconds=_float(parameters.get("timeout_seconds"), 60),
-        supports_streaming=capabilities.get("supports_streaming") is not False,
-        provider_type="openai_compatible",
-        max_retries=_int(parameters.get("max_retries"), 2),
-        temperature=_optional_float(parameters.get("temperature")),
-        max_output_tokens=_optional_int(parameters.get("max_output_tokens")),
-        parameters=parameters,
-    )
+    return endpoint_from_config(config)
 
 
 def _mark(
@@ -420,11 +400,15 @@ def _require(session: Session, task_id: str) -> AiTask:
 def _safe_failure(exc: Exception) -> tuple[str, str]:
     if isinstance(exc, ProviderError):
         return exc.code, exc.safe_message
-    if isinstance(exc, SecretStorageError):
+    if isinstance(exc, SecretStorageError) or (
+        isinstance(exc, AppError) and exc.code == "SECRET_STORAGE_UNAVAILABLE"
+    ):
         return (
             "SECRET_STORAGE_UNAVAILABLE",
             "服务器无法解密模型密钥。请检查加密主密钥后重新保存配置。",
         )
+    if isinstance(exc, AppError):
+        return exc.code, exc.message
     return "MODEL_UNAVAILABLE", "模型请求失败。正文没有被修改。"
 
 

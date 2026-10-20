@@ -34,7 +34,15 @@
 - 生成内容在用户采纳前仅作为候选输出。
 - 对异常中断要标记 failed/cancelled，不得静默变成 completed。
 
-## 6. 密钥管理
+## 6. 模型配置中心
+
+设置页维护多份 OpenAI 兼容配置：服务商预设、测试连接、单一默认、按任务切换。细节和差距见 [12 模型配置中心](12-model-config-center.md)。
+
+测试会发一条 `max_tokens=1` 的 Chat Completions，并按鉴权、地址、模型不存在、限流、网络、超时、响应不兼容分类。失败信息不得带密钥。Base URL、模型标识、密钥、自定义 Header、超时、温度或最大输出变化后，已有测试结果变为 `stale`（配置已变更，需重新测试），并取消默认标记。
+
+所有出站请求经 `app.ai.gateway` 解密密钥和 Header，再进入 OpenAI 兼容适配器。适配器不跟随重定向。`MODEL_BASE_URL_ALLOWLIST` 是部署级允许名单，供本机模型使用。
+
+## 7. 密钥管理
 
 优先级：
 1. 由服务器环境变量注入主密钥，应用对配置密钥进行加密存储。
@@ -43,7 +51,9 @@
 4. 日志、异常、导出、前端状态不得包含明文密钥。
 5. 备份若包含密钥密文，应同时保护加密主密钥。作品包不包含 API Key、`secret_ref` 或访问口令；导入后的模型配置需要重新填写密钥。
 
-## 7. 模型评测
+主密钥 `APP_SECRET_ENCRYPTION_KEY` 必须是 Fernet 密钥。任何环境缺失或无效时进程拒绝启动，不会把 API Key 存成明文。密钥不进日志、响应、作品包或备份清单。整库备份带上密文；恢复后要用同一把主密钥解密。主密钥丢失则密文无法恢复，必须单独保存。
+
+## 8. 模型评测
 
 维护固定的小说测试集：延续前章、遵守设定、按字数生成、选区改写、摘要事实、JSON schema、断流超时恢复。质量评价由可重复测试和人工审阅共同组成。
 
@@ -51,7 +61,7 @@
 
 质量规则另有 `backend/tests/fixtures/eval/quality_samples.json`，包含会报出的正例、不该报的反例，以及证据不足、无法判断的例子。`backend/tests/test_quality_rules.py` 离线重复运行，不调用模型。作品上的模型质量检查要显式 `use_model=true`；模拟模型配置不会访问网络。
 
-## 8. 上下文快照
+## 9. 上下文快照
 
 创建任务时，ContextCompiler 的结果写进 `ai_tasks.input_snapshot`，和指令、选区、目标修订、模型名放在一起。字段包括 `compiler_version`（当前 `e7.v1`）、`context_items`、`context_warnings`、`context_budget`、`context_total_token_estimate`、`context_hash` 和实际 `prompt`。
 

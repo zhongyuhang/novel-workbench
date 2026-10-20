@@ -39,6 +39,8 @@ class BackupManifest:
             "app_version": self.app_version,
             "alembic_revision": self.alembic_revision,
             "created_at": self.created_at.isoformat(),
+            "includes_model_config_ciphertext": "true",
+            "encryption_key_env": "APP_SECRET_ENCRYPTION_KEY",
         }
 
 

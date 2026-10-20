@@ -453,13 +453,19 @@ export function AiPanel({
               setModelId(event.target.value);
             }}
           >
-            <option value="">自动选择已启用的模型</option>
+            <option value="">
+              {configs?.find((item) => item.is_default)
+                ? `使用默认模型（${configs.find((item) => item.is_default)?.display_name ?? ""}）`
+                : "使用默认模型"}
+            </option>
             {(configs ?? [])
               .filter((item) => item.is_enabled)
               .map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.display_name}
+                  {item.is_default ? "（默认）" : ""}
                   {item.provider_type === "mock" ? "（模拟）" : ""}
+                  {item.last_test_status === "stale" ? "（需重测）" : ""}
                 </option>
               ))}
           </select>

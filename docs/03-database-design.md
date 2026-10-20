@@ -286,14 +286,21 @@
 ### model_configs
 - `id` PK
 - `display_name`
-- `provider_type` (`openai_compatible`)
+- `provider`：服务商预设标识，默认 `custom`。预设列表来自数据文件，不是接口白名单
+- `provider_type`（`openai_compatible` 或 `mock`）
 - `base_url`
 - `model_name`
-- `secret_ref`（密钥引用，不存明文于普通配置响应）
-- `parameters` JSON
+- `secret_ref`：API Key 的 Fernet 密文。响应不返回明文
+- `encrypted_custom_headers`：自定义 Header 的 Fernet 密文，可空
+- `parameters` JSON：超时、重试、默认温度、默认最大输出
 - `capabilities` JSON
 - `is_enabled`
+- `is_default`：最多一条为真。部分唯一索引 `uq_model_configs_one_default`
+- `last_test_status`（`untested`、`success`、`failed`、`stale`）
+- `last_tested_at`、`last_test_error_code` 可空
 - `created_at`, `updated_at`
+
+`0012_model_config_center` 接在 `0011_story_arcs` 之后追加这些列。旧行的测试状态是 `untested`，不是默认模型。超时、温度和最大输出仍放在 `parameters`，避免和原字段双写。
 
 ### ai_tasks
 - `id` PK

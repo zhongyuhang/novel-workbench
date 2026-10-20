@@ -55,6 +55,10 @@ vi.mock("../api/planning.ts", async () => {
   };
 });
 
+vi.mock("../api/models.ts", () => ({
+  listModelConfigs: vi.fn(async () => []),
+}));
+
 vi.mock("../api/memory.ts", () => ({
   listEntities: vi.fn(async () => []),
 }));

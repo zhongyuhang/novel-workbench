@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import type { Chapter, ChapterSummary } from "../api/types.ts";
+import { listModelConfigs } from "../api/models.ts";
+import type { Chapter, ChapterSummary, ModelConfig } from "../api/types.ts";
 import { ApiError } from "../api/types.ts";
 import {
   checkConflicts,
@@ -58,6 +59,8 @@ export function QualityPanel({
   const [items, setItems] = useState<Foreshadowing[]>([]);
   const [stats, setStats] = useState<NovelStats | null>(null);
   const [check, setCheck] = useState<ConflictCheck | null>(null);
+  const [configs, setConfigs] = useState<ModelConfig[]>([]);
+  const [modelId, setModelId] = useState("");
   const [description, setDescription] = useState("");
   const [introducedChoice, setIntroducedChoice] = useState<string | null>(null);
   const introducedId = introducedChoice ?? activeChapterId ?? "";
@@ -67,6 +70,20 @@ export function QualityPanel({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    listModelConfigs(controller.signal)
+      .then((rows) => {
+        setConfigs(rows);
+      })
+      .catch(() => {
+        setConfigs([]);
+      });
+    return () => {
+      controller.abort();
+    };
+  }, [novelId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -167,7 +184,9 @@ export function QualityPanel({
     setError("");
     setCheck(null);
     try {
-      const next = await checkConflicts(activeChapterId);
+      const next = modelId
+        ? await checkConflicts(activeChapterId, modelId)
+        : await checkConflicts(activeChapterId);
       setCheck(next);
       setMessage(next.message);
     } catch (cause: unknown) {
@@ -186,6 +205,7 @@ export function QualityPanel({
       <QualityIssuesSection
         novelId={novelId}
         activeChapterId={activeChapterId}
+        modelConfigId={modelId || null}
         onManuscriptUpdated={onManuscriptUpdated}
       />
       {error ? (
@@ -239,6 +259,26 @@ export function QualityPanel({
       <section aria-labelledby="conflict-heading">
         <h3 id="conflict-heading">冲突提示</h3>
         <p className="hint">只列出疑似冲突，并带来源。人物状态变化本身不会被当成矛盾。</p>
+        <label>
+          本次模型
+          <select
+            aria-label="检查所用模型"
+            value={modelId}
+            onChange={(event) => {
+              setModelId(event.target.value);
+            }}
+          >
+            <option value="">本地规则</option>
+            {configs
+              .filter((item) => item.is_enabled)
+              .map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.display_name}
+                  {item.is_default ? "（默认）" : ""}
+                </option>
+              ))}
+          </select>
+        </label>
         <button className="primary" type="button" disabled={busy || !activeChapterId} onClick={() => void runCheck()}>
           检查疑似冲突
         </button>

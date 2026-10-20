@@ -139,6 +139,7 @@ export type ApiErrorBody = {
 };
 
 export type ProviderType = "openai_compatible" | "mock";
+export type ModelTestStatus = "untested" | "success" | "failed" | "stale";
 export type ProviderMode = "openai_compatible" | "mock";
 export type AiTaskType = "continue" | "rewrite" | "polish" | "expand" | "shrink" | "proofread";
 export type AiTaskStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
@@ -147,24 +148,35 @@ export type ApplyMode = "append" | "insert" | "replace_selection";
 export type ModelConfig = {
   id: string;
   display_name: string;
+  provider: string;
   provider_type: ProviderType;
   base_url: string;
   model_name: string;
   api_key_configured: boolean;
   api_key_hint: string | null;
+  custom_headers_configured: boolean;
+  custom_header_names: string[];
   parameters: Record<string, unknown>;
   capabilities: Record<string, unknown>;
   is_enabled: boolean;
+  is_default: boolean;
+  last_test_status: ModelTestStatus;
+  last_tested_at: string | null;
+  last_test_error_code: string | null;
   created_at: string;
   updated_at: string;
 };
 
 export type ModelConfigInput = {
   display_name: string;
+  provider: string;
   provider_type: ProviderType;
   base_url: string;
   model_name: string;
   api_key?: string;
+  clear_api_key?: boolean;
+  custom_headers?: Record<string, string>;
+  clear_custom_headers?: boolean;
   timeout_seconds: number;
   max_retries: number;
   temperature: number | null;

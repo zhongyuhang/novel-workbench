@@ -19,6 +19,7 @@ from app.core.content import document_to_text
 from app.core.errors import (
     InvalidReference,
     ModelConfigInvalid,
+    ModelNotConfigured,
     NotFound,
     ProviderRequestFailed,
     RevisionConflict,
@@ -520,8 +521,8 @@ def preview_outline_candidate(
     """Return a preview. This does not write plans or the manuscript."""
 
     chapter = _require_chapter(session, chapter_id)
-    mode, _model_name = _outline_provider_mode(session, payload)
-    draft = _candidate_draft(session, chapter, payload, mode)
+    mode, model_name, config_id = _outline_provider_mode(session, payload)
+    draft = _candidate_draft(session, chapter, payload, mode, config_id)
     simulated = mode == "mock"
     note = (
         "模拟模型生成，尚未写入正式大纲，也不是已确认事实。"
@@ -538,6 +539,8 @@ def preview_outline_candidate(
         manuscript_changed=False,
         written=False,
         note=note,
+        model_config_id=config_id,
+        model_name=model_name,
         goal=draft.goal,
         must_advance=draft.must_advance,
         required_events=draft.required_events,
@@ -750,36 +753,46 @@ def _candidate_draft(
     chapter: Chapter,
     payload: OutlineCandidateRequest,
     mode: str,
+    config_id: str | None,
 ) -> _CandidateDraft:
     if mode == "mock":
         return _mock_candidate(chapter, payload.include_scenes)
-    from app.services.memory import (
-        _endpoint_from_config,
-        _public_provider_error,
-        _require_config,
-        generate_analysis_text,
-    )
+    from app.ai.gateway import endpoint_from_config
+    from app.services.memory import _public_provider_error, _require_config, generate_analysis_text
 
-    config = _require_config(session, payload.model_config_id)
+    config = _require_config(session, config_id)
     prompt = _outline_prompt(chapter, payload.include_scenes)
     try:
-        raw = generate_analysis_text(endpoint=_endpoint_from_config(config), prompt=prompt)
+        raw = generate_analysis_text(endpoint=endpoint_from_config(config), prompt=prompt)
     except ProviderError as exc:
         raise _public_provider_error(exc) from exc
     return _draft_from_json(raw, payload.include_scenes)
 
 
-def _outline_provider_mode(session: Session, payload: OutlineCandidateRequest) -> tuple[str, str]:
-    from app.services.memory import _load_config, _require_config
+def _outline_provider_mode(
+    session: Session, payload: OutlineCandidateRequest
+) -> tuple[str, str, str | None]:
+    from app.ai.gateway import enabled_default, latest_enabled
+    from app.services.memory import _load_config
 
+    if payload.model_config_id:
+        config = _load_config(session, payload.model_config_id)
+        if payload.use_mock and config.provider_type != "mock":
+            raise ModelConfigInvalid("模拟生成不能绑定外部模型。")
+        if payload.use_mock or config.provider_type == "mock":
+            return "mock", config.model_name, config.id
+        return "openai_compatible", config.model_name, config.id
     if payload.use_mock:
-        if payload.model_config_id:
-            config = _load_config(session, payload.model_config_id)
-            if config.provider_type != "mock":
-                raise ModelConfigInvalid("模拟生成不能绑定外部模型。")
-        return "mock", "模拟模型"
-    config = _require_config(session, payload.model_config_id)
-    return "openai_compatible", config.model_name
+        return "mock", "模拟模型", None
+    default = enabled_default(session)
+    if default is not None:
+        if default.provider_type == "mock":
+            return "mock", default.model_name, default.id
+        return "openai_compatible", default.model_name, default.id
+    found = latest_enabled(session, "openai_compatible")
+    if found is None:
+        raise ModelNotConfigured()
+    return "openai_compatible", found.model_name, found.id
 
 
 def _mock_candidate(chapter: Chapter, include_scenes: bool) -> _CandidateDraft:

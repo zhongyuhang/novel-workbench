@@ -1,129 +1,70 @@
 # AI Novel Writer
 
-个人长篇小说创作与管理工作台。第一版面向单人使用，部署在个人服务器或局域网，提供小说/卷/章节管理、三栏编辑工作台、兼容 OpenAI 格式的模型接入、候选生成审阅、版本管理、结构化设定与章节记忆。
+个人长篇小说创作工作台：浏览器里写作，作者做决定，AI 辅助生成和整理。
 
-## 文档导航
+## 核心功能
 
-- [01 产品需求与范围](docs/01-product-requirements.md)
-- [02 系统架构与工程约束](docs/02-architecture.md)
-- [03 数据库设计](docs/03-database-design.md)
-- [04 API 规范](docs/04-api-specification.md)
-- [05 AI 记忆与上下文引擎](docs/05-ai-memory-system.md)
-- [06 模型接入规范](docs/06-model-integration.md)
-- [07 开发流程与代码规范](docs/07-development-guide.md)
-- [08 测试与验收](docs/08-testing-guide.md)
-- [09 部署、备份与恢复](docs/09-deployment-guide.md)
-- [10 分阶段实施任务](docs/10-implementation-plan.md)
-- [ADR](docs/adr/)
+- 作品、卷、章节；正文自动保存、版本和导出
+- 大纲、故事线、卷大纲、人物、世界观、编年史和伏笔
+- 续写、润色、改写、扩写；大纲候选确认后才写入草稿
+- 从正文提取资料候选，并做一致性检查
+- 模型配置：增删改、测试、默认模型、按任务切换
+- 单用户登录、密钥加密、整库备份与恢复
 
-## 技术基线
+## 快速启动
 
-- 前端：React + TypeScript + Vite
-- 编辑器：Tiptap；正文权威格式为 Tiptap JSON（`tiptap_json`，version 1），见 ADR-001
-- 后端：Python + FastAPI
-- ORM / Migration：SQLAlchemy 2.x + Alembic
-- 数据库：SQLite 起步，单写入者设计；需要高并发写入或多用户后再评估 PostgreSQL
-- 测试：pytest；前端 Vitest、TypeScript 严格检查、构建和 oxlint
-- 部署：Docker Compose 可选；单容器/单进程起步，持久化数据挂载到宿主机
-
-## 项目状态规则
-
-本仓库文档是目标规范，不代表所有功能已经实现。每个实施阶段都必须提交代码、测试、运行说明和验收记录；未实现的功能不得在 README 中标注为已完成。
-
-## 当前实现（1.0.0，M0–M6）
-
-已实现：
-
-- 前后端工程骨架、`GET /api/v1/health`、OpenAPI（`/docs`、`/openapi.json`）
-- Alembic：`0001_initial` 基线，`0002_catalog` 创建 `novels`、`volumes`、`chapters`，`0003_chapter_versions` 创建版本快照表，`0004_ai` 创建 `model_configs` 与 `ai_tasks`，`0005_memory` 创建 `story_entities`、`entity_states`、`story_events`、`chapter_summaries`、`memory_change_proposals`，`0006_quality` 创建伏笔和可选字数目标，`0007_story_planning` 创建作品大纲、章节大纲和场景卡片，`0008_story_bible` 创建人物关系，并为动态状态补上可空的有效时间，`0009_quality_issues` 创建质量问题和修复候选，`0010_version_provenance` 给版本快照加上可空的 AI 任务和修复候选来源，`0011_story_arcs` 创建故事线和卷大纲
-- 叙事规划：作品大纲、故事线、卷大纲、章节大纲、场景卡片和重排。大纲候选先预览，确认后只写入草稿。状态区分草稿、已确认、待复核、已归档；只有已确认的 `counts_as_fact` 为 true。左栏目录保留，大纲是另一视图。没有大纲的章节仍可写作、保存和导出。规划保存不改章节修订号
-- 作品、卷、章节的列表、创建、读取、更新和删除。作品与章节删除是软删除；删除卷时章节改为未分卷
-- 卷重排，章节移动和复制
-- 章节正文的权威格式是 Tiptap JSON（`content_format=tiptap_json`，`content_format_version=1`）。工作台中间栏用 Tiptap 编辑，保存时只写这一份 JSON
-- 手动保存和停笔后的防抖自动保存。编辑器显示未保存、保存中、已保存或失败。自动保存失败时正文留在编辑器里，可以重试。并发的自动保存不会用旧响应盖掉较新的修订。修订冲突时本地草稿留在编辑器里，可以和服务器正文比较，再选择载入服务器正文，或用本地草稿做一次手动保存。切换章节、返回作品库或关闭页面前，未保存修改会先确认
-- `PUT /api/v1/chapters/{id}` 必须带客户端看到的 `revision`。不一致时返回 `409`，不会覆盖已保存正文，也不会写入被拒绝的那一版快照。`save_kind=autosave` 只更新当前正文；`save_kind=manual` 在正文相对上一份快照有变化时写入 `chapter_versions`
-- `GET /api/v1/chapters/{id}/versions` 列出版本，带修订时间、来源和可空的 AI 任务或修复候选编号。`GET .../versions/{version_id}` 预览纯文本。`GET .../versions/diff` 比较两个版本，或和当前正文比较。`POST /api/v1/chapters/{id}/restore` 在确认后把所选快照写成新修订，旧版本和中间版本都保留
-- `POST /api/v1/novels/{id}/export` 导出 Markdown 或 TXT。顺序与目录一致：先未分卷，再按卷的 `sort_order`，卷内按章节 `sort_order`。导出包含标题、简介、卷名、章节标题和正文
-- `POST /api/v1/novels/{id}/portable-export` 导出作品包（ZIP，`ai-novel-writer-portable-v1`，格式版本 1）。包内有作品结构、Tiptap 正文、按同一目录顺序排列的 Markdown/TXT，以及大纲、设定、人物关系、事件、伏笔、摘要、质量问题和章节版本。API Key、访问口令和密钥密文不进入作品包。`POST /api/v1/novels/import/preview` 预检，`POST /api/v1/novels/import` 导入为一本新作品：冲突编号会重映射，不覆盖已有作品；不支持的格式版本返回 `422`，失败回滚、不留半成品。见 [ADR-011](docs/adr/ADR-011-portable-package.md)
-- 模型设置：添加、修改、测试和删除 OpenAI 兼容配置。API Key 用 `APP_SECRET_ENCRYPTION_KEY` 加密后写入 `secret_ref`。接口只返回是否已配置和脱敏尾号
-- AI 任务：续写、改写、润色、扩写、缩写、校对。`POST /api/v1/ai/tasks` 创建任务，`GET /api/v1/ai/tasks/{id}/events` 用 SSE 推送 `task.started`、`token`、`task.completed`、`task.failed`、`task.cancelled` 和 `heartbeat`。可以取消。完成只表示候选就绪。创建任务时会按当前作品组装上下文：硬规则、当前章节约束、相邻章节、已确认设定，以及在预算内的摘要。检索只用名称匹配、LIKE 和相邻章节，不使用向量库，也不会读到其他作品的设定
-- 采纳候选会按当前修订号做乐观锁更新正文，并写入 `change_source=ai_accepted` 的版本，版本上记下这次 AI 任务。正文、快照和任务决议在同一事务里提交；失败不留半完成状态。同一任务重复采纳不会把候选再写进正文。修订号不一致或任务针对的是旧修订时返回 `409`，不覆盖。放弃候选不改正文。SSE 断开后仍可按任务 ID 读回状态和候选。取消后的迟到片段不会改最终候选或正文
-- 没有可用的外部模型时，右侧「续写」会提示去模型设置，不会假装已经生成。可以单独使用模拟模型，界面会标明「模拟输出」
-- 设定与记忆：可以按作品列出、新建和修改实体。`POST /api/v1/chapters/{id}/analyze` 针对提交的修订号做分析，只写入提案。没有外部模型时用模拟分析，界面标明「模拟分析」。每条提案带有来源章节、来源修订、证据原文和 certainty。没有证据或证据不在原文中的条目会标成不确定，不会自动变成正式设定
-- 接受提案会在一个事务里更新正式设定、状态、事件或摘要，并保留章节和修订来源。拒绝提案不改正式设定。设定更新的撤回只回滚这次改过的字段；这些字段后来又被改过，或旧提案没有字段级记录时，撤回会被拒绝，正式设定保持不动。章节修订变化后，旧修订上的当前摘要和待审核提案会变成 `stale`，需要重新分析或由人确认后才接受
-- 人物关系记录同一作品的两端设定、类型、可空故事时间、来源章节和证据。动态状态的生效起止可以留空。设定页把实体、关系、状态、事件、摘要和提案放在一起，可按实体、章节、故事线标签和状态筛选，证据保持可见
-- 工作台右侧有「生成」「设定」和「质量」。目录里可以对章节点「分析记忆」。设定页列出实体、过期摘要和提案，接受或拒绝都是明确操作
-- 伏笔：按作品列出、新建和修改。状态可以是 `open`、`planned`、`resolved`、`abandoned`、`uncertain`。一本作品的伏笔不会出现在另一本里。回收章节必须属于同一本作品
-- 冲突提示：`POST /api/v1/chapters/{id}/conflict-check` 只返回疑似冲突，包含类型、正文片段、已确认事实、来源章节和引用、严重程度、置信度、建议的人工处理。没有外部模型时走本地规则，不访问网络。人物状态变化本身不会被当成矛盾。检查不会改正文，也不会改正式记忆
-- 质量问题：`POST /api/v1/novels/{id}/quality-check` 把事实、时间、人物关系、伏笔、大纲和文本层面的疑似问题存下来，每条带证据或标明证据不足。默认只跑规则。生成修复建议先给差异；采纳才通过现有修订锁写入新版本。目标修订变了返回 409，不覆盖新正文。已修复的问题可以再查，不会被旧状态藏住
-- 选区改写：在正文里选中文字后，用现有 AI 任务的 `rewrite` 和 `selection_text` 生成候选。带选区时提示词版本是 `rewrite_selection_v1`。候选要比较后再采纳或放弃。采纳使用 `replace_selection`，修订号不一致返回 `409`
-- 字数统计：`GET /api/v1/novels/{id}/stats` 用正文的字数函数统计每章和全书。可以另存一个全本目标字数，目标不会改写正文
-- 评测样例：`backend/tests/fixtures/eval/samples.json` 固定了续写、选区改写和摘要三条虚构短句，由模拟模型重复跑，不访问网络
-- 作品库页面和三栏工作台。模型设置在 `#/settings`
-- 单用户会话。口令在服务端按 PBKDF2 哈希校验。只绑定 `127.0.0.1` 的开发和测试环境在未配置访问口令时可以用空口令换取令牌。`APP_ENV=production`，或 `APP_HOST` 不是回环地址时，必须配置口令或 `APP_ACCESS_PASSWORD_HASH`，未登录访问作品和备份接口会返回 401。页面在需要口令时显示「访问口令」
-- 备份：已登录后 `POST /api/v1/admin/backups` 写入 `DATA_DIR/backups/<id>/`，包含 SQLite 一致性副本和清单（应用版本、迁移版本、时间）。`GET /api/v1/admin/backups` 返回这些元数据，以及 `latest_success_at`（最近一次成功备份的时间，没有备份时为 null）。作品库显示这个时间。恢复用 `python -m app.cli.restore`，不提供网页恢复。健康检查 `GET /api/v1/health` 仍然公开
-- Docker Compose 位于 `deploy/compose.yaml`：Caddy 反代，API 容器提供前端静态文件和 FastAPI，数据挂在宿主机目录。生产进程不开启自动重载
-
-M0–M6 的计划范围已经完成。多租户、公开注册、向量库和训练模型不在这一版里。
-
-## 环境要求
-
-- Python 3.12 或更新的 3.12 兼容版本
-- Node.js 22 LTS
-- npm 10 或更新版本
-
-不需要 Docker，也不需要模型 API Key 才能启动本地页面和健康检查。
-
-## 本地开发
-
-```bash
-# backend
-cd backend
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-# Linux/macOS: source .venv/bin/activate
-pip install -e ".[dev]"
-cp .env.example .env
-alembic upgrade head
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-
-# frontend
-cd frontend
-npm ci
-npm run dev
-```
-
-前端开发服务器监听 `http://127.0.0.1:43117`，并把 `/api` 代理到 `http://127.0.0.1:8000`。后端 OpenAPI 在 `http://127.0.0.1:8000/docs`。
-
-数据库文件默认写到仓库的 `data/ai_novel_writer.db`（已加入 `.gitignore`）。变量说明见 `backend/.env.example`。
-
-开发环境可以不配置 `APP_ACCESS_PASSWORD`。这时作品库会自动申请本机会话，不需要模型 API Key。若 `APP_AUTH_SECRET` 仍是占位值，开发环境会在 `data/dev-auth-secret` 写入一把本机签名密钥。配置了 `APP_ACCESS_PASSWORD` 或 `APP_ACCESS_PASSWORD_HASH` 后，页面会要求口令；哈希优先。生产环境拒绝占位的认证密钥、加密密钥、访问口令，拒绝弱口令和过低的哈希迭代次数，也拒绝 `CORS_ORIGINS=*` 与 `ALLOWED_HOSTS=*`。保存真实模型 API Key 前，要把 `APP_SECRET_ENCRYPTION_KEY` 设成 Fernet 密钥。没有外部模型时，工作台仍可打开，也可以显式使用模拟模型。
-
-## 局域网部署
-
-不使用 Docker 时，继续用上面的本地开发命令，并把进程保持在 `127.0.0.1`。
-
-使用 Docker Compose 时，在仓库根目录：
+### Docker
 
 ```bash
 cp .env.example .env
-# 填写 APP_AUTH_SECRET、APP_ACCESS_PASSWORD_HASH、APP_SECRET_ENCRYPTION_KEY、
-# ALLOWED_HOSTS 和 CORS_ORIGINS。不要保留占位符或示例口令。
-mkdir -p data
-chmod 700 data
-# 当前用户没有权限时，给下一行加上 sudo。API 容器用户是 uid/gid 10001。
-chown 10001:10001 data
-(cd backend && python -m app.cli.hash_password)
-docker compose --env-file .env -f deploy/compose.yaml config
+cd backend && python -m app.cli.hash_password
+mkdir -p data && chmod 700 data
 docker compose --env-file .env -f deploy/compose.yaml up --build -d
 ```
 
-浏览器打开 `http://<局域网地址>:8080`，用刚才的口令登录。数据在宿主机 `DATA_DIR`（默认 `./data`），备份在其中的 `backups/`。恢复步骤、另一台设备上的手工检查，以及容器健康检查要求，见 [09 部署、备份与恢复](docs/09-deployment-guide.md)。没有安装 Docker 时，本地开发命令仍然是启动方式；`docker compose config` 只在有 Docker Compose 的机器上运行。
+浏览器打开 `http://<主机>:8080`。
 
-## 检查
+### 本地开发
 
 ```bash
-./scripts/check.sh
+cd backend && python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]" && cp .env.example .env && alembic upgrade head
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-脚本会安装后端依赖、执行迁移、运行 Ruff、mypy 和 pytest，然后运行前端测试、构建和 oxlint。`backend/requirements.lock` 记录了本次验证时解析到的依赖版本；日常安装仍使用上面的 `pip install -e ".[dev]"`。
+```bash
+cd frontend && npm ci && npm run dev
+```
+
+页面在 `http://127.0.0.1:43117`。检查：`./scripts/check.sh`。
+
+## 必需环境变量
+
+| 变量 | 作用 |
+|---|---|
+| `APP_ENV` | `development` 或 `production` |
+| `APP_AUTH_SECRET` | 会话签名，至少 32 位随机串 |
+| `APP_ACCESS_PASSWORD_HASH` | 访问口令哈希。本机开发可留空 |
+| `APP_SECRET_ENCRYPTION_KEY` | Fernet 主密钥。缺失则拒绝启动，不把 API Key 存成明文。必须单独备份，丢失后模型密文无法解密 |
+| `DATA_DIR` / `DATABASE_URL` | 数据目录和 SQLite |
+| `ALLOWED_HOSTS` / `CORS_ORIGINS` | 生产必填，不能用 `*` |
+| `MODEL_BASE_URL_ALLOWLIST` | 可选。允许访问的内网模型主机，逗号分隔 |
+
+生成密钥和口令哈希、Compose 与恢复步骤见 [部署文档](docs/09-deployment-guide.md)。
+
+## 文档
+
+- [产品需求](docs/01-product-requirements.md)
+- [架构](docs/02-architecture.md)
+- [数据库](docs/03-database-design.md)
+- [API](docs/04-api-specification.md)
+- [记忆与上下文](docs/05-ai-memory-system.md)
+- [模型接入](docs/06-model-integration.md)
+- [开发](docs/07-development-guide.md)
+- [测试](docs/08-testing-guide.md)
+- [部署、备份与恢复](docs/09-deployment-guide.md)
+- [实施记录](docs/10-implementation-plan.md)
+- [差距分析](docs/11-evolution-gap-analysis.md)
+- [模型配置中心](docs/12-model-config-center.md)
+- [release 1.0.0 方案](docs/release-1.0.0-plan.md)
+- [决策记录](docs/adr/)

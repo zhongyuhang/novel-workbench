@@ -17,6 +17,7 @@ import {
 type QualityIssuesSectionProps = {
   novelId: string;
   activeChapterId: string | null;
+  modelConfigId?: string | null;
   onManuscriptUpdated?: (chapter: Chapter) => void;
 };
 
@@ -46,6 +47,7 @@ const SEVERITY_LABEL = {
 export function QualityIssuesSection({
   novelId,
   activeChapterId,
+  modelConfigId = null,
   onManuscriptUpdated,
 }: QualityIssuesSectionProps) {
   const [issues, setIssues] = useState<QualityIssue[]>([]);
@@ -100,6 +102,7 @@ export function QualityIssuesSection({
       const result = await runQualityCheck(novelId, {
         use_model: useModel,
         chapter_id: scopeChapter ? activeChapterId : null,
+        ...(useModel && modelConfigId ? { model_config_id: modelConfigId } : {}),
       });
       setMessage(result.message);
       await reload();
@@ -168,6 +171,7 @@ export function QualityIssuesSection({
             issue={issue}
             busy={busy}
             useModel={useModel}
+            modelConfigId={modelConfigId}
             onMessage={setMessage}
             onError={setError}
             onBusy={setBusy}
@@ -186,6 +190,7 @@ function IssueCard({
   issue,
   busy,
   useModel,
+  modelConfigId,
   onMessage,
   onError,
   onBusy,
@@ -195,6 +200,7 @@ function IssueCard({
   issue: QualityIssue;
   busy: boolean;
   useModel: boolean;
+  modelConfigId?: string | null;
   onMessage: (value: string) => void;
   onError: (value: string) => void;
   onBusy: (value: boolean) => void;
@@ -222,7 +228,10 @@ function IssueCard({
     onBusy(true);
     onError("");
     try {
-      const result = await generateRepairs(issue.id, useModel);
+      const result =
+        useModel && modelConfigId
+          ? await generateRepairs(issue.id, useModel, modelConfigId)
+          : await generateRepairs(issue.id, useModel);
       setCandidates(result.candidates);
       onMessage(result.message);
     } catch (cause: unknown) {

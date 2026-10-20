@@ -79,6 +79,12 @@ class ModelConfigInvalid(AppError):
     message = "模型配置不完整。"
 
 
+class DefaultModelProtected(AppError):
+    status_code = 409
+    code = "DEFAULT_MODEL_PROTECTED"
+    message = "这是当前默认模型。请先把另一份测试成功的配置设为默认，再删除。"
+
+
 class SecretStorageUnavailable(AppError):
     status_code = 503
     code = "SECRET_STORAGE_UNAVAILABLE"

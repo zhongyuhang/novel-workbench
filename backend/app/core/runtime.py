@@ -1,5 +1,7 @@
 """Fail closed when production or LAN configuration would expose data or secrets."""
 
+from cryptography.fernet import Fernet
+
 from app.core.config import Settings
 from app.core.passwords import MIN_PRODUCTION_ITERATIONS, is_weak_password, parse_password_hash
 
@@ -40,6 +42,8 @@ def validate_runtime_configuration(settings: Settings) -> None:
     if auth_is_required(settings):
         _require_auth_material(settings, production=settings.app_env == "production")
 
+    _require_encryption_key(settings.app_secret_encryption_key)
+
     if settings.app_env != "production":
         return
 
@@ -54,6 +58,22 @@ def validate_runtime_configuration(settings: Settings) -> None:
         raise RuntimeError(
             "Production ALLOWED_HOSTS must list explicit hosts and must not use '*'."
         )
+
+
+def _require_encryption_key(key: str) -> None:
+    stripped = key.strip()
+    if stripped == "" or stripped.lower().startswith("replace-with"):
+        raise RuntimeError(
+            "APP_SECRET_ENCRYPTION_KEY is not configured. "
+            "Refusing to start so model API keys are never stored in plaintext."
+        )
+    try:
+        Fernet(stripped.encode("utf-8"))
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError(
+            "APP_SECRET_ENCRYPTION_KEY is not a valid Fernet key. "
+            "Refusing to start so model API keys are never stored in plaintext."
+        ) from exc
 
 
 def _require_auth_material(settings: Settings, *, production: bool) -> None:
