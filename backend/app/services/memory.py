@@ -39,7 +39,7 @@ from app.models.memory import (
     StoryEntity,
     StoryEvent,
 )
-from app.models.planning import ChapterOutline, SceneCard
+from app.models.planning import ChapterOutline, SceneCard, VolumeOutline
 from app.repositories import catalog as catalog_repo
 from app.schemas.memory import (
     AnalyzeRequest,
@@ -493,6 +493,7 @@ def mark_chapter_memory_stale(session: Session, chapter_id: str, revision: int) 
     """Mark summaries, pending proposals, and confirmed chapter plans as stale.
 
     Confirmed chapter outlines and scene cards describe the previous manuscript.
+    A confirmed outline for that chapter's volume is marked stale the same way.
     Their text is left unchanged. Draft and archived rows stay as they are.
     The novel-level story plan is not expired by one chapter revision.
     """
@@ -532,6 +533,17 @@ def mark_chapter_memory_stale(session: Session, chapter_id: str, revision: int) 
         )
         .values(status="stale", revision=SceneCard.revision + 1, updated_at=now)
     )
+    chapter = session.get(Chapter, chapter_id)
+    if chapter is not None and chapter.volume_id is not None:
+        session.execute(
+            update(VolumeOutline)
+            .where(
+                VolumeOutline.novel_id == chapter.novel_id,
+                VolumeOutline.volume_id == chapter.volume_id,
+                VolumeOutline.status == "confirmed",
+            )
+            .values(status="stale", revision=VolumeOutline.revision + 1, updated_at=now)
+        )
 
 
 def generate_analysis_text(*, endpoint: ModelEndpoint, prompt: str) -> str:

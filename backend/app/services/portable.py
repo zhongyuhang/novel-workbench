@@ -48,7 +48,7 @@ from app.models.memory import (
     StoryEntity,
     StoryEvent,
 )
-from app.models.planning import ChapterOutline, SceneCard, StoryPlan
+from app.models.planning import ChapterOutline, SceneCard, StoryArc, StoryPlan, VolumeOutline
 from app.models.quality import Foreshadowing, QualityIssue, QualityRepairCandidate, WritingGoal
 from app.repositories import catalog as catalog_repo
 
@@ -86,6 +86,8 @@ _KINDS = (
     "chapters",
     "chapter_versions",
     "story_plans",
+    "story_arcs",
+    "volume_outlines",
     "chapter_outlines",
     "scene_cards",
     "entities",
@@ -107,6 +109,8 @@ _LABELS = {
     "chapters": "章节",
     "chapter_versions": "章节版本",
     "story_plans": "作品大纲",
+    "story_arcs": "故事线",
+    "volume_outlines": "卷大纲",
     "chapter_outlines": "章节大纲",
     "scene_cards": "场景卡片",
     "entities": "设定",
@@ -123,6 +127,7 @@ _LABELS = {
     "model_configs": "模型配置",
 }
 _PLAN_STATUS = {"draft", "confirmed", "stale", "archived"}
+_ARC_TYPES = {"main", "subplot", "character", "other"}
 _ID_LIST_KEYS = {"participants", "character_entity_ids"}
 
 
@@ -165,6 +170,8 @@ class PackagePlan:
     chapters: list[dict[str, object]] = field(default_factory=list)
     versions: list[dict[str, object]] = field(default_factory=list)
     story_plan: dict[str, object] | None = None
+    story_arcs: list[dict[str, object]] = field(default_factory=list)
+    volume_outlines: list[dict[str, object]] = field(default_factory=list)
     outlines: list[dict[str, object]] = field(default_factory=list)
     scenes: list[dict[str, object]] = field(default_factory=list)
     entities: list[dict[str, object]] = field(default_factory=list)
@@ -267,6 +274,11 @@ def prepare_package(session: Session, raw: bytes) -> PackagePlan:
         planning, "chapter_outlines", "chapter_outlines", _parse_outline, plan
     )
     plan.scenes = _parse_many(planning, "scene_cards", "scene_cards", _parse_scene, plan)
+    plan.story_arcs = _parse_many(planning, "story_arcs", "story_arcs", _parse_story_arc, plan)
+    plan.volume_outlines = _parse_many(
+        planning, "volume_outlines", "volume_outlines", _parse_volume_outline, plan
+    )
+    _drop_duplicate_volume_outlines(plan)
     plan.entities = _parse_many(memory, "entities", "entities", _parse_entity, plan)
     plan.states = _parse_many(memory, "entity_states", "entity_states", _parse_state, plan)
     plan.relations = _parse_many(memory, "relations", "relations", _parse_relation, plan)
@@ -383,6 +395,37 @@ def _write_plan(session: Session, plan: PackagePlan) -> Novel:
                 logline=_opt_str(row, "logline"),
                 body=_opt_str(row, "body"),
                 ending_intent=_opt_str(row, "ending_intent"),
+                status=_s(row, "status"),
+                revision=_i(row, "revision"),
+                created_at=_dt(row, "created_at"),
+                updated_at=_dt(row, "updated_at"),
+            )
+        )
+    for row in plan.story_arcs:
+        session.add(
+            StoryArc(
+                id=_s(row, "id"),
+                novel_id=_s(row, "novel_id"),
+                arc_type=_s(row, "arc_type"),
+                title=_s(row, "title"),
+                summary=_opt_str(row, "summary"),
+                sort_order=_i(row, "sort_order"),
+                status=_s(row, "status"),
+                revision=_i(row, "revision"),
+                created_at=_dt(row, "created_at"),
+                updated_at=_dt(row, "updated_at"),
+            )
+        )
+    for row in plan.volume_outlines:
+        session.add(
+            VolumeOutline(
+                id=_s(row, "id"),
+                novel_id=_s(row, "novel_id"),
+                volume_id=_s(row, "volume_id"),
+                goal=_opt_str(row, "goal"),
+                key_events=_opt_str(row, "key_events"),
+                start_state=_opt_str(row, "start_state"),
+                end_state=_opt_str(row, "end_state"),
                 status=_s(row, "status"),
                 revision=_i(row, "revision"),
                 created_at=_dt(row, "created_at"),
@@ -652,6 +695,16 @@ def _load_graph(session: Session, novel: Novel) -> dict[str, object]:
         "chapters": chapters,
         "versions": versions,
         "story_plan": session.scalar(select(StoryPlan).where(StoryPlan.novel_id == novel.id)),
+        "story_arcs": list(
+            session.scalars(
+                select(StoryArc)
+                .where(StoryArc.novel_id == novel.id)
+                .order_by(StoryArc.sort_order.asc(), StoryArc.id.asc())
+            ).all()
+        ),
+        "volume_outlines": list(
+            session.scalars(select(VolumeOutline).where(VolumeOutline.novel_id == novel.id)).all()
+        ),
         "outlines": list(
             session.scalars(select(ChapterOutline).where(ChapterOutline.novel_id == novel.id)).all()
         ),
@@ -740,6 +793,13 @@ def _archive_bytes(graph: dict[str, object]) -> bytes:
         },
         "planning.json": {
             "story_plan": None if story_plan is None else _story_plan_dict(story_plan),
+            "story_arcs": [
+                _story_arc_dict(row) for row in cast(list[StoryArc], graph["story_arcs"])
+            ],
+            "volume_outlines": [
+                _volume_outline_dict(row)
+                for row in cast(list[VolumeOutline], graph["volume_outlines"])
+            ],
             "chapter_outlines": [
                 _outline_dict(row) for row in cast(list[ChapterOutline], graph["outlines"])
             ],
@@ -1021,6 +1081,53 @@ def _parse_story_plan(raw: object) -> dict[str, object]:
         "created_at": _when(body.get("created_at"), required=True),
         "updated_at": _when(body.get("updated_at"), required=True),
     }
+
+
+def _parse_story_arc(raw: object) -> dict[str, object]:
+    body = _record(raw)
+    return {
+        "id": _id(body.get("id"), required=True),
+        "novel_id": _id(body.get("novel_id"), required=True),
+        "arc_type": _enum(body.get("arc_type"), _ARC_TYPES),
+        "title": _text(body.get("title"), max_len=200, required=True),
+        "summary": _text(body.get("summary"), max_len=MAX_TEXT, required=False),
+        "sort_order": _number(body.get("sort_order"), minimum=0),
+        "status": _enum(body.get("status"), _PLAN_STATUS),
+        "revision": _number(body.get("revision"), minimum=1),
+        "created_at": _when(body.get("created_at"), required=True),
+        "updated_at": _when(body.get("updated_at"), required=True),
+    }
+
+
+def _parse_volume_outline(raw: object) -> dict[str, object]:
+    body = _record(raw)
+    return {
+        "id": _id(body.get("id"), required=True),
+        "novel_id": _id(body.get("novel_id"), required=True),
+        "volume_id": _id(body.get("volume_id"), required=True),
+        "goal": _text(body.get("goal"), max_len=MAX_TEXT, required=False),
+        "key_events": _text(body.get("key_events"), max_len=MAX_TEXT, required=False),
+        "start_state": _text(body.get("start_state"), max_len=MAX_TEXT, required=False),
+        "end_state": _text(body.get("end_state"), max_len=MAX_TEXT, required=False),
+        "status": _enum(body.get("status"), _PLAN_STATUS),
+        "revision": _number(body.get("revision"), minimum=1),
+        "created_at": _when(body.get("created_at"), required=True),
+        "updated_at": _when(body.get("updated_at"), required=True),
+    }
+
+
+def _drop_duplicate_volume_outlines(plan: PackagePlan) -> None:
+    seen: set[str] = set()
+    kept: list[dict[str, object]] = []
+    for row in plan.volume_outlines:
+        volume_id = _text_of(row, "volume_id")
+        if volume_id in seen:
+            plan.invalid.bump("volume_outlines")
+            _reason(plan, "volume_outlines", "同一卷有多份卷大纲")
+            continue
+        seen.add(volume_id)
+        kept.append(row)
+    plan.volume_outlines = kept
 
 
 def _parse_outline(raw: object) -> dict[str, object]:
@@ -1317,6 +1424,8 @@ def _grouped_rows(plan: PackagePlan) -> list[tuple[str, list[dict[str, object]]]
         ("chapter_versions", plan.versions),
         ("chapter_outlines", plan.outlines),
         ("scene_cards", plan.scenes),
+        ("story_arcs", plan.story_arcs),
+        ("volume_outlines", plan.volume_outlines),
         ("entities", plan.entities),
         ("entity_states", plan.states),
         ("relations", plan.relations),
@@ -1593,6 +1702,8 @@ def _allocate_ids(session: Session, plan: PackagePlan) -> None:
         "chapters": Chapter.id,
         "chapter_versions": ChapterVersion.id,
         "story_plans": StoryPlan.id,
+        "story_arcs": StoryArc.id,
+        "volume_outlines": VolumeOutline.id,
         "chapter_outlines": ChapterOutline.id,
         "scene_cards": SceneCard.id,
         "entities": StoryEntity.id,
@@ -1869,6 +1980,37 @@ def _story_plan_dict(row: StoryPlan) -> dict[str, object]:
         "logline": row.logline,
         "body": row.body,
         "ending_intent": row.ending_intent,
+        "status": row.status,
+        "revision": row.revision,
+        "created_at": _dump_dt(row.created_at),
+        "updated_at": _dump_dt(row.updated_at),
+    }
+
+
+def _story_arc_dict(row: StoryArc) -> dict[str, object]:
+    return {
+        "id": row.id,
+        "novel_id": row.novel_id,
+        "arc_type": row.arc_type,
+        "title": row.title,
+        "summary": row.summary,
+        "sort_order": row.sort_order,
+        "status": row.status,
+        "revision": row.revision,
+        "created_at": _dump_dt(row.created_at),
+        "updated_at": _dump_dt(row.updated_at),
+    }
+
+
+def _volume_outline_dict(row: VolumeOutline) -> dict[str, object]:
+    return {
+        "id": row.id,
+        "novel_id": row.novel_id,
+        "volume_id": row.volume_id,
+        "goal": row.goal,
+        "key_events": row.key_events,
+        "start_state": row.start_state,
+        "end_state": row.end_state,
         "status": row.status,
         "revision": row.revision,
         "created_at": _dump_dt(row.created_at),

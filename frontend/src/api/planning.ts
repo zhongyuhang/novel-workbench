@@ -200,3 +200,199 @@ export function reorderScenes(chapterId: string, sceneIds: string[]): Promise<Sc
     body: JSON.stringify({ scene_ids: sceneIds }),
   });
 }
+
+export type StoryArcType = "main" | "subplot" | "character" | "other";
+
+export const STORY_ARC_TYPE_LABEL: Record<StoryArcType, string> = {
+  main: "主线",
+  subplot: "支线",
+  character: "人物线",
+  other: "其他",
+};
+
+export type StoryArc = {
+  id: string;
+  novel_id: string;
+  arc_type: StoryArcType;
+  title: string;
+  summary: string | null;
+  sort_order: number;
+  status: PlanningStatus;
+  revision: number;
+  counts_as_fact: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StoryArcCreate = {
+  arc_type: StoryArcType;
+  title: string;
+  summary?: string | null;
+  status?: EditablePlanningStatus | null;
+};
+
+export type StoryArcPatch = {
+  arc_type?: StoryArcType | null;
+  title?: string | null;
+  summary?: string | null;
+  status?: EditablePlanningStatus | null;
+  expected_revision: number;
+};
+
+export type VolumeOutline = {
+  id: string;
+  novel_id: string;
+  volume_id: string;
+  goal: string | null;
+  key_events: string | null;
+  start_state: string | null;
+  end_state: string | null;
+  status: PlanningStatus;
+  revision: number;
+  counts_as_fact: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type VolumeOutlineView = {
+  novel_id: string;
+  volume_id: string;
+  outline: VolumeOutline | null;
+};
+
+export type VolumeOutlineWrite = {
+  goal?: string | null;
+  key_events?: string | null;
+  start_state?: string | null;
+  end_state?: string | null;
+  status?: EditablePlanningStatus | null;
+  expected_revision?: number | null;
+};
+
+export type OutlineCandidateScene = {
+  goal: string | null;
+  conflict: string | null;
+  turning_point: string | null;
+  expected_outcome: string | null;
+  must_convey: string | null;
+  must_not_reveal: string | null;
+};
+
+export type OutlineCandidatePreview = {
+  novel_id: string;
+  chapter_id: string;
+  provider_mode: "mock" | "openai_compatible";
+  simulated: boolean;
+  confirmed: false;
+  manuscript_changed: false;
+  written: false;
+  note: string;
+  goal: string | null;
+  must_advance: string | null;
+  required_events: string | null;
+  allowed_reveals: string | null;
+  forbidden_reveals: string | null;
+  target_words: number | null;
+  ending_hook: string | null;
+  scenes: OutlineCandidateScene[];
+};
+
+export type OutlineCandidateAcceptResult = {
+  outline: ChapterOutline;
+  scenes: SceneCard[];
+  manuscript_changed: false;
+};
+
+export function listStoryArcs(novelId: string, signal?: AbortSignal): Promise<StoryArc[]> {
+  return apiRequest<StoryArc[]>(`/api/v1/novels/${novelId}/story-arcs`, { signal });
+}
+
+export function createStoryArc(novelId: string, payload: StoryArcCreate): Promise<StoryArc> {
+  return apiRequest<StoryArc>(`/api/v1/novels/${novelId}/story-arcs`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateStoryArc(arcId: string, payload: StoryArcPatch): Promise<StoryArc> {
+  return apiRequest<StoryArc>(`/api/v1/story-arcs/${arcId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteStoryArc(arcId: string): Promise<void> {
+  return apiRequest<void>(`/api/v1/story-arcs/${arcId}`, { method: "DELETE" });
+}
+
+export function reorderStoryArcs(novelId: string, arcIds: string[]): Promise<StoryArc[]> {
+  return apiRequest<StoryArc[]>(`/api/v1/novels/${novelId}/story-arcs/reorder`, {
+    method: "POST",
+    body: JSON.stringify({ arc_ids: arcIds }),
+  });
+}
+
+export function confirmStoryArc(arcId: string, expectedRevision: number): Promise<StoryArc> {
+  return apiRequest<StoryArc>(`/api/v1/story-arcs/${arcId}/confirm`, {
+    method: "POST",
+    body: JSON.stringify({ expected_revision: expectedRevision }),
+  });
+}
+
+export function listVolumeOutlines(
+  novelId: string,
+  signal?: AbortSignal,
+): Promise<VolumeOutline[]> {
+  return apiRequest<VolumeOutline[]>(`/api/v1/novels/${novelId}/volume-outlines`, { signal });
+}
+
+export function saveVolumeOutline(
+  volumeId: string,
+  payload: VolumeOutlineWrite,
+): Promise<VolumeOutline> {
+  return apiRequest<VolumeOutline>(`/api/v1/volumes/${volumeId}/outline`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function confirmVolumeOutline(
+  volumeId: string,
+  expectedRevision: number,
+): Promise<VolumeOutline> {
+  return apiRequest<VolumeOutline>(`/api/v1/volumes/${volumeId}/outline/confirm`, {
+    method: "POST",
+    body: JSON.stringify({ expected_revision: expectedRevision }),
+  });
+}
+
+export function previewOutlineCandidate(chapterId: string): Promise<OutlineCandidatePreview> {
+  return apiRequest<OutlineCandidatePreview>(`/api/v1/chapters/${chapterId}/outline-candidate`, {
+    method: "POST",
+    body: JSON.stringify({ use_mock: true, include_scenes: true }),
+  });
+}
+
+export function acceptOutlineCandidate(
+  chapterId: string,
+  preview: OutlineCandidatePreview,
+  expectedRevision: number | undefined,
+): Promise<OutlineCandidateAcceptResult> {
+  return apiRequest<OutlineCandidateAcceptResult>(
+    `/api/v1/chapters/${chapterId}/outline-candidate/accept`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        goal: preview.goal,
+        must_advance: preview.must_advance,
+        required_events: preview.required_events,
+        allowed_reveals: preview.allowed_reveals,
+        forbidden_reveals: preview.forbidden_reveals,
+        target_words: preview.target_words,
+        ending_hook: preview.ending_hook,
+        scenes: preview.scenes,
+        expected_revision: expectedRevision,
+      }),
+    },
+  );
+}

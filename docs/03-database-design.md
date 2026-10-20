@@ -47,9 +47,9 @@
 
 ### 叙事规划
 
-`docs/03` 早先写过一张按 `level` 分层的 `outlines` 表。那张表没有进入 `0001`–`0006`，现在也不补建。规划用下面三张表，决定见 [ADR-006](adr/ADR-006-story-planning.md)。故事线、卷大纲本阶段没有表。
+`docs/03` 早先写过一张按 `level` 分层的 `outlines` 表。那张表没有进入 `0001`–`0006`，现在也不补建。规划从 `0007_story_planning` 的三张表开始，E7 用 `0011_story_arcs` 补上故事线和卷大纲。决定见 [ADR-006](adr/ADR-006-story-planning.md) 和 [ADR-012](adr/ADR-012-narrative-planning-completion.md)。
 
-备份是整份 SQLite 文件。这三张表会随库备份和恢复。Markdown/TXT 导出仍然只含标题、简介、卷、章和正文，不含大纲。作品包（ADR-011）会带上大纲和场景，但不另建表，也不改变 Markdown/TXT 文件的内容。
+备份是整份 SQLite 文件。这些表会随库备份和恢复。Markdown/TXT 导出仍然只含标题、简介、卷、章和正文，不含大纲。作品包格式仍是 `ai-novel-writer-portable-v1`、`format_version` 1；`planning.json` 可以多带 `story_arcs` 和 `volume_outlines`，缺了这两项就当空列表。不支持的格式或版本仍然是 422。
 
 #### story_plans
 
@@ -64,7 +64,7 @@
 - `revision`（大于等于 1）
 - `created_at`, `updated_at`
 
-只有 `confirmed` 可以在以后被当作创作约束。`draft`、`stale`、`archived` 都不是强制事实。正文修订变化时自动标 `stale` 还没做。
+只有 `confirmed` 可以当作创作约束。`draft`、`stale`、`archived` 都不是强制事实。某一章的正文修订变化不会自动让作品级大纲过期。
 
 #### chapter_outlines
 
@@ -98,6 +98,38 @@
 
 索引：`(novel_id)`、`(chapter_id, sort_order)`。排序以重排后的 `sort_order` 为准。删除场景会腾出序号；软删除章节时场景行保留，接口隐藏。
 
+#### story_arcs
+
+故事线属于作品，不挂到某一章。类型是 `main`、`subplot`、`character`、`other`。删除是硬删除，删完按剩余行重排 `sort_order`，和场景卡片一样，不用软删除。
+
+- `id` PK
+- `novel_id` FK
+- `arc_type`
+- `title`
+- `summary` nullable
+- `sort_order`（大于等于 0）
+- `status` 同上
+- `revision`（大于等于 1）
+- `created_at`, `updated_at`
+
+索引：`(novel_id)`、`(novel_id, sort_order)`。只有 `confirmed` 的摘要会进入上下文编译。`draft` 可以出现在编译结果里，但 `included` 为 false，不当事实。
+
+#### volume_outlines
+
+每卷最多一行，并冗余 `novel_id`。服务层要求它和卷属于同一作品。`revision` 只属于这份卷大纲，不改 `volumes.title`，也不改 `chapters.revision`。
+
+- `id` PK
+- `novel_id` FK
+- `volume_id` FK，唯一
+- `goal`、`key_events`、`start_state`、`end_state` 均可空
+- `status` 同上
+- `revision`（大于等于 1）
+- `created_at`, `updated_at`
+
+索引：`(novel_id)`。
+
+这一卷里某章的正文修订变化时，已确认的卷大纲改为 `stale` 并增加自己的修订号，正文不变。新建、复制、软删除或移动章节改变卷内结构时，同样把该卷已确认大纲标成 `stale`。只改卷名不会。删卷时先删掉这份大纲行，避免外键悬空。作品级大纲不因此自动过期。
+
 ### story_entities
 - `id` PK
 - `novel_id` FK
@@ -127,7 +159,7 @@
 
 ### entity_relations
 
-同一作品里两个设定之间的有向关系。不引入图数据库。`storyline` 只是可选标签，不是 `story_arcs` 外键；故事线表仍未建。
+同一作品里两个设定之间的有向关系。不引入图数据库。`storyline` 只是可选标签，不是 `story_arcs` 外键。故事线在 `story_arcs`，不从这里反查。
 
 - `id` PK
 - `novel_id` FK
@@ -300,7 +332,8 @@
 
 ## 3. 关系原则
 
-- 一个 novel 有多个 volume、chapter、entity、event，最多一份 `story_plans`。
+- 一个 novel 有多个 volume、chapter、entity、event、story_arcs，最多一份 `story_plans`。
+- 一个 volume 最多一份 `volume_outlines`。
 - chapter 可以没有 volume（例如尚未分卷的草稿）。
 - chapter 可以没有大纲和场景卡片。没有大纲不影响正文、版本和导出。
 - chapter 可以有多个版本、摘要和记忆提案，以及最多一份 `chapter_outlines`。

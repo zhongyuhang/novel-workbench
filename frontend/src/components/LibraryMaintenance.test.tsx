@@ -92,6 +92,8 @@ function emptyCounts(overrides: Partial<PortablePreview["created"]> = {}): Porta
     chapters: 0,
     chapter_versions: 0,
     story_plans: 0,
+    story_arcs: 0,
+    volume_outlines: 0,
     chapter_outlines: 0,
     scene_cards: 0,
     entities: 0,

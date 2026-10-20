@@ -88,6 +88,70 @@ class ChapterOutline(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class StoryArc(Base):
+    """A named thread inside one novel. Not a manuscript revision."""
+
+    __tablename__ = "story_arcs"
+    __table_args__ = (
+        CheckConstraint(_STATUS_CHECK, name="ck_story_arcs_status"),
+        CheckConstraint("revision >= 1", name="ck_story_arcs_revision"),
+        CheckConstraint("sort_order >= 0", name="ck_story_arcs_sort_order"),
+        CheckConstraint(
+            "arc_type IN ('main', 'subplot', 'character', 'other')",
+            name="ck_story_arcs_arc_type",
+        ),
+        Index("ix_story_arcs_novel_id", "novel_id"),
+        Index("ix_story_arcs_novel_id_sort_order", "novel_id", "sort_order"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    novel_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("novels.id", name="fk_story_arcs_novel_id_novels"),
+        nullable=False,
+    )
+    arc_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class VolumeOutline(Base):
+    """One outline per volume. Its revision is not ``volumes`` or chapter revision."""
+
+    __tablename__ = "volume_outlines"
+    __table_args__ = (
+        UniqueConstraint("volume_id", name="uq_volume_outlines_volume_id"),
+        CheckConstraint(_STATUS_CHECK, name="ck_volume_outlines_status"),
+        CheckConstraint("revision >= 1", name="ck_volume_outlines_revision"),
+        Index("ix_volume_outlines_novel_id", "novel_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    novel_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("novels.id", name="fk_volume_outlines_novel_id_novels"),
+        nullable=False,
+    )
+    volume_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("volumes.id", name="fk_volume_outlines_volume_id_volumes"),
+        nullable=False,
+    )
+    goal: Mapped[str | None] = mapped_column(Text)
+    key_events: Mapped[str | None] = mapped_column(Text)
+    start_state: Mapped[str | None] = mapped_column(Text)
+    end_state: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class SceneCard(Base):
     """Ordered scene inside one chapter. People and places are entity ids only."""
 

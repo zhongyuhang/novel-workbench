@@ -11,7 +11,7 @@ from app.models.memory import (
     StoryEntity,
     StoryEvent,
 )
-from app.models.planning import ChapterOutline, SceneCard, StoryPlan
+from app.models.planning import ChapterOutline, SceneCard, StoryArc, StoryPlan, VolumeOutline
 from app.models.quality import Foreshadowing, QualityIssue, QualityRepairCandidate, WritingGoal
 
 __all__ = [
@@ -30,9 +30,11 @@ __all__ = [
     "ModelConfig",
     "Novel",
     "SceneCard",
+    "StoryArc",
     "StoryEntity",
     "StoryEvent",
     "StoryPlan",
     "Volume",
+    "VolumeOutline",
     "WritingGoal",
 ]

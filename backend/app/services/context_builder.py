@@ -27,13 +27,19 @@ from app.models.memory import (
     StoryEntity,
     StoryEvent,
 )
-from app.models.planning import ChapterOutline, SceneCard, StoryPlan
+from app.models.planning import ChapterOutline, SceneCard, StoryArc, StoryPlan, VolumeOutline
 from app.models.quality import Foreshadowing
 from app.repositories import catalog as catalog_repo
 from app.schemas.context import CompiledContext, ContextItem
 from app.services.planning import planning_counts_as_fact
 
-COMPILER_VERSION = "e2.v1"
+COMPILER_VERSION = "e7.v1"
+_ARC_LABELS = {
+    "main": "主线",
+    "subplot": "支线",
+    "character": "人物线",
+    "other": "其他",
+}
 DEFAULT_CONTEXT_BUDGET = 6000
 ITEM_STORE_LIMIT = 4000
 PROMPT_STORE_LIMIT = 100_000
@@ -148,7 +154,6 @@ def compile_context(
         chapter_text=chapter_text,
         constraints=constraints,
     )
-    candidates.extend(_future_plan_layers())
     items, warnings = _pack(
         candidates,
         budget=limit,
@@ -327,12 +332,6 @@ def fit_snapshot(snapshot: dict[str, object]) -> dict[str, object]:
             warnings.append(note)
         current["context_warnings"] = warnings
     return current
-
-
-def _future_plan_layers() -> list[_Candidate]:
-    """Story arcs and volume outlines are not loaded in E2. The hook stays empty."""
-
-    return []
 
 
 def _collect(
@@ -558,6 +557,30 @@ def _plan_candidates(
     plan = session.scalar(select(StoryPlan).where(StoryPlan.novel_id == novel_id))
     if plan is not None and plan.novel_id == novel_id:
         rows.append(_story_plan_candidate(plan))
+    arcs = session.scalars(
+        select(StoryArc)
+        .where(StoryArc.novel_id == novel_id)
+        .order_by(StoryArc.sort_order.asc(), StoryArc.id.asc())
+    )
+    for arc in arcs:
+        if arc.novel_id != novel_id:
+            continue
+        rows.append(_arc_candidate(arc))
+    if current is not None and current.novel_id == novel_id and current.volume_id is not None:
+        volume = session.get(Volume, current.volume_id)
+        if volume is not None and volume.novel_id == novel_id:
+            volume_outline = session.scalar(
+                select(VolumeOutline).where(
+                    VolumeOutline.volume_id == volume.id,
+                    VolumeOutline.novel_id == novel_id,
+                )
+            )
+            if (
+                volume_outline is not None
+                and volume_outline.novel_id == novel_id
+                and volume_outline.volume_id == volume.id
+            ):
+                rows.append(_volume_outline_candidate(volume_outline))
     if current is None:
         return rows
     outline = session.scalar(
@@ -607,6 +630,63 @@ def _story_plan_candidate(plan: StoryPlan) -> _Candidate:
         shrinkable=False,
         included=fact,
         exclusion_reason=None if fact else _plan_exclusion(plan.status),
+    )
+
+
+def _arc_candidate(arc: StoryArc) -> _Candidate:
+    fact = planning_counts_as_fact(arc.status)
+    label = _ARC_LABELS.get(arc.arc_type, "其他")
+    lines = [
+        f"已确认故事线（{label}）：{arc.title}"
+        if fact
+        else f"未确认故事线（不是事实，{label}）：{arc.title}"
+    ]
+    if arc.summary and arc.summary.strip():
+        lines.append(arc.summary.strip())
+    else:
+        lines.append("（没有写下故事线摘要）")
+    return _Candidate(
+        id=f"arc:{arc.id}",
+        kind="story_arc",
+        content="\n".join(lines),
+        source_type="story_arc",
+        source_id=arc.id,
+        source_revision=arc.revision,
+        certainty="confirmed" if fact else arc.status,
+        priority=2,
+        sequence=2 + arc.sort_order,
+        hit_reason="已确认故事线" if fact else "故事线未确认",
+        droppable=not fact,
+        shrinkable=False,
+        included=fact,
+        exclusion_reason=None if fact else _plan_exclusion(arc.status),
+    )
+
+
+def _volume_outline_candidate(outline: VolumeOutline) -> _Candidate:
+    fact = planning_counts_as_fact(outline.status)
+    lines = ["已确认卷大纲：" if fact else "未确认卷大纲（不是事实）："]
+    _add_line(lines, "目标", outline.goal)
+    _add_line(lines, "关键事件", outline.key_events)
+    _add_line(lines, "起始状态", outline.start_state)
+    _add_line(lines, "结束状态", outline.end_state)
+    if len(lines) == 1:
+        lines.append("（没有写下卷目标）")
+    return _Candidate(
+        id=f"volume-outline:{outline.id}",
+        kind="volume_outline",
+        content="\n".join(lines),
+        source_type="volume_outline",
+        source_id=outline.id,
+        source_revision=outline.revision,
+        certainty="confirmed" if fact else outline.status,
+        priority=2,
+        sequence=1,
+        hit_reason="已确认卷大纲" if fact else "卷大纲未确认",
+        droppable=not fact,
+        shrinkable=False,
+        included=fact,
+        exclusion_reason=None if fact else _plan_exclusion(outline.status),
     )
 
 

@@ -7,6 +7,8 @@ export type PortableCounts = {
   chapters: number;
   chapter_versions: number;
   story_plans: number;
+  story_arcs: number;
+  volume_outlines: number;
   chapter_outlines: number;
   scene_cards: number;
   entities: number;

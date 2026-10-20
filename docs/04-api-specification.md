@@ -151,12 +151,24 @@
 - `PATCH /api/v1/scenes/{scene_id}`
 - `DELETE /api/v1/scenes/{scene_id}`
 - `POST /api/v1/chapters/{chapter_id}/scenes/reorder`：请求体是这一章全部 `scene_ids`，按新顺序排列。缺项、重复或其他章节的卡片返回 `422`。
+- `GET /api/v1/novels/{novel_id}/story-arcs`
+- `POST /api/v1/novels/{novel_id}/story-arcs`：创建。`arc_type` 为 `main`、`subplot`、`character` 或 `other`。
+- `PATCH /api/v1/story-arcs/{arc_id}`
+- `DELETE /api/v1/story-arcs/{arc_id}`：硬删除，并重排剩余故事线。
+- `POST /api/v1/novels/{novel_id}/story-arcs/reorder`：请求体必须是这本作品的全部 `arc_ids`。缺项、重复或其他作品的故事线返回 `422 INVALID_REFERENCE`。
+- `POST /api/v1/story-arcs/{arc_id}/confirm`
+- `GET /api/v1/novels/{novel_id}/volume-outlines`
+- `GET /api/v1/volumes/{volume_id}/outline`：没有大纲时 `outline` 为 null。
+- `PUT /api/v1/volumes/{volume_id}/outline`：每卷最多一行。不改卷名，不增加章节修订。
+- `POST /api/v1/volumes/{volume_id}/outline/confirm`
+- `POST /api/v1/chapters/{chapter_id}/outline-candidate`：生成章节大纲和场景卡片候选，只返回预览。`use_mock` 默认 true。响应里 `simulated`、`confirmed=false`、`written=false`、`manuscript_changed=false`。不写规划表，不改正文。
+- `POST /api/v1/chapters/{chapter_id}/outline-candidate/accept`：把预览写入正式规划，状态固定为 `draft`，不会写成 `confirmed`。已有章节大纲时要带 `expected_revision`。场景以草稿追加，不删除原有场景。正文和 `chapters.revision` 不变。
 
-状态是 `draft`、`confirmed`、`stale`、`archived`。响应里的 `counts_as_fact` 只有 `confirmed` 为 true。作品大纲和章节大纲的普通保存不能把状态写成 `confirmed`；内容有变化且没有另选状态时，已确认的大纲会回到 `draft`。场景卡片可以在创建或修改时自带状态。
+状态是 `draft`、`confirmed`、`stale`、`archived`。响应里的 `counts_as_fact` 只有 `confirmed` 为 true。作品大纲、章节大纲、故事线和卷大纲的普通保存不能把状态写成 `confirmed`；内容有变化且没有另选状态时，已确认的行会回到 `draft`。场景卡片可以在创建或修改时自带状态。
 
-跨作品的章节、地点或人物引用返回 `422 INVALID_REFERENCE`。软删除后的章节再读大纲或场景返回 `404`，库里的规划行仍指向原来的 `novel_id` 和 `chapter_id`。未登录返回 `401`。
+跨作品的章节、地点、人物或故事线引用返回 `422 INVALID_REFERENCE`。卷大纲若和卷不属于同一作品，读取时也是 `422`。软删除后的章节再读大纲或场景返回 `404`，库里的规划行仍指向原来的 `novel_id` 和 `chapter_id`。未登录返回 `401`。
 
-本阶段没有故事线、卷大纲，也没有「生成大纲候选」接口。上下文编译器只读取 `counts_as_fact=true` 的作品大纲、当前章节大纲和场景卡片。章节正文修订变化时，该章已确认的章节大纲和场景卡片改为 `stale`，正文不变；作品级大纲不因此自动过期。
+上下文编译器只把 `counts_as_fact=true` 的作品大纲、故事线摘要、当前章节所在卷的卷大纲、当前章节大纲和场景卡片当作高优先级材料。`draft` 可以列出来，但不会纳入。章节正文修订变化时，该章已确认的章节大纲和场景卡片，以及该章所在卷的已确认卷大纲，改为 `stale`，正文不变；作品级大纲不因此自动过期。卷内章节新增、复制、删除或移动时，该卷已确认卷大纲同样改为 `stale`。只改卷名不会。
 
 ### Model settings
 - `GET /api/v1/settings/models`
@@ -169,7 +181,7 @@
 
 ### Export / backup
 - `POST /api/v1/novels/{novel_id}/export`：Markdown 或 TXT。只含标题、简介、卷、章和正文，顺序与目录一致。
-- `POST /api/v1/novels/{novel_id}/portable-export`：一本作品的 ZIP。格式 `ai-novel-writer-portable-v1`，`format_version` 为 1。含结构、Tiptap 正文、同顺序的 Markdown/TXT，以及大纲、设定、关系、事件、伏笔、摘要、质量问题和章节版本。响应是文件，不是 JSON。API Key 和访问口令不在包内。见 ADR-011。
+- `POST /api/v1/novels/{novel_id}/portable-export`：一本作品的 ZIP。格式 `ai-novel-writer-portable-v1`，`format_version` 为 1。含结构、Tiptap 正文、同顺序的 Markdown/TXT，以及大纲、故事线、卷大纲、设定、关系、事件、伏笔、摘要、质量问题和章节版本。旧包可以没有故事线和卷大纲这两项。响应是文件，不是 JSON。API Key 和访问口令不在包内。见 ADR-011 与 ADR-012。
 - `POST /api/v1/novels/import/preview`：上传字段名为 `file`。只读预检，返回 `can_import`、作品标题，以及新增、跳过、冲突、无效计数。不支持的格式或版本返回 `422`，`code` 为 `UNSUPPORTED_PACKAGE`，不写库。
 - `POST /api/v1/novels/import`：同一份包通过预检后，在一次事务里插入一本新作品，返回 `201`。冲突主键重映射，不更新已有作品。无效行返回 `422 PACKAGE_INVALID`。写入中途失败回滚，返回 `500 PACKAGE_IMPORT_FAILED`。模型配置不入库，需要重新配置。
 - `POST /api/v1/admin/backups`：做一次 SQLite 一致性备份。需要认证。响应只含 `id`、`app_version`、`alembic_revision`、`created_at`，不返回数据库文件。
