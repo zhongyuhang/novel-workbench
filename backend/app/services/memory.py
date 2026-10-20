@@ -13,6 +13,7 @@ from typing import Any, cast
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
+from app.ai.gateway import enabled_default, endpoint_from_config, latest_enabled
 from app.ai.prompts import ANALYZE_PROMPT_VERSION, build_analyze_prompt
 from app.ai.provider import GenerationRequest, ModelEndpoint, ProviderError
 from app.ai.registry import get_provider
@@ -25,10 +26,8 @@ from app.core.errors import (
     NotFound,
     ProviderRequestFailed,
     RevisionConflict,
-    SecretStorageUnavailable,
     TaskStateError,
 )
-from app.core.secrets import SecretStorageError, decrypt_api_key
 from app.models.ai import ModelConfig
 from app.models.catalog import Chapter
 from app.models.memory import (
@@ -373,12 +372,19 @@ def analyze_chapter(
     if chapter.revision != payload.revision:
         raise RevisionConflict()
     text = document_to_text(chapter.content if isinstance(chapter.content, dict) else {})
-    mode, model_name = _resolve_analyzer(session, payload)
+    mode, model_name, used_config_id = _resolve_analyzer(session, payload)
     if text.strip() == "":
         drafts: list[ProposalDraft] = []
         message = "这一章还没有可分析的正文。正式设定没有改动。"
     else:
-        drafts = _drafts_for_mode(mode, model_name, chapter, text, session, payload)
+        drafts = _drafts_for_mode(
+            mode,
+            model_name,
+            chapter,
+            text,
+            session,
+            used_config_id,
+        )
         if mode == "mock":
             message = "模拟分析已生成提案。正式设定和正文都没有自动改动。"
         elif drafts:
@@ -391,6 +397,7 @@ def analyze_chapter(
         body = _copy_payload(draft.payload)
         body["evidence_in_source"] = draft.evidence_in_source
         body["model_name"] = model_name
+        body["model_config_id"] = used_config_id
         row = MemoryChangeProposal(
             id=_new_id(),
             novel_id=chapter.novel_id,
@@ -418,6 +425,7 @@ def analyze_chapter(
         status="completed",
         provider_mode="mock" if mode == "mock" else "openai_compatible",
         model_name=model_name,
+        model_config_id=used_config_id,
         prompt_version=ANALYZE_PROMPT_VERSION,
         proposal_count=len(rows),
         proposals=[_proposal_response(session, row) for row in rows],
@@ -565,13 +573,13 @@ def _drafts_for_mode(
     chapter: Chapter,
     text: str,
     session: Session,
-    payload: AnalyzeRequest,
+    config_id: str | None,
 ) -> list[ProposalDraft]:
     del model_name
     if mode == "mock":
         return extract_from_chapter(text)
-    config = _require_config(session, payload.model_config_id)
-    endpoint = _endpoint_from_config(config)
+    config = _require_config(session, config_id)
+    endpoint = endpoint_from_config(config)
     prompt = build_analyze_prompt(title=chapter.title, chapter_text=text)
     try:
         raw = generate_analysis_text(endpoint=endpoint, prompt=prompt)
@@ -975,24 +983,37 @@ def _canon(value: object) -> object:
     return value
 
 
-def _resolve_analyzer(session: Session, payload: AnalyzeRequest) -> tuple[str, str]:
+def _resolve_analyzer(session: Session, payload: AnalyzeRequest) -> tuple[str, str, str | None]:
     if payload.model_config_id:
         config = _load_config(session, payload.model_config_id)
         if payload.use_mock and config.provider_type != "mock":
             raise ModelConfigInvalid("模拟分析不能绑定外部模型。")
         if payload.use_mock or config.provider_type == "mock":
-            return "mock", "模拟分析"
-        return "openai_compatible", config.model_name
+            return "mock", "模拟分析", config.id
+        return "openai_compatible", config.model_name, config.id
     if payload.use_mock:
-        return "mock", "模拟分析"
-    found = _default_external_config(session)
+        return "mock", "模拟分析", None
+    default = enabled_default(session)
+    if default is not None:
+        if default.provider_type == "mock":
+            return "mock", "模拟分析", default.id
+        return "openai_compatible", default.model_name, default.id
+    found = latest_enabled(session, "openai_compatible")
     if found is None:
         raise ModelNotConfigured()
-    return "openai_compatible", found.model_name
+    return "openai_compatible", found.model_name, found.id
 
 
 def _require_config(session: Session, config_id: str | None) -> ModelConfig:
-    config = _load_config(session, config_id) if config_id else _default_external_config(session)
+    config: ModelConfig | None
+    if config_id:
+        config = _load_config(session, config_id)
+    else:
+        default = enabled_default(session)
+        if default is not None and default.provider_type == "openai_compatible":
+            config = default
+        else:
+            config = latest_enabled(session, "openai_compatible")
     if config is None or config.provider_type != "openai_compatible":
         raise ModelNotConfigured()
     return config
@@ -1005,40 +1026,6 @@ def _load_config(session: Session, config_id: str) -> ModelConfig:
     if not config.is_enabled:
         raise ModelConfigInvalid("这个模型配置已停用。")
     return config
-
-
-def _default_external_config(session: Session) -> ModelConfig | None:
-    return session.scalars(
-        select(ModelConfig)
-        .where(
-            ModelConfig.is_enabled.is_(True),
-            ModelConfig.provider_type == "openai_compatible",
-        )
-        .order_by(ModelConfig.updated_at.desc(), ModelConfig.id.asc())
-    ).first()
-
-
-def _endpoint_from_config(config: ModelConfig) -> ModelEndpoint:
-    parameters = config.parameters if isinstance(config.parameters, dict) else {}
-    capabilities = config.capabilities if isinstance(config.capabilities, dict) else {}
-    if not config.secret_ref:
-        raise ModelConfigInvalid("这个模型还没有可用的 API Key。")
-    try:
-        api_key = decrypt_api_key(str(config.secret_ref))
-    except SecretStorageError as exc:
-        raise SecretStorageUnavailable() from exc
-    return ModelEndpoint(
-        base_url=str(config.base_url),
-        model_name=str(config.model_name),
-        api_key=api_key,
-        timeout_seconds=_float(parameters.get("timeout_seconds"), 60),
-        supports_streaming=capabilities.get("supports_streaming") is not False,
-        provider_type="openai_compatible",
-        max_retries=_int(parameters.get("max_retries"), 2),
-        temperature=_optional_float(parameters.get("temperature")),
-        max_output_tokens=_optional_int(parameters.get("max_output_tokens")) or 1200,
-        parameters=parameters,
-    )
 
 
 def _entity_response(session: Session, row: StoryEntity) -> EntityResponse:
@@ -1396,30 +1383,6 @@ def _proposal_status_literal(value: str) -> Any:
     if value in allowed:
         return value
     return "pending"
-
-
-def _float(value: object, default: float) -> float:
-    if isinstance(value, int | float) and not isinstance(value, bool):
-        return float(value)
-    return default
-
-
-def _int(value: object, default: int) -> int:
-    if isinstance(value, int) and not isinstance(value, bool):
-        return value
-    return default
-
-
-def _optional_float(value: object) -> float | None:
-    if isinstance(value, int | float) and not isinstance(value, bool):
-        return float(value)
-    return None
-
-
-def _optional_int(value: object) -> int | None:
-    if isinstance(value, int) and not isinstance(value, bool):
-        return value
-    return None
 
 
 def _new_id() -> str:

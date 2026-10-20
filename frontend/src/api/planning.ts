@@ -287,6 +287,8 @@ export type OutlineCandidatePreview = {
   manuscript_changed: false;
   written: false;
   note: string;
+  model_config_id?: string | null;
+  model_name?: string | null;
   goal: string | null;
   must_advance: string | null;
   required_events: string | null;
@@ -366,10 +368,17 @@ export function confirmVolumeOutline(
   });
 }
 
-export function previewOutlineCandidate(chapterId: string): Promise<OutlineCandidatePreview> {
+export function previewOutlineCandidate(
+  chapterId: string,
+  modelConfigId?: string,
+): Promise<OutlineCandidatePreview> {
   return apiRequest<OutlineCandidatePreview>(`/api/v1/chapters/${chapterId}/outline-candidate`, {
     method: "POST",
-    body: JSON.stringify({ use_mock: true, include_scenes: true }),
+    body: JSON.stringify(
+      modelConfigId
+        ? { use_mock: false, model_config_id: modelConfigId, include_scenes: true }
+        : { use_mock: true, include_scenes: true },
+    ),
   });
 }
 

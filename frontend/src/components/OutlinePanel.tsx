@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { listModelConfigs } from "../api/models.ts";
 import { listEntities, type StoryEntity } from "../api/memory.ts";
 import {
   PLANNING_STATUS_LABEL,
@@ -37,7 +38,7 @@ import {
   type StoryPlan,
   type VolumeOutline,
 } from "../api/planning.ts";
-import { ApiError, type ChapterSummary, type Volume } from "../api/types.ts";
+import { ApiError, type ChapterSummary, type ModelConfig, type Volume } from "../api/types.ts";
 
 type OutlinePanelProps = {
   novelId: string;
@@ -1402,11 +1403,28 @@ function OutlineCandidateBox({
   onCandidate: (value: OutlineCandidatePreview | null) => void;
   onAccepted: (outline: ChapterOutline, scenes: SceneCard[]) => void;
 }) {
+  const [configs, setConfigs] = useState<ModelConfig[]>([]);
+  const [modelId, setModelId] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    listModelConfigs(controller.signal)
+      .then(setConfigs)
+      .catch(() => {
+        setConfigs([]);
+      });
+    return () => {
+      controller.abort();
+    };
+  }, [chapterId]);
+
   async function preview() {
     onBusy(true);
     onError("");
     try {
-      const next = await previewOutlineCandidate(chapterId);
+      const next = modelId
+        ? await previewOutlineCandidate(chapterId, modelId)
+        : await previewOutlineCandidate(chapterId);
       onCandidate(next);
       onMessage(next.simulated ? "已生成模拟候选，尚未写入。" : "已生成候选，尚未写入。");
     } catch (cause: unknown) {
@@ -1438,8 +1456,28 @@ function OutlineCandidateBox({
     <section className="plan-form" aria-label="大纲候选">
       <h3>大纲候选</h3>
       <p className="hint">先预览。确认写入后才进入正式规划，并且只写成草稿，不改正文。</p>
+      <label>
+        本次模型
+        <select
+          aria-label="大纲候选所用模型"
+          value={modelId}
+          onChange={(event) => {
+            setModelId(event.target.value);
+          }}
+        >
+          <option value="">使用模拟</option>
+          {configs
+            .filter((item) => item.is_enabled)
+            .map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.display_name}
+                {item.is_default ? "（默认）" : ""}
+              </option>
+            ))}
+        </select>
+      </label>
       <button className="ghost" type="button" disabled={busy} onClick={() => void preview()}>
-        生成大纲候选（模拟）
+        {modelId ? "生成大纲候选" : "生成大纲候选（模拟）"}
       </button>
       {candidate ? (
         <div className="scene-card">

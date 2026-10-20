@@ -59,7 +59,7 @@ def test_health_reports_database_outage(
     assert "disk offline" not in response.text
 
 
-def test_development_starts_without_model_key(
+def test_development_refuses_to_start_without_encryption_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     database_path = tmp_path / "dev.db"
@@ -70,9 +70,5 @@ def test_development_starts_without_model_key(
     monkeypatch.setenv("APP_SECRET_ENCRYPTION_KEY", "")
     get_settings.cache_clear()
 
-    application = create_app()
-    with TestClient(application) as test_client:
-        response = test_client.get("/api/v1/health")
-
-    assert response.status_code == 200
-    assert response.json()["database"] == "ok"
+    with pytest.raises(RuntimeError, match="APP_SECRET_ENCRYPTION_KEY"):
+        create_app()

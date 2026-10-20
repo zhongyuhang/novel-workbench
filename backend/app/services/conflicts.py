@@ -14,6 +14,7 @@ from typing import Literal, cast
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.gateway import enabled_default, endpoint_from_config, latest_enabled
 from app.ai.prompts import CONFLICT_PROMPT_VERSION, build_conflict_prompt
 from app.ai.provider import GenerationRequest, ModelEndpoint, ProviderError
 from app.ai.registry import get_provider
@@ -23,9 +24,7 @@ from app.core.errors import (
     ModelConfigInvalid,
     NotFound,
     ProviderRequestFailed,
-    SecretStorageUnavailable,
 )
-from app.core.secrets import SecretStorageError, decrypt_api_key
 from app.models.ai import ModelConfig
 from app.models.catalog import Chapter
 from app.models.memory import StoryEvent
@@ -230,6 +229,8 @@ def check_chapter_conflicts(
         formal_memory_changed=False,
         conflicts=[_response_item(item, titles) for item in conflicts],
         message=message,
+        model_config_id=config.id if config is not None else None,
+        model_name=model_name,
     )
 
 
@@ -307,44 +308,23 @@ def _resolve_mode(
         if payload.use_mock and config.provider_type != "mock":
             raise ModelConfigInvalid("模拟检查不能绑定外部模型。")
         if payload.use_mock or config.provider_type == "mock":
-            return "mock", None, "本地规则"
+            return "mock", config, "本地规则"
         return "openai_compatible", config, config.model_name
     if payload.use_mock:
         return "mock", None, "本地规则"
-    found = session.scalars(
-        select(ModelConfig)
-        .where(
-            ModelConfig.is_enabled.is_(True),
-            ModelConfig.provider_type == "openai_compatible",
-        )
-        .order_by(ModelConfig.updated_at.desc(), ModelConfig.id.asc())
-    ).first()
+    default = enabled_default(session)
+    if default is not None:
+        if default.provider_type == "mock":
+            return "mock", default, "本地规则"
+        return "openai_compatible", default, default.model_name
+    found = latest_enabled(session, "openai_compatible")
     if found is None:
         return "mock", None, "本地规则"
     return "openai_compatible", found, found.model_name
 
 
 def _endpoint(config: ModelConfig) -> ModelEndpoint:
-    parameters = config.parameters if isinstance(config.parameters, dict) else {}
-    capabilities = config.capabilities if isinstance(config.capabilities, dict) else {}
-    if not config.secret_ref:
-        raise ModelConfigInvalid("这个模型还没有可用的 API Key。")
-    try:
-        api_key = decrypt_api_key(str(config.secret_ref))
-    except SecretStorageError as exc:
-        raise SecretStorageUnavailable() from exc
-    return ModelEndpoint(
-        base_url=str(config.base_url),
-        model_name=str(config.model_name),
-        api_key=api_key,
-        timeout_seconds=_number(parameters.get("timeout_seconds"), 60),
-        supports_streaming=capabilities.get("supports_streaming") is not False,
-        provider_type="openai_compatible",
-        max_retries=int(_number(parameters.get("max_retries"), 2)),
-        temperature=_optional_number(parameters.get("temperature")),
-        max_output_tokens=int(_number(parameters.get("max_output_tokens"), 1200)),
-        parameters=parameters,
-    )
+    return endpoint_from_config(config)
 
 
 def _chapter_titles(session: Session, chapter_ids: list[str]) -> dict[str, str]:
@@ -483,18 +463,6 @@ def _load_object(raw: str) -> dict[str, object]:
     if not isinstance(loaded, dict):
         raise ValueError("json is not an object")
     return cast(dict[str, object], loaded)
-
-
-def _number(value: object, default: float) -> float:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return default
-    return float(value)
-
-
-def _optional_number(value: object) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    return float(value)
 
 
 def _confidence(value: object) -> float | None:

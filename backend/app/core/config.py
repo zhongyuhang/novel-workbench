@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     sse_heartbeat_seconds: float = 15.0
     frontend_dist: str = ""
+    model_base_url_allowlist: str = ""
 
     @property
     def resolved_data_dir(self) -> Path:

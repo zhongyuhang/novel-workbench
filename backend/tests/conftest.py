@@ -1,5 +1,6 @@
 """Isolated settings for every test."""
 
+import os
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -10,6 +11,9 @@ from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
+
+# Importing the app validates the encryption key. Tests that clear it do so later.
+os.environ.setdefault("APP_SECRET_ENCRYPTION_KEY", Fernet.generate_key().decode())
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 

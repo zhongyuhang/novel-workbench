@@ -12,6 +12,7 @@ from app.schemas.ai import (
     ModelConfigWrite,
     ModelTestRequest,
     ModelTestResponse,
+    ProviderPresetResponse,
 )
 from app.services import model_configs as model_service
 
@@ -20,6 +21,11 @@ router = APIRouter(
     tags=["settings"],
     dependencies=[Depends(require_session)],
 )
+
+
+@router.get("/presets", response_model=list[ProviderPresetResponse])
+def list_presets() -> list[ProviderPresetResponse]:
+    return model_service.list_provider_presets()
 
 
 @router.get("", response_model=list[ModelConfigResponse])
@@ -43,6 +49,14 @@ def test_model(
     return model_service.test_model_config(session, payload)
 
 
+@router.get("/{config_id}", response_model=ModelConfigResponse)
+def get_model(
+    config_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> ModelConfigResponse:
+    return model_service.get_model_config(session, config_id)
+
+
 @router.patch("/{config_id}", response_model=ModelConfigResponse)
 def update_model(
     config_id: str,
@@ -50,6 +64,22 @@ def update_model(
     session: Annotated[Session, Depends(get_db)],
 ) -> ModelConfigResponse:
     return model_service.update_model_config(session, config_id, payload)
+
+
+@router.post("/{config_id}/test", response_model=ModelTestResponse)
+def test_saved_model(
+    config_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> ModelTestResponse:
+    return model_service.test_saved_model_config(session, config_id)
+
+
+@router.put("/{config_id}/default", response_model=ModelConfigResponse)
+def set_default_model(
+    config_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> ModelConfigResponse:
+    return model_service.set_default_model_config(session, config_id)
 
 
 @router.delete("/{config_id}", status_code=status.HTTP_204_NO_CONTENT)

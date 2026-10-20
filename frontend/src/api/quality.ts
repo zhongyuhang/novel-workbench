@@ -95,10 +95,12 @@ export function updateForeshadowing(
   });
 }
 
-export function checkConflicts(chapterId: string): Promise<ConflictCheck> {
+export function checkConflicts(chapterId: string, modelConfigId?: string): Promise<ConflictCheck> {
   return apiRequest<ConflictCheck>(`/api/v1/chapters/${chapterId}/conflict-check`, {
     method: "POST",
-    body: JSON.stringify({ use_mock: true }),
+    body: JSON.stringify(
+      modelConfigId ? { use_mock: false, model_config_id: modelConfigId } : { use_mock: true },
+    ),
   });
 }
 
@@ -260,10 +262,18 @@ export function updateQualityIssue(
   });
 }
 
-export function generateRepairs(issueId: string, useModel: boolean): Promise<RepairList> {
+export function generateRepairs(
+  issueId: string,
+  useModel: boolean,
+  modelConfigId?: string | null,
+): Promise<RepairList> {
+  const body: { use_model: boolean; model_config_id?: string } = { use_model: useModel };
+  if (useModel && modelConfigId) {
+    body.model_config_id = modelConfigId;
+  }
   return apiRequest<RepairList>(`/api/v1/quality-issues/${issueId}/repairs`, {
     method: "POST",
-    body: JSON.stringify({ use_model: useModel }),
+    body: JSON.stringify(body),
   });
 }
 

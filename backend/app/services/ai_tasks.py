@@ -6,10 +6,11 @@ import uuid
 from datetime import UTC, datetime
 from typing import Literal, cast
 
-from sqlalchemy import select, update
+from sqlalchemy import update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
+from app.ai.gateway import enabled_default, latest_enabled
 from app.ai.prompts import TASK_LABELS, build_prompt, prompt_version_for
 from app.ai.runner import run_ai_task
 from app.ai.runtime import AiRuntime
@@ -99,6 +100,7 @@ def create_ai_task(session: Session, payload: AiTaskCreate, runtime: AiRuntime) 
         "target_revision": payload.target_revision,
         "chapter_text": chapter_text,
         "provider_mode": provider_mode,
+        "model_config_id": config.id if config is not None else None,
         "model_name": config.model_name if config is not None else "mock",
         "display_name": config.display_name if config is not None else "模拟模型",
         "mock_behavior": payload.mock_behavior or "stream",
@@ -350,14 +352,12 @@ def _resolve_model(session: Session, payload: AiTaskCreate) -> tuple[ModelConfig
         return config, "openai_compatible"
     if payload.use_mock:
         return None, "mock"
-    config = session.scalars(
-        select(ModelConfig)
-        .where(
-            ModelConfig.is_enabled.is_(True),
-            ModelConfig.provider_type == "openai_compatible",
-        )
-        .order_by(ModelConfig.updated_at.desc(), ModelConfig.id.asc())
-    ).first()
+    default = enabled_default(session)
+    if default is not None:
+        if default.provider_type == "mock":
+            return default, "mock"
+        return default, "openai_compatible"
+    config = latest_enabled(session, "openai_compatible")
     if config is None:
         raise ModelNotConfigured()
     return config, "openai_compatible"

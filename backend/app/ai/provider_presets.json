@@ -1,0 +1,44 @@
+[
+  {
+    "id": "openai",
+    "label": "OpenAI",
+    "api_type": "openai_compatible",
+    "default_base_url": "https://api.openai.com/v1",
+    "hint": "Chat Completions。可改成兼容网关地址。"
+  },
+  {
+    "id": "deepseek",
+    "label": "DeepSeek",
+    "api_type": "openai_compatible",
+    "default_base_url": "https://api.deepseek.com/v1",
+    "hint": "OpenAI 兼容接口。"
+  },
+  {
+    "id": "qwen",
+    "label": "通义千问兼容",
+    "api_type": "openai_compatible",
+    "default_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "hint": "DashScope 兼容模式。"
+  },
+  {
+    "id": "zhipu",
+    "label": "智谱兼容",
+    "api_type": "openai_compatible",
+    "default_base_url": "https://open.bigmodel.cn/api/paas/v4",
+    "hint": "智谱 OpenAI 兼容接口。"
+  },
+  {
+    "id": "moonshot",
+    "label": "Moonshot / Kimi 兼容",
+    "api_type": "openai_compatible",
+    "default_base_url": "https://api.moonshot.cn/v1",
+    "hint": "Moonshot OpenAI 兼容接口。"
+  },
+  {
+    "id": "custom",
+    "label": "自定义",
+    "api_type": "openai_compatible",
+    "default_base_url": "",
+    "hint": "任意 OpenAI Chat Completions 兼容地址。改过的 Base URL 会保留。"
+  }
+]

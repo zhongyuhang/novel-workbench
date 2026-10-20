@@ -103,6 +103,8 @@ class ConflictCheckResponse(BaseModel):
     formal_memory_changed: Literal[False] = False
     conflicts: list[SuspectedConflictResponse]
     message: str
+    model_config_id: str | None = None
+    model_name: str | None = None
 
 
 class ChapterStat(BaseModel):
@@ -227,6 +229,8 @@ class QualityCheckResponse(BaseModel):
     reopened_count: int
     issues: list[QualityIssueResponse]
     message: str
+    model_config_id: str | None = None
+    model_name: str | None = None
 
 
 class QualityIssuePatch(BaseModel):

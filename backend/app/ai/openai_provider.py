@@ -14,6 +14,7 @@ from app.ai.provider import (
     StreamEvent,
     UsageEstimate,
 )
+from app.ai.ssrf import UnsafeModelUrl, assert_base_url_allowed
 
 _RETRYABLE = frozenset({429, 500, 502, 503, 504})
 _RETRYABLE_CODES = frozenset({"MODEL_TIMEOUT", "MODEL_UNAVAILABLE", "MODEL_RATE_LIMIT"})
@@ -29,11 +30,12 @@ class OpenAICompatibleProvider:
         self._sleep = sleeper or time.sleep
 
     def validate_config(self, endpoint: ModelEndpoint) -> None:
-        if not endpoint.base_url.startswith(("http://", "https://")):
-            raise ProviderError(
-                "MODEL_CONFIG_INVALID",
-                "Base URL 需要以 http:// 或 https:// 开头。",
-            )
+        try:
+            assert_base_url_allowed(endpoint.base_url)
+        except UnsafeModelUrl as exc:
+            if exc.message.startswith("Base URL 需要以"):
+                raise ProviderError("MODEL_CONFIG_INVALID", exc.message) from exc
+            raise ProviderError("MODEL_BASE_URL", exc.message) from exc
         if endpoint.model_name.strip() == "":
             raise ProviderError("MODEL_CONFIG_INVALID", "请填写模型名称。")
         if endpoint.api_key.strip() == "":
@@ -91,10 +93,12 @@ class OpenAICompatibleProvider:
                 "MODEL_TIMEOUT",
                 "模型请求超时。请稍后重试，或检查服务地址与超时设置。",
             )
+        if isinstance(exc, httpx.ConnectError):
+            return ProviderError("MODEL_BASE_URL", "连不上这个 Base URL。请检查地址是否正确。")
         if isinstance(exc, httpx.HTTPStatusError):
-            return _status_error(exc.response.status_code)
+            return _status_error(exc.response.status_code, _error_hint(exc.response))
         if isinstance(exc, httpx.HTTPError):
-            return ProviderError("MODEL_UNAVAILABLE", "暂时连不上模型服务。请检查地址后重试。")
+            return ProviderError("MODEL_UNAVAILABLE", "网络失败，暂时连不上模型服务。")
         return ProviderError("MODEL_BAD_RESPONSE", "模型服务返回了无法使用的结果。")
 
     def _send(self, endpoint: ModelEndpoint, payload: dict[str, object]) -> dict[str, object]:
@@ -106,16 +110,22 @@ class OpenAICompatibleProvider:
                     response = client.post(
                         _chat_url(endpoint.base_url),
                         json=payload,
-                        headers=_headers(endpoint.api_key),
+                        headers=_headers(endpoint),
                     )
+                    if 300 <= response.status_code < 400:
+                        raise ProviderError(
+                            "MODEL_BASE_URL",
+                            "模型地址返回了重定向，已拒绝跟随。",
+                        )
+                    hint = _error_hint(response)
                     if response.status_code in _RETRYABLE:
-                        last_error = _status_error(response.status_code)
+                        last_error = _status_error(response.status_code, hint)
                         if attempt == attempts - 1:
                             raise last_error
                         self._sleep(_backoff(attempt))
                         continue
                     if response.status_code >= 400:
-                        raise _status_error(response.status_code)
+                        raise _status_error(response.status_code, hint)
                     return _json_object(response)
             except httpx.HTTPError as exc:
                 last_error = self.normalize_error(exc)
@@ -136,12 +146,15 @@ class OpenAICompatibleProvider:
                 "POST",
                 _chat_url(endpoint.base_url),
                 json=payload,
-                headers=_headers(endpoint.api_key),
+                headers=_headers(endpoint),
             ) as response,
         ):
+            if 300 <= response.status_code < 400:
+                response.read()
+                raise ProviderError("MODEL_BASE_URL", "模型地址返回了重定向，已拒绝跟随。")
             if response.status_code in _RETRYABLE or response.status_code >= 400:
                 response.read()
-                raise _status_error(response.status_code)
+                raise _status_error(response.status_code, _error_hint(response))
             for line in response.iter_lines():
                 text = _delta_text(line)
                 if text is None or text == "":
@@ -153,15 +166,21 @@ class OpenAICompatibleProvider:
             endpoint.timeout_seconds,
             connect=min(10.0, endpoint.timeout_seconds),
         )
-        return httpx.Client(timeout=timeout, transport=self._transport)
+        return httpx.Client(timeout=timeout, transport=self._transport, follow_redirects=False)
 
 
 def _chat_url(base_url: str) -> str:
     return f"{base_url.rstrip('/')}/chat/completions"
 
 
-def _headers(api_key: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+def _headers(endpoint: ModelEndpoint) -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    for name, value in endpoint.extra_headers.items():
+        if name.lower() in {"authorization", "content-type", "host", "content-length"}:
+            continue
+        headers[name] = value
+    headers["Authorization"] = f"Bearer {endpoint.api_key}"
+    return headers
 
 
 def _payload(request: GenerationRequest, *, stream: bool) -> dict[str, object]:
@@ -252,16 +271,43 @@ def _delta_text(line: str) -> str | None:
     return content
 
 
-def _status_error(status_code: int) -> ProviderError:
+def _error_hint(response: httpx.Response) -> str:
+    try:
+        raw = response.text
+    except httpx.HTTPError:
+        return ""
+    return raw[:1000].lower()
+
+
+def _model_missing(hint: str) -> bool:
+    markers = (
+        "model_not_found",
+        "model not found",
+        "model does not exist",
+        "does not exist",
+        "unknown model",
+        "invalid model",
+        "no such model",
+    )
+    return any(marker in hint for marker in markers)
+
+
+def _status_error(status_code: int, hint: str = "") -> ProviderError:
     if status_code in {401, 403}:
         return ProviderError("MODEL_AUTH", "模型服务拒绝了密钥。请检查 API Key 和权限。")
-    if status_code in {400, 404, 422}:
+    if status_code == 429:
+        return ProviderError("MODEL_RATE_LIMIT", "模型服务限流了。请稍后再试。")
+    if status_code == 404 and _model_missing(hint):
+        return ProviderError("MODEL_NOT_FOUND", "模型不存在，或当前密钥无权使用它。")
+    if status_code == 404:
+        return ProviderError("MODEL_BASE_URL", "Base URL 不正确，或服务路径不存在。")
+    if status_code in {400, 422} and _model_missing(hint):
+        return ProviderError("MODEL_NOT_FOUND", "模型不存在，或当前密钥无权使用它。")
+    if status_code in {400, 422}:
         return ProviderError(
             "MODEL_BAD_REQUEST",
             "模型服务不接受当前参数。请检查模型名、地址和输出长度。",
         )
-    if status_code == 429:
-        return ProviderError("MODEL_RATE_LIMIT", "模型服务限流了。请稍后再试。")
     if status_code == 504:
         return ProviderError("MODEL_TIMEOUT", "模型请求超时。请稍后重试。")
     if status_code >= 500:

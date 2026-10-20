@@ -330,6 +330,8 @@ class OutlineCandidatePreview(BaseModel):
     manuscript_changed: Literal[False] = False
     written: Literal[False] = False
     note: str
+    model_config_id: str | None = None
+    model_name: str | None = None
     goal: str | None
     must_advance: str | None
     required_events: str | None

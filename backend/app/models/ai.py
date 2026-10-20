@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
@@ -27,7 +28,17 @@ class ModelConfig(Base):
             "provider_type IN ('openai_compatible', 'mock')",
             name="ck_model_configs_provider_type",
         ),
+        CheckConstraint(
+            "last_test_status IN ('untested', 'success', 'failed', 'stale')",
+            name="ck_model_configs_last_test_status",
+        ),
         Index("ix_model_configs_is_enabled", "is_enabled"),
+        Index(
+            "uq_model_configs_one_default",
+            "is_default",
+            unique=True,
+            sqlite_where=text("is_default = 1"),
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -36,9 +47,15 @@ class ModelConfig(Base):
     base_url: Mapped[str] = mapped_column(String(500), nullable=False)
     model_name: Mapped[str] = mapped_column(String(200), nullable=False)
     secret_ref: Mapped[str | None] = mapped_column(Text)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, default="custom")
+    encrypted_custom_headers: Mapped[str | None] = mapped_column(Text)
     parameters: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
     capabilities: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_test_status: Mapped[str] = mapped_column(String(32), nullable=False, default="untested")
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_test_error_code: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

@@ -3,13 +3,19 @@ import {
   createModelConfig,
   deleteModelConfig,
   listModelConfigs,
+  listProviderPresets,
+  setDefaultModelConfig,
   testModelConfig,
+  testSavedModelConfig,
   updateModelConfig,
+  type ProviderPreset,
 } from "../api/models.ts";
-import { ApiError, type ModelConfig, type ModelConfigInput, type ProviderType } from "../api/types.ts";
+import { ApiError, type ModelConfig, type ModelConfigInput, type ModelTestStatus, type ProviderType } from "../api/types.ts";
+import { baseUrlAfterPresetChange, parseHeaderLines } from "../modelPresets.ts";
 
 const EMPTY: ModelConfigInput = {
   display_name: "",
+  provider: "custom",
   provider_type: "openai_compatible",
   base_url: "",
   model_name: "",
@@ -23,9 +29,19 @@ const EMPTY: ModelConfigInput = {
   is_enabled: true,
 };
 
+const STATUS_LABEL: Record<ModelTestStatus, string> = {
+  untested: "未测试",
+  success: "成功",
+  failed: "失败",
+  stale: "配置已变更，需重新测试",
+};
+
 export function ModelSettingsPage() {
   const [configs, setConfigs] = useState<ModelConfig[] | null>(null);
+  const [presets, setPresets] = useState<ProviderPreset[]>([]);
   const [draft, setDraft] = useState<ModelConfigInput>(EMPTY);
+  const [headerText, setHeaderText] = useState("");
+  const [clearKey, setClearKey] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -37,9 +53,10 @@ export function ModelSettingsPage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    listModelConfigs(controller.signal)
-      .then((rows) => {
+    Promise.all([listModelConfigs(controller.signal), listProviderPresets(controller.signal)])
+      .then(([rows, nextPresets]) => {
         setConfigs(rows);
+        setPresets(nextPresets);
       })
       .catch((cause: unknown) => {
         if (isAbort(cause)) {
@@ -54,8 +71,11 @@ export function ModelSettingsPage() {
 
   function edit(config: ModelConfig) {
     setEditingId(config.id);
+    setClearKey(false);
+    setHeaderText("");
     setDraft({
       display_name: config.display_name,
+      provider: config.provider || "custom",
       provider_type: config.provider_type,
       base_url: config.base_url === "mock://local" ? "" : config.base_url,
       model_name: config.model_name,
@@ -68,8 +88,21 @@ export function ModelSettingsPage() {
       supports_json_output: config.capabilities.supports_json_output === true,
       is_enabled: config.is_enabled,
     });
-    setNotice(config.api_key_hint ? `已保存的密钥尾号 ${config.api_key_hint}` : "还没有保存密钥。");
+    const headerNote = config.custom_header_names.length
+      ? `已保存 Header：${config.custom_header_names.join("、")}。留空则保持。`
+      : "还没有自定义 Header。";
+    setNotice(config.api_key_hint ? `已保存的密钥尾号 ${config.api_key_hint}。${headerNote}` : `还没有保存密钥。${headerNote}`);
     setError("");
+  }
+
+  function onPreset(nextId: string) {
+    const next = presets.find((item) => item.id === nextId);
+    if (!next) {
+      setDraft({ ...draft, provider: nextId });
+      return;
+    }
+    const base_url = baseUrlAfterPresetChange(draft.base_url, draft.provider, next, presets);
+    setDraft({ ...draft, provider: next.id, base_url });
   }
 
   async function onSubmit(event: FormEvent) {
@@ -78,7 +111,7 @@ export function ModelSettingsPage() {
     setError("");
     setNotice("");
     try {
-      const payload = toPayload(draft, editingId !== null);
+      const payload = toPayload(draft, editingId !== null, headerText, clearKey);
       if (editingId) {
         await updateModelConfig(editingId, payload);
         setNotice("已更新模型配置。页面不会显示完整密钥。");
@@ -86,10 +119,12 @@ export function ModelSettingsPage() {
         await createModelConfig(payload);
         setNotice("已保存模型配置。页面不会显示完整密钥。");
         setDraft(EMPTY);
+        setHeaderText("");
       }
+      setClearKey(false);
       await refresh();
     } catch (cause: unknown) {
-      setError(cause instanceof ApiError ? cause.message : "保存没有完成。");
+      setError(cause instanceof ApiError ? cause.message : messageFrom(cause, "保存没有完成。"));
     } finally {
       setBusy(false);
     }
@@ -100,18 +135,31 @@ export function ModelSettingsPage() {
     setError("");
     setNotice("");
     try {
-      const result = await testModelConfig({
-        config_id: editingId ?? undefined,
-        provider_type: draft.provider_type,
-        base_url: draft.base_url,
-        model_name: draft.model_name,
-        api_key: draft.api_key || undefined,
-        timeout_seconds: draft.timeout_seconds,
-      });
+      const saved = editingId ? configs?.find((item) => item.id === editingId) : undefined;
+      const unchanged =
+        saved !== undefined &&
+        !draft.api_key &&
+        !clearKey &&
+        headerText.trim() === "" &&
+        draft.base_url.trim().replace(/\/+$/, "") === saved.base_url.replace(/\/+$/, "") &&
+        draft.model_name.trim() === saved.model_name &&
+        draft.provider_type === saved.provider_type;
+      const result = unchanged && editingId
+        ? await testSavedModelConfig(editingId)
+        : await testModelConfig({
+            config_id: editingId ?? undefined,
+            provider_type: draft.provider_type,
+            base_url: draft.base_url,
+            model_name: draft.model_name,
+            api_key: draft.api_key || undefined,
+            timeout_seconds: draft.timeout_seconds,
+          });
       const prefix = result.provider_mode === "mock" ? "模拟：" : "";
       setNotice(`${prefix}${result.message}`);
+      await refresh();
     } catch (cause: unknown) {
       setError(cause instanceof ApiError ? cause.message : "连接测试没有完成。");
+      await refresh();
     } finally {
       setBusy(false);
     }
@@ -138,6 +186,37 @@ export function ModelSettingsPage() {
     }
   }
 
+  async function onDefault(config: ModelConfig) {
+    setBusy(true);
+    setError("");
+    try {
+      await setDefaultModelConfig(config.id);
+      await refresh();
+      setNotice(`已把「${config.display_name}」设为默认模型。`);
+    } catch (cause: unknown) {
+      setError(cause instanceof ApiError ? cause.message : "没能设为默认。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onTestSaved(config: ModelConfig) {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await testSavedModelConfig(config.id);
+      setNotice(result.message);
+      await refresh();
+    } catch (cause: unknown) {
+      setError(cause instanceof ApiError ? cause.message : "连接测试没有完成。");
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const presetHint = presets.find((item) => item.id === draft.provider)?.hint ?? "";
+
   return (
     <div className="page">
       <header className="topbar">
@@ -146,12 +225,12 @@ export function ModelSettingsPage() {
             返回作品库
           </a>
           <p className="eyebrow">设置</p>
-          <h1>模型设置</h1>
+          <h1>模型配置</h1>
         </div>
-        <p className="milestone">M3 模型与生成</p>
       </header>
       <p className="hint">
-        密钥只保存在服务器上，并用主密钥加密。保存之后，页面只显示已配置状态或尾号，不会再给出完整密钥。
+        密钥和自定义 Header 只保存在服务器上，并用主密钥加密。保存之后，页面只显示已配置状态、Header 名称或密钥尾号。
+        只有测试成功的配置可以设为默认。改了地址、模型、密钥或关键参数之后，需要重新测试。
       </p>
       {error ? (
         <p className="banner banner-error" role="alert">
@@ -176,21 +255,40 @@ export function ModelSettingsPage() {
           />
         </label>
         <label>
-          服务类型
+          服务商
           <select
-            aria-label="服务类型"
+            aria-label="服务商"
+            value={draft.provider}
+            onChange={(event) => {
+              onPreset(event.target.value);
+            }}
+          >
+            {presets.length === 0 ? <option value={draft.provider}>{draft.provider}</option> : null}
+            {presets.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {presetHint ? <p className="hint">{presetHint}</p> : null}
+        <label>
+          接口类型
+          <select
+            aria-label="接口类型"
             value={draft.provider_type}
             onChange={(event) => {
               setDraft({ ...draft, provider_type: event.target.value as ProviderType });
             }}
           >
-            <option value="openai_compatible">OpenAI 兼容</option>
+            <option value="openai_compatible">OpenAI 兼容 Chat Completions</option>
             <option value="mock">模拟</option>
           </select>
         </label>
         <label>
           Base URL
           <input
+            aria-label="Base URL"
             value={draft.base_url}
             placeholder="https://example.com/v1"
             onChange={(event) => {
@@ -199,8 +297,9 @@ export function ModelSettingsPage() {
           />
         </label>
         <label>
-          模型名
+          模型标识
           <input
+            aria-label="模型标识"
             value={draft.model_name}
             required
             maxLength={200}
@@ -217,10 +316,26 @@ export function ModelSettingsPage() {
             value={draft.api_key ?? ""}
             placeholder={editingId ? "留空则保持已保存的密钥" : "只在保存时提交"}
             onChange={(event) => {
+              setClearKey(false);
               setDraft({ ...draft, api_key: event.target.value });
             }}
           />
         </label>
+        {editingId ? (
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={clearKey}
+              onChange={(event) => {
+                setClearKey(event.target.checked);
+                if (event.target.checked) {
+                  setDraft({ ...draft, api_key: "" });
+                }
+              }}
+            />
+            清除已保存的密钥
+          </label>
+        ) : null}
         <label>
           超时（秒）
           <input
@@ -234,7 +349,7 @@ export function ModelSettingsPage() {
           />
         </label>
         <label>
-          温度
+          默认温度
           <input
             type="number"
             min={0}
@@ -250,7 +365,7 @@ export function ModelSettingsPage() {
           />
         </label>
         <label>
-          最大输出
+          默认最大输出
           <input
             type="number"
             min={1}
@@ -261,6 +376,17 @@ export function ModelSettingsPage() {
                 ...draft,
                 max_output_tokens: event.target.value === "" ? null : Number(event.target.value),
               });
+            }}
+          />
+        </label>
+        <label>
+          自定义 Header
+          <textarea
+            aria-label="自定义 Header"
+            value={headerText}
+            placeholder={"X-Title: novel\n留空则保持已保存的 Header"}
+            onChange={(event) => {
+              setHeaderText(event.target.value);
             }}
           />
         </label>
@@ -289,6 +415,8 @@ export function ModelSettingsPage() {
               onClick={() => {
                 setEditingId(null);
                 setDraft(EMPTY);
+                setHeaderText("");
+                setClearKey(false);
                 setNotice("");
               }}
             >
@@ -307,22 +435,36 @@ export function ModelSettingsPage() {
               <div>
                 <p>
                   {config.display_name}
-                  {config.provider_type === "mock" ? "（模拟）" : ""}
+                  {config.is_default ? " · 默认" : ""}
+                  {config.provider_type === "mock" ? " · 模拟" : ""}
                   {config.is_enabled ? "" : " · 已停用"}
                 </p>
                 <p className="hint">
-                  {config.model_name}
+                  {config.provider} · {config.model_name}
                   {config.base_url ? ` · ${config.base_url}` : ""}
                 </p>
                 <p className="hint">
-                  {config.api_key_configured
-                    ? `密钥已配置 ${config.api_key_hint ?? ""}`
-                    : "未保存密钥"}
+                  状态：{STATUS_LABEL[config.last_test_status]}
+                  {config.last_test_error_code ? ` · ${config.last_test_error_code}` : ""}
+                </p>
+                <p className="hint">
+                  {config.api_key_configured ? `密钥已配置 ${config.api_key_hint ?? ""}` : "未保存密钥"}
                 </p>
               </div>
               <div className="inline-actions">
                 <button className="ghost" type="button" disabled={busy} onClick={() => edit(config)}>
                   编辑
+                </button>
+                <button className="ghost" type="button" disabled={busy} onClick={() => void onTestSaved(config)}>
+                  测试
+                </button>
+                <button
+                  className="ghost"
+                  type="button"
+                  disabled={busy || config.last_test_status !== "success" || config.is_default}
+                  onClick={() => void onDefault(config)}
+                >
+                  设为默认
                 </button>
                 <button
                   className="ghost danger"
@@ -341,19 +483,28 @@ export function ModelSettingsPage() {
   );
 }
 
-function toPayload(draft: ModelConfigInput, editing: boolean): ModelConfigInput {
+function toPayload(
+  draft: ModelConfigInput,
+  editing: boolean,
+  headerText: string,
+  clearKey: boolean,
+): ModelConfigInput {
   const payload: ModelConfigInput = {
     ...draft,
     display_name: draft.display_name.trim(),
     base_url: draft.base_url.trim(),
     model_name: draft.model_name.trim(),
   };
-  if (!payload.api_key) {
-    if (editing) {
-      delete payload.api_key;
-    } else if (payload.provider_type === "mock") {
+  if (clearKey) {
+    payload.clear_api_key = true;
+    delete payload.api_key;
+  } else if (!payload.api_key) {
+    if (editing || payload.provider_type === "mock") {
       delete payload.api_key;
     }
+  }
+  if (headerText.trim()) {
+    payload.custom_headers = parseHeaderLines(headerText);
   }
   return payload;
 }
@@ -364,6 +515,10 @@ function numberParam(value: unknown, fallback: number): number {
 
 function numberOrNull(value: unknown): number | null {
   return typeof value === "number" ? value : null;
+}
+
+function messageFrom(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
 }
 
 function isAbort(error: unknown): boolean {

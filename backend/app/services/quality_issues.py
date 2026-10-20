@@ -15,6 +15,7 @@ from typing import cast
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.gateway import enabled_default, latest_enabled
 from app.ai.prompts import build_quality_model_prompt, build_repair_model_prompt
 from app.ai.provider import ProviderError
 from app.core.content import apply_candidate_text, document_to_text
@@ -176,6 +177,8 @@ def run_quality_check(
         reopened_count=reopened,
         issues=issues,
         message=_check_message(note, len(issues), expired, reopened),
+        model_config_id=config.id if config is not None else None,
+        model_name=config.model_name if config is not None else None,
     )
 
 
@@ -614,16 +617,14 @@ def _resolve_model(
         if not config.is_enabled:
             raise ModelConfigInvalid("这个模型配置已停用。")
         if config.provider_type == "mock":
-            return "mock", None, "已启用模拟模型检查，没有访问外部模型。"
+            return "mock", config, "已启用模拟模型检查，没有访问外部模型。"
         return "openai_compatible", config, ""
-    external = session.scalars(
-        select(ModelConfig)
-        .where(
-            ModelConfig.is_enabled.is_(True),
-            ModelConfig.provider_type == "openai_compatible",
-        )
-        .order_by(ModelConfig.updated_at.desc(), ModelConfig.id.asc())
-    ).first()
+    default = enabled_default(session)
+    if default is not None:
+        if default.provider_type == "mock":
+            return "mock", default, "已启用模拟模型检查，没有访问外部模型。"
+        return "openai_compatible", default, ""
+    external = latest_enabled(session, "openai_compatible")
     if external is not None:
         return "openai_compatible", external, ""
     mock = session.scalars(
@@ -633,7 +634,7 @@ def _resolve_model(
         )
     ).first()
     if mock is not None:
-        return "mock", None, "已启用模拟模型检查，没有访问外部模型。"
+        return "mock", mock, "已启用模拟模型检查，没有访问外部模型。"
     return "rule", None, "没有可用模型，只运行了规则检查。"
 
 

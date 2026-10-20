@@ -126,6 +126,7 @@ export function MemoryPanel({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [aliasText, setAliasText] = useState("");
   const [useMock, setUseMock] = useState(true);
+  const [modelId, setModelId] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -229,7 +230,11 @@ export function MemoryPanel({
     setAnalyzing(true);
     setMessage(`正在分析「${title}」的修订 ${revision}…`);
     try {
-      const result = await analyzeChapter(chapterId, { revision, use_mock: mock });
+      const result = await analyzeChapter(chapterId, {
+        revision,
+        use_mock: mock,
+        ...(mock || modelId === "" ? {} : { model_config_id: modelId }),
+      });
       setMessage(result.message);
       await reload();
     } catch (cause: unknown) {
@@ -503,6 +508,25 @@ export function MemoryPanel({
             }}
           />
           使用模拟分析
+        </label>
+        <label>
+          本次模型
+          <select
+            aria-label="分析所用模型"
+            value={modelId}
+            disabled={useMock}
+            onChange={(event) => {
+              setModelId(event.target.value);
+            }}
+          >
+            <option value="">使用默认模型</option>
+            {realModels.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.display_name}
+                {item.is_default ? "（默认）" : ""}
+              </option>
+            ))}
+          </select>
         </label>
       </div>
       {useMock ? <p className="mock-badge">模拟分析</p> : null}
