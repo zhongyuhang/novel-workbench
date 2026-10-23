@@ -4,11 +4,23 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta
-      name="description"
-      content="个人长篇小说创作工作台。当前阶段是工程骨架，打开作品库不需要模型 API Key。"
-    />
+    <meta name="description" content="个人长篇小说创作工作台。写作、设定、创意和模型配置都在同一页完成。" />
     <title>AI Novel Writer</title>
+    <script>
+      (function () {
+        try {
+          var key = "novel-workbench-theme";
+          var stored = localStorage.getItem(key);
+          var preference = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+          var systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var theme = preference === "system" ? (systemDark ? "dark" : "light") : preference;
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.dataset.themePreference = preference;
+        } catch (error) {
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

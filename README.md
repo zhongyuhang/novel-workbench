@@ -69,5 +69,6 @@ cd frontend && npm ci && npm run dev
 - [模型配置中心](docs/12-model-config-center.md)
 - [正文与资料同步](docs/13-manuscript-material-sync.md)
 - [引导式创意、世界观与人物设计](docs/14-guided-ideation.md)
+- [界面视觉](docs/16-ui-refresh.md)
 - [release 1.0.0 方案](docs/release-1.0.0-plan.md)
 - [决策记录](docs/adr/)

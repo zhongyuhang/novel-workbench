@@ -18,6 +18,7 @@ import {
   type ChapterVersionDiff,
   type SaveKind,
 } from "../api/types.ts";
+import { confirmDialog } from "./ConfirmDialog.tsx";
 import { documentToText, wordCount, toTiptapDoc } from "../editor/documentText.ts";
 import { diffLines, type DiffHunk } from "../editor/textDiff.ts";
 import type { ChapterDraftState, SavePhase } from "../editor/useChapterAutosave.ts";
@@ -256,7 +257,9 @@ export function ChapterEditor({
   async function loadServerCopy() {
     if (
       autosave.unsaved &&
-      !window.confirm("载入服务器正文会替换编辑器里尚未保存的内容。确定载入？")
+      !(await confirmDialog("载入服务器正文会替换编辑器里尚未保存的内容。确定载入？", {
+        tone: "danger",
+      }))
     ) {
       return;
     }
@@ -351,7 +354,7 @@ export function ChapterEditor({
     const unsavedNote = autosave.unsaved
       ? "编辑器里还有未保存的修改，恢复会替换这些内容。"
       : "";
-    const confirmed = window.confirm(
+    const confirmed = await confirmDialog(
       `${unsavedNote}恢复修订 ${version.revision} 会写入新的修订，当前已保存的正文和已有版本都会保留。确定恢复？`,
     );
     if (!confirmed) {

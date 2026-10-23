@@ -11,6 +11,8 @@ import {
   type ProviderPreset,
 } from "../api/models.ts";
 import { ApiError, type ModelConfig, type ModelConfigInput, type ModelTestStatus, type ProviderType } from "../api/types.ts";
+import { confirmDialog } from "../components/ConfirmDialog.tsx";
+import { ThemeSwitcher } from "../components/ThemeSwitcher.tsx";
 import { baseUrlAfterPresetChange, parseHeaderLines } from "../modelPresets.ts";
 
 const EMPTY: ModelConfigInput = {
@@ -166,7 +168,7 @@ export function ModelSettingsPage() {
   }
 
   async function onDelete(config: ModelConfig) {
-    if (!window.confirm(`删除模型「${config.display_name}」？已生成的任务记录会保留。`)) {
+    if (!(await confirmDialog(`删除模型「${config.display_name}」？已生成的任务记录会保留。`, { tone: "danger" }))) {
       return;
     }
     setBusy(true);
@@ -218,7 +220,7 @@ export function ModelSettingsPage() {
   const presetHint = presets.find((item) => item.id === draft.provider)?.hint ?? "";
 
   return (
-    <div className="page">
+    <div className="page settings-page">
       <header className="topbar">
         <div>
           <a className="ghost" href="#/">
@@ -227,6 +229,7 @@ export function ModelSettingsPage() {
           <p className="eyebrow">设置</p>
           <h1>模型配置</h1>
         </div>
+        <ThemeSwitcher />
       </header>
       <p className="hint">
         密钥和自定义 Header 只保存在服务器上，并用主密钥加密。保存之后，页面只显示已配置状态、Header 名称或密钥尾号。
@@ -242,6 +245,7 @@ export function ModelSettingsPage() {
           {notice}
         </p>
       ) : null}
+      <div className="settings-layout">
       <form className="stack-form" onSubmit={(event) => void onSubmit(event)}>
         <label>
           显示名称
@@ -479,6 +483,7 @@ export function ModelSettingsPage() {
           ))}
         </ul>
       </section>
+      </div>
     </div>
   );
 }
