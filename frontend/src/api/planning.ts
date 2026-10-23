@@ -216,6 +216,7 @@ export type StoryArc = {
   arc_type: StoryArcType;
   title: string;
   summary: string | null;
+  thread_visibility?: "surface" | "hidden" | null;
   sort_order: number;
   status: PlanningStatus;
   revision: number;
@@ -229,6 +230,7 @@ export type StoryArcCreate = {
   title: string;
   summary?: string | null;
   status?: EditablePlanningStatus | null;
+  thread_visibility?: "surface" | "hidden" | null;
 };
 
 export type StoryArcPatch = {
@@ -236,6 +238,7 @@ export type StoryArcPatch = {
   title?: string | null;
   summary?: string | null;
   status?: EditablePlanningStatus | null;
+  thread_visibility?: "surface" | "hidden" | null;
   expected_revision: number;
 };
 

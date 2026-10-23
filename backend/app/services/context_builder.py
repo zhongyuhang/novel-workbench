@@ -1077,6 +1077,14 @@ def _foreshadowing_candidates(
         content = f"伏笔（{row.status}）：{row.description.strip()}"
         if quote:
             content = f"{content}\n证据：{quote}"
+        times = [
+            ("事件实际发生", row.event_time_text),
+            ("角色发现", row.character_discovered_text),
+            ("向读者揭示", row.reader_revealed_text),
+        ]
+        details = [f"{label}：{value.strip()}" for label, value in times if value and value.strip()]
+        if details:
+            content = f"{content}\n" + "；".join(details)
         found.append(
             _Candidate(
                 id=f"foreshadow:{row.id}",

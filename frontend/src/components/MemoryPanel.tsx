@@ -6,15 +6,19 @@ import {
   createEntity,
   createEntityState,
   createRelation,
+  deferProposal,
   deleteRelation,
   listChapterSummaries,
   listEntities,
   listEvents,
   listProposals,
   listRelations,
+  markIntentionalProposal,
+  materialImpact,
   rejectProposal,
   revertProposal,
   updateEntity,
+  type AnalysisScope,
   type Certainty,
   type ChapterSummaryRecord,
   type EntityRelation,
@@ -23,6 +27,7 @@ import {
   type EntityType,
   type EntityWrite,
   type MemoryProposal,
+  type ProposalType,
   type RelationStatus,
   type StoryEntity,
   type StoryEventRecord,
@@ -74,9 +79,11 @@ const STATUS_FILTERS: Array<{ value: string; label: string }> = [
   { value: "relation:ended", label: "关系 · 已结束" },
   { value: "relation:unknown", label: "关系 · 未知" },
   { value: "proposal:pending", label: "提案 · 待审核" },
+  { value: "proposal:deferred", label: "提案 · 已延后" },
   { value: "proposal:stale", label: "提案 · 已过期" },
-  { value: "proposal:accepted", label: "提案 · 已接受" },
-  { value: "proposal:rejected", label: "提案 · 已拒绝" },
+  { value: "proposal:accepted", label: "提案 · 已确认" },
+  { value: "proposal:rejected", label: "提案 · 已忽略" },
+  { value: "proposal:intentional", label: "提案 · 有意的矛盾" },
   { value: "proposal:reverted", label: "提案 · 已撤回" },
   { value: "summary:current", label: "摘要 · 现行" },
   { value: "summary:stale", label: "摘要 · 已过期" },
@@ -92,7 +99,13 @@ const PROPOSAL_LABELS: Record<MemoryProposal["proposal_type"], string> = {
   entity_state: "状态变化",
   story_event: "事件",
   chapter_summary: "章节摘要",
+  entity_relation: "关系",
+  foreshadowing: "线索伏笔",
+  setting_supplement: "设定补充",
+  potential_conflict: "潜在冲突",
 };
+
+type ReviewAction = "accept" | "edited" | "reject" | "defer" | "intentional" | "revert";
 
 const CERTAINTY_LABELS: Record<Certainty, string> = {
   confirmed: "已确认",
@@ -216,24 +229,35 @@ export function MemoryPanel({
     setRelations(nextRelations);
   }
 
-  async function runAnalyze(chapterId: string, revision: number, title: string, mock: boolean) {
+  async function runAnalyze(
+    chapterId: string,
+    revision: number,
+    title: string,
+    mock: boolean,
+    scope: AnalysisScope = "full",
+  ) {
     setError("");
     setGuidance(false);
     if (editorDirty && chapterId === activeChapterId) {
       setError("正文还有未保存的修改。请先保存，再分析。分析不会改写正文。");
       return;
     }
-    if (!mock && realModels.length === 0) {
+    if (scope === "full" && !mock && realModels.length === 0) {
       setGuidance(true);
       return;
     }
     setAnalyzing(true);
-    setMessage(`正在分析「${title}」的修订 ${revision}…`);
+    setMessage(
+      scope === "light"
+        ? `正在对「${title}」的修订 ${revision} 做轻量检查…`
+        : `正在分析「${title}」的修订 ${revision}…`,
+    );
     try {
       const result = await analyzeChapter(chapterId, {
         revision,
-        use_mock: mock,
-        ...(mock || modelId === "" ? {} : { model_config_id: modelId }),
+        use_mock: scope === "light" ? false : mock,
+        scope,
+        ...(scope === "full" && !mock && modelId !== "" ? { model_config_id: modelId } : {}),
       });
       setMessage(result.message);
       await reload();
@@ -247,7 +271,14 @@ export function MemoryPanel({
 
   useEffect(() => {
     registerMemoryAnalyze((request) => {
-      void runAnalyze(request.chapterId, request.revision, request.title, useMock);
+      const scope = request.scope ?? "full";
+      void runAnalyze(
+        request.chapterId,
+        request.revision,
+        request.title,
+        scope === "full" ? useMock : false,
+        scope,
+      );
     });
     return () => {
       registerMemoryAnalyze(null);
@@ -267,7 +298,12 @@ export function MemoryPanel({
     try {
       if (editingId) {
         await updateEntity(editingId, payload);
-        setMessage("已保存设定修改。");
+        const impact = await materialImpact(novelId, "entity", editingId);
+        setMessage(
+          impact.affected.length > 0
+            ? `已保存设定修改。有 ${impact.affected.length} 项资料可能受影响。`
+            : "已保存设定修改。没有列出受影响的资料。",
+        );
       } else {
         await createEntity(novelId, payload);
         setMessage("已新建设定。这不是分析提案。");
@@ -343,17 +379,26 @@ export function MemoryPanel({
     }
   }
 
-  async function review(proposal: MemoryProposal, action: "accept" | "reject" | "revert") {
-    if (action === "accept" && proposal.status === "stale") {
+  async function review(
+    proposal: MemoryProposal,
+    action: ReviewAction,
+    edits?: Record<string, unknown>,
+  ) {
+    const writing = action === "accept" || action === "edited";
+    if (writing && proposal.status === "stale") {
       const confirmed = window.confirm(
-        "这份提案对应的章节修订已经过期。仍然接受并写入正式设定？正文不会被修改。",
+        "这份候选对应的章节修订已经过期。仍然确认并写入正式资料？正文不会被修改。",
       );
       if (!confirmed) {
         return;
       }
     }
-    if (action === "accept" && proposal.status === "pending") {
-      const confirmed = window.confirm("接受后会写入正式设定。正文不会被修改。");
+    if (writing && (proposal.status === "pending" || proposal.status === "deferred")) {
+      const confirmed = window.confirm(
+        action === "edited"
+          ? "按修改后的内容确认，并写入正式资料。正文不会被修改。"
+          : "确认后会写入正式资料。正文不会被修改。",
+      );
       if (!confirmed) {
         return;
       }
@@ -363,10 +408,19 @@ export function MemoryPanel({
     try {
       if (action === "accept") {
         await acceptProposal(proposal.id);
-        setMessage("已接受提案，正式设定已更新。正文没有改动。");
+        setMessage("已确认。正式资料已更新。正文没有改动。");
+      } else if (action === "edited") {
+        await acceptProposal(proposal.id, edits);
+        setMessage("已按修改确认。正式资料已更新。正文没有改动。");
       } else if (action === "reject") {
         await rejectProposal(proposal.id);
-        setMessage("已拒绝提案。正式设定没有改动。");
+        setMessage("已忽略这条候选。正式资料没有改动。");
+      } else if (action === "defer") {
+        await deferProposal(proposal.id);
+        setMessage("已延后。正式资料没有改动。");
+      } else if (action === "intentional") {
+        await markIntentionalProposal(proposal.id);
+        setMessage("已标成有意安排的矛盾。正式设定没有被覆盖。");
       } else {
         await revertProposal(proposal.id);
         setMessage("已按字段撤回这条提案改过的设定。后来手改过的字段不会被整份覆盖。正文没有改动。");
@@ -494,10 +548,23 @@ export function MemoryPanel({
             if (!activeChapterId || activeRevision === null) {
               return;
             }
-            void runAnalyze(activeChapterId, activeRevision, activeTitle ?? "当前章节", useMock);
+            void runAnalyze(activeChapterId, activeRevision, activeTitle ?? "当前章节", useMock, "full");
           }}
         >
           {analyzing ? "正在分析…" : "分析当前章节"}
+        </button>
+        <button
+          className="ghost"
+          type="button"
+          disabled={analyzing || !activeChapterId || activeRevision === null}
+          onClick={() => {
+            if (!activeChapterId || activeRevision === null) {
+              return;
+            }
+            void runAnalyze(activeChapterId, activeRevision, activeTitle ?? "当前章节", false, "light");
+          }}
+        >
+          轻量检查
         </button>
         <label className="check-row">
           <input
@@ -559,6 +626,7 @@ export function MemoryPanel({
                 {CERTAINTY_LABELS[proposal.certainty]}
               </span>
               {proposal.status === "stale" ? <span className="stale-badge">修订已过期</span> : null}
+              {proposal.status === "deferred" ? <span className="stale-badge">已延后</span> : null}
             </div>
             <p>{proposalTitle(proposal)}</p>
             <p className="hint">
@@ -572,28 +640,13 @@ export function MemoryPanel({
             {proposal.evidence_in_source ? null : proposal.evidence_quote ? (
               <p className="hint">这段证据不在来源章节的原文里。</p>
             ) : null}
-            <div className="inline-actions">
-              <button
-                className="primary"
-                type="button"
-                disabled={busyId === proposal.id}
-                onClick={() => {
-                  void review(proposal, "accept");
-                }}
-              >
-                接受
-              </button>
-              <button
-                className="ghost"
-                type="button"
-                disabled={busyId === proposal.id}
-                onClick={() => {
-                  void review(proposal, "reject");
-                }}
-              >
-                拒绝
-              </button>
-            </div>
+            <ProposalActions
+              proposal={proposal}
+              busy={busyId === proposal.id}
+              onReview={(action, edits) => {
+                void review(proposal, action, edits);
+              }}
+            />
           </li>
         ))}
       </ul>
@@ -1188,8 +1241,12 @@ function filterBible(input: BibleInput) {
     events,
     staleSummaries: summaries.filter((item) => item.status === "stale"),
     livingSummaries: summaries.filter((item) => item.status !== "stale"),
-    openProposals: proposals.filter((item) => item.status === "pending" || item.status === "stale"),
-    closedProposals: proposals.filter((item) => item.status !== "pending" && item.status !== "stale"),
+    openProposals: proposals.filter(
+      (item) => item.status === "pending" || item.status === "stale" || item.status === "deferred",
+    ),
+    closedProposals: proposals.filter(
+      (item) => item.status !== "pending" && item.status !== "stale" && item.status !== "deferred",
+    ),
   };
 }
 
@@ -1231,7 +1288,196 @@ function proposalTitle(proposal: MemoryProposal): string {
   if (typeof description === "string" && description.trim()) {
     return description;
   }
+  const relation = proposal.payload.relation_type;
+  const supplement = proposal.payload.supplement;
+  if (typeof relation === "string" && relation.trim()) {
+    return relation;
+  }
+  if (typeof supplement === "string" && supplement.trim()) {
+    return supplement;
+  }
   return "未命名提案";
+}
+
+function ProposalActions({
+  proposal,
+  busy,
+  onReview,
+}: {
+  proposal: MemoryProposal;
+  busy: boolean;
+  onReview: (action: ReviewAction, edits?: Record<string, unknown>) => void;
+}) {
+  const key = editKey(proposal.proposal_type);
+  const [text, setText] = useState(editableText(proposal));
+  const [eventTime, setEventTime] = useState(payloadText(proposal, "event_time_text"));
+  const [discovered, setDiscovered] = useState(payloadText(proposal, "character_discovered_text"));
+  const [revealed, setRevealed] = useState(payloadText(proposal, "reader_revealed_text"));
+
+  function edits(): Record<string, unknown> | undefined {
+    const next: Record<string, unknown> = {};
+    if (key === "state_data") {
+      const current = proposal.payload.state_data;
+      const base =
+        current && typeof current === "object" ? { ...(current as Record<string, unknown>) } : {};
+      next.state_data = { ...base, summary: text.trim() };
+    } else if (key) {
+      next[key] = text.trim();
+    }
+    if (proposal.proposal_type === "foreshadowing") {
+      next.event_time_text = eventTime.trim() || null;
+      next.character_discovered_text = discovered.trim() || null;
+      next.reader_revealed_text = revealed.trim() || null;
+    }
+    return Object.keys(next).length > 0 ? next : undefined;
+  }
+
+  return (
+    <>
+      {key ? (
+        <label>
+          确认前可改
+          <input
+            aria-label={`修改候选 ${proposal.id}`}
+            value={text}
+            onChange={(event) => {
+              setText(event.target.value);
+            }}
+          />
+        </label>
+      ) : null}
+      {proposal.proposal_type === "foreshadowing" ? (
+        <>
+          <label>
+            事件实际发生时间
+            <input
+              aria-label={`事件时间 ${proposal.id}`}
+              value={eventTime}
+              onChange={(event) => {
+                setEventTime(event.target.value);
+              }}
+            />
+          </label>
+          <label>
+            角色发现时间
+            <input
+              aria-label={`发现时间 ${proposal.id}`}
+              value={discovered}
+              onChange={(event) => {
+                setDiscovered(event.target.value);
+              }}
+            />
+          </label>
+          <label>
+            向读者揭示时间
+            <input
+              aria-label={`揭示时间 ${proposal.id}`}
+              value={revealed}
+              onChange={(event) => {
+                setRevealed(event.target.value);
+              }}
+            />
+          </label>
+        </>
+      ) : null}
+      <div className="inline-actions">
+        <button
+          className="primary"
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            onReview("accept");
+          }}
+        >
+          确认
+        </button>
+        <button
+          className="ghost"
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            onReview("edited", edits());
+          }}
+        >
+          修改后确认
+        </button>
+        <button
+          className="ghost"
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            onReview("reject");
+          }}
+        >
+          忽略
+        </button>
+        <button
+          className="ghost"
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            onReview("defer");
+          }}
+        >
+          延后
+        </button>
+        <button
+          className="ghost"
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            onReview("intentional");
+          }}
+        >
+          有意的矛盾
+        </button>
+      </div>
+    </>
+  );
+}
+
+function editKey(type: ProposalType): string | null {
+  if (type === "entity_create" || type === "entity_update") {
+    return "name";
+  }
+  if (type === "chapter_summary") {
+    return "summary";
+  }
+  if (type === "entity_relation") {
+    return "relation_type";
+  }
+  if (type === "setting_supplement") {
+    return "supplement";
+  }
+  if (type === "entity_state") {
+    return "state_data";
+  }
+  if (type === "story_event" || type === "foreshadowing" || type === "potential_conflict") {
+    return "description";
+  }
+  return null;
+}
+
+function editableText(proposal: MemoryProposal): string {
+  const key = editKey(proposal.proposal_type);
+  if (key === "state_data") {
+    const data = proposal.payload.state_data;
+    if (data && typeof data === "object" && "summary" in data) {
+      const summary = (data as { summary?: unknown }).summary;
+      return typeof summary === "string" ? summary : "";
+    }
+    return "";
+  }
+  if (!key) {
+    return "";
+  }
+  const value = proposal.payload[key];
+  return typeof value === "string" ? value : "";
+}
+
+function payloadText(proposal: MemoryProposal, key: string): string {
+  const value = proposal.payload[key];
+  return typeof value === "string" ? value : "";
 }
 
 function profileSummary(profile: Record<string, unknown>): string {
@@ -1253,16 +1499,22 @@ function relationStatusLabel(status: RelationStatus): string {
 
 function statusLabel(status: MemoryProposal["status"]): string {
   if (status === "accepted") {
-    return "已接受";
+    return "已确认";
   }
   if (status === "rejected") {
-    return "已拒绝";
+    return "已忽略";
   }
   if (status === "reverted") {
     return "已撤回";
   }
   if (status === "stale") {
     return "已过期";
+  }
+  if (status === "deferred") {
+    return "已延后";
+  }
+  if (status === "intentional") {
+    return "有意的矛盾";
   }
   return "待审核";
 }

@@ -4,6 +4,7 @@ Chapter analysis inserts proposals only. Accept is the only path that writes for
 memory, and it does not change the manuscript.
 """
 
+import hashlib
 import json
 import logging
 import uuid
@@ -39,6 +40,7 @@ from app.models.memory import (
     StoryEvent,
 )
 from app.models.planning import ChapterOutline, SceneCard, VolumeOutline
+from app.models.quality import Foreshadowing, QualityIssue
 from app.repositories import catalog as catalog_repo
 from app.schemas.memory import (
     AnalyzeRequest,
@@ -51,6 +53,7 @@ from app.schemas.memory import (
     EntityStateUpdate,
     EntityUpdate,
     ProposalResponse,
+    ProviderMode,
     RelationResponse,
     RelationUpdate,
     RelationWrite,
@@ -59,6 +62,7 @@ from app.schemas.memory import (
 from app.services.memory_extract import (
     ProposalDraft,
     extract_from_chapter,
+    extract_light,
     parse_analysis_output,
 )
 
@@ -372,25 +376,43 @@ def analyze_chapter(
     if chapter.revision != payload.revision:
         raise RevisionConflict()
     text = document_to_text(chapter.content if isinstance(chapter.content, dict) else {})
-    mode, model_name, used_config_id = _resolve_analyzer(session, payload)
-    if text.strip() == "":
-        drafts: list[ProposalDraft] = []
-        message = "这一章还没有可分析的正文。正式设定没有改动。"
-    else:
-        drafts = _drafts_for_mode(
-            mode,
-            model_name,
-            chapter,
-            text,
-            session,
-            used_config_id,
-        )
-        if mode == "mock":
-            message = "模拟分析已生成提案。正式设定和正文都没有自动改动。"
-        elif drafts:
-            message = "已生成提案。正式设定和正文都没有自动改动。"
+    if payload.scope == "light":
+        mode = "rule"
+        model_name = "轻量检查"
+        used_config_id = None
+        if text.strip() == "":
+            drafts = []
+            message = "这一章还没有可分析的正文。轻量检查没有调用模型，正式设定没有改动。"
         else:
-            message = "没有产生可审核的提案。正式设定没有改动。"
+            drafts = [
+                draft
+                for draft in extract_light(text)
+                if not _open_same_proposal(session, chapter.id, draft)
+            ]
+            if drafts:
+                message = "轻量检查没有调用模型。候选和正式资料仍分开，正文没有改动。"
+            else:
+                message = "轻量检查没有调用模型，也没有新的候选。正式设定没有改动。"
+    else:
+        mode, model_name, used_config_id = _resolve_analyzer(session, payload)
+        if text.strip() == "":
+            drafts = []
+            message = "这一章还没有可分析的正文。正式设定没有改动。"
+        else:
+            drafts = _drafts_for_mode(
+                mode,
+                model_name,
+                chapter,
+                text,
+                session,
+                used_config_id,
+            )
+            if mode == "mock":
+                message = "模拟分析已生成提案。正式设定和正文都没有自动改动。"
+            elif drafts:
+                message = "已生成提案。正式设定和正文都没有自动改动。"
+            else:
+                message = "没有产生可审核的提案。正式设定没有改动。"
     now = _now()
     rows: list[MemoryChangeProposal] = []
     for draft in drafts:
@@ -423,7 +445,7 @@ def analyze_chapter(
         novel_id=chapter.novel_id,
         source_revision=chapter.revision,
         status="completed",
-        provider_mode="mock" if mode == "mock" else "openai_compatible",
+        provider_mode=_analysis_mode(mode),
         model_name=model_name,
         model_config_id=used_config_id,
         prompt_version=ANALYZE_PROMPT_VERSION,
@@ -437,14 +459,17 @@ def accept_proposal(
     session: Session,
     proposal_id: str,
     review_note: str | None,
+    edits: dict[str, Any] | None = None,
 ) -> ProposalResponse:
     proposal = _require_proposal(session, proposal_id)
-    if proposal.status not in {"pending", "stale"}:
-        raise TaskStateError("只有待审核或已过期的提案才能接受。")
+    if proposal.status not in {"pending", "stale", "deferred"}:
+        raise TaskStateError("只有待审核、已延后或已过期的提案才能确认。")
     chapter = _require_chapter(session, proposal.source_chapter_id)
     if chapter.novel_id != proposal.novel_id:
         raise InvalidReference("提案和来源章节不属于同一本作品。")
     payload = _copy_payload(proposal.payload)
+    changed = _apply_edits(proposal, payload, edits, chapter)
+    payload["review_action"] = "edited_confirm" if changed else "confirm"
     applied = _apply(session, proposal, payload)
     payload["applied"] = applied
     proposal.payload = payload
@@ -463,14 +488,56 @@ def reject_proposal(
     review_note: str | None,
 ) -> ProposalResponse:
     proposal = _require_proposal(session, proposal_id)
-    if proposal.status not in {"pending", "stale"}:
-        raise TaskStateError("只有待审核或已过期的提案才能拒绝。")
+    if proposal.status not in {"pending", "stale", "deferred"}:
+        raise TaskStateError("只有待审核、已延后或已过期的提案才能忽略。")
     proposal.status = "rejected"
     proposal.review_note = review_note
     proposal.reviewed_at = _now()
     session.commit()
     session.refresh(proposal)
     logger.info("memory proposal rejected")
+    return _proposal_response(session, proposal)
+
+
+def defer_proposal(
+    session: Session,
+    proposal_id: str,
+    review_note: str | None,
+) -> ProposalResponse:
+    proposal = _require_proposal(session, proposal_id)
+    if proposal.status not in {"pending", "stale"}:
+        raise TaskStateError("只有待审核或已过期的提案才能延后。")
+    payload = _copy_payload(proposal.payload)
+    payload["review_action"] = "defer"
+    proposal.payload = payload
+    proposal.status = "deferred"
+    proposal.review_note = review_note
+    proposal.reviewed_at = _now()
+    session.commit()
+    session.refresh(proposal)
+    logger.info("memory proposal deferred")
+    return _proposal_response(session, proposal)
+
+
+def mark_intentional_proposal(
+    session: Session,
+    proposal_id: str,
+    review_note: str | None,
+) -> ProposalResponse:
+    proposal = _require_proposal(session, proposal_id)
+    if proposal.status not in {"pending", "stale", "deferred"}:
+        raise TaskStateError("只有待审核、已延后或已过期的提案才能标成有意安排。")
+    payload = _copy_payload(proposal.payload)
+    if proposal.proposal_type == "potential_conflict":
+        payload["applied"] = _record_conflict_issue(session, proposal, payload, "intentional")
+    payload["review_action"] = "intentional"
+    proposal.payload = payload
+    proposal.status = "intentional"
+    proposal.review_note = review_note
+    proposal.reviewed_at = _now()
+    session.commit()
+    session.refresh(proposal)
+    logger.info("memory proposal marked intentional")
     return _proposal_response(session, proposal)
 
 
@@ -520,7 +587,7 @@ def mark_chapter_memory_stale(session: Session, chapter_id: str, revision: int) 
         update(MemoryChangeProposal)
         .where(
             MemoryChangeProposal.source_chapter_id == chapter_id,
-            MemoryChangeProposal.status == "pending",
+            MemoryChangeProposal.status.in_(("pending", "deferred")),
             MemoryChangeProposal.source_revision != revision,
         )
         .values(status="stale")
@@ -610,6 +677,14 @@ def _apply(
         return _apply_event(session, proposal, payload)
     if kind == "chapter_summary":
         return _apply_summary(session, proposal, payload)
+    if kind == "entity_relation":
+        return _apply_relation(session, proposal, payload)
+    if kind == "foreshadowing":
+        return _apply_foreshadowing(session, proposal, payload)
+    if kind == "setting_supplement":
+        return _apply_supplement(session, proposal, payload)
+    if kind == "potential_conflict":
+        return _record_conflict_issue(session, proposal, payload, "confirmed")
     raise InvalidReference("不支持的提案类型。")
 
 
@@ -775,6 +850,308 @@ def _apply_summary(
     return _applied(None, False, None, None, summary.id)
 
 
+def _apply_relation(
+    session: Session,
+    proposal: MemoryChangeProposal,
+    payload: dict[str, Any],
+) -> dict[str, object]:
+    left = _relation_end(
+        session,
+        proposal.novel_id,
+        payload.get("from_entity_id"),
+        payload.get("from_name"),
+        "关系的起点",
+    )
+    right = _relation_end(
+        session,
+        proposal.novel_id,
+        payload.get("to_entity_id"),
+        payload.get("to_name"),
+        "关系的终点",
+    )
+    if left.id == right.id:
+        raise InvalidReference("关系的两端不能是同一个设定。正式资料没有改动。")
+    relation_type = _required_text(payload.get("relation_type"), "提案缺少关系类型。")
+    now = _now()
+    row = EntityRelation(
+        id=_new_id(),
+        novel_id=proposal.novel_id,
+        from_entity_id=left.id,
+        to_entity_id=right.id,
+        relation_type=relation_type[:80],
+        story_time_text=_optional_text(payload.get("story_time_text")),
+        storyline=_optional_text(payload.get("storyline")),
+        source_chapter_id=proposal.source_chapter_id,
+        source_revision=proposal.source_revision,
+        evidence_quote=proposal.evidence_quote or None,
+        status="active",
+        created_at=now,
+        updated_at=now,
+        deleted_at=None,
+    )
+    session.add(row)
+    session.flush()
+    applied = _applied(None, False, None, None, None)
+    applied["relation_id"] = row.id
+    return applied
+
+
+def _apply_foreshadowing(
+    session: Session,
+    proposal: MemoryChangeProposal,
+    payload: dict[str, Any],
+) -> dict[str, object]:
+    description = _required_text(payload.get("description"), "提案缺少伏笔描述。")
+    status = payload.get("status")
+    if status not in {"open", "planned", "resolved", "abandoned", "uncertain"}:
+        status = "open"
+    payoff = _optional_text(payload.get("payoff_chapter_id"))
+    if payoff is not None:
+        chapter = catalog_repo.get_chapter(session, payoff)
+        if (
+            chapter is None
+            or chapter.novel_id != proposal.novel_id
+            or chapter.deleted_at is not None
+        ):
+            raise InvalidReference("伏笔的回收章节不存在，或不属于这本作品。")
+    now = _now()
+    row = Foreshadowing(
+        id=_new_id(),
+        novel_id=proposal.novel_id,
+        introduced_chapter_id=proposal.source_chapter_id,
+        description=description,
+        status=str(status),
+        payoff_chapter_id=payoff,
+        evidence_quote=proposal.evidence_quote or None,
+        event_time_text=_optional_text(payload.get("event_time_text")),
+        character_discovered_text=_optional_text(payload.get("character_discovered_text")),
+        reader_revealed_text=_optional_text(payload.get("reader_revealed_text")),
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(row)
+    session.flush()
+    applied = _applied(None, False, None, None, None)
+    applied["foreshadowing_id"] = row.id
+    return applied
+
+
+def _apply_supplement(
+    session: Session,
+    proposal: MemoryChangeProposal,
+    payload: dict[str, Any],
+) -> dict[str, object]:
+    entity = _relation_end(
+        session,
+        proposal.novel_id,
+        payload.get("target_entity_id"),
+        payload.get("target_name"),
+        "要补充的设定",
+    )
+    supplement = _required_text(payload.get("supplement"), "提案缺少设定补充。")
+    before = _entity_snapshot(entity)
+    profile = _profile(entity.profile)
+    items = profile.get("supplements")
+    supplements = list(items) if isinstance(items, list) else []
+    supplements.append(
+        {
+            "text": supplement,
+            "source_chapter_id": proposal.source_chapter_id,
+            "evidence_quote": proposal.evidence_quote,
+        }
+    )
+    profile["supplements"] = supplements
+    if _json_equal(before["profile"], profile):
+        changes: list[dict[str, object]] = []
+    else:
+        entity.profile = profile
+        entity.updated_at = _now()
+        changes = [{"field": "profile", "before": before["profile"], "after": profile}]
+    payload["before"] = before
+    payload["field_changes"] = changes
+    applied = _applied(entity.id, False, None, None, None)
+    return applied
+
+
+def _record_conflict_issue(
+    session: Session,
+    proposal: MemoryChangeProposal,
+    payload: dict[str, Any],
+    status: str,
+) -> dict[str, object]:
+    description = _required_text(payload.get("description"), "提案缺少冲突说明。")
+    finding_class = payload.get("finding_class")
+    if finding_class not in {"deterministic", "suspected", "creative_risk"}:
+        finding_class = "suspected"
+    issue_type = payload.get("issue_type")
+    if issue_type not in {
+        "fact_continuity",
+        "time_continuity",
+        "character_continuity",
+        "foreshadowing",
+        "outline_execution",
+        "text_surface",
+    }:
+        issue_type = "fact_continuity"
+    fingerprint = hashlib.sha256(
+        f"{proposal.novel_id}\ncandidate:{proposal.id}:{status}".encode()
+    ).hexdigest()[:40]
+    existing = session.scalars(
+        select(QualityIssue).where(
+            QualityIssue.novel_id == proposal.novel_id,
+            QualityIssue.fingerprint == fingerprint,
+        )
+    ).first()
+    now = _now()
+    quote = proposal.evidence_quote or description
+    if existing is None:
+        existing = QualityIssue(
+            id=_new_id(),
+            novel_id=proposal.novel_id,
+            chapter_id=proposal.source_chapter_id,
+            issue_type=str(issue_type),
+            severity="medium",
+            confidence=70,
+            status=status,
+            finding_class=str(finding_class),
+            manuscript_snippet=quote[:500],
+            target_revision=proposal.source_revision,
+            location_note=description[:500],
+            evidence_status="sufficient" if proposal.evidence_quote else "insufficient",
+            evidence=[
+                {
+                    "kind": "manuscript",
+                    "label": "候选证据",
+                    "quote": proposal.evidence_quote or None,
+                    "source_chapter_id": proposal.source_chapter_id,
+                    "source_revision": proposal.source_revision,
+                    "ref_id": proposal.id,
+                }
+            ],
+            related_refs=[],
+            rule_id="candidate.potential_conflict",
+            rule_version="manuscript_sync_v1",
+            analysis_version=None,
+            provider_mode="rule",
+            suggested_action="作者已审核这条潜在冲突。正文和正式设定都没有被自动修改。",
+            fingerprint=fingerprint,
+            fixed_revision=None,
+            recheck_count=0,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(existing)
+        session.flush()
+    else:
+        existing.status = status
+        existing.finding_class = str(finding_class)
+        existing.updated_at = now
+    applied = _applied(None, False, None, None, None)
+    applied["issue_id"] = existing.id
+    return applied
+
+
+def _relation_end(
+    session: Session,
+    novel_id: str,
+    entity_id: object,
+    name: object,
+    label: str,
+) -> StoryEntity:
+    if isinstance(entity_id, str) and entity_id.strip():
+        return _entity_in_novel(session, entity_id.strip(), novel_id)
+    cleaned = name.strip() if isinstance(name, str) else ""
+    if cleaned == "":
+        raise InvalidReference(f"{label}还没有对应的正式设定。请修改后再确认。")
+    rows = list(
+        session.scalars(
+            select(StoryEntity).where(
+                StoryEntity.novel_id == novel_id,
+                StoryEntity.deleted_at.is_(None),
+                StoryEntity.name == cleaned,
+            )
+        ).all()
+    )
+    if len(rows) != 1:
+        raise InvalidReference(f"找不到唯一的正式设定「{cleaned}」。请修改后再确认。")
+    return rows[0]
+
+
+_EDIT_KEYS = {
+    "entity_create": {"name", "entity_type", "aliases", "profile", "status"},
+    "entity_update": {"name", "entity_type", "aliases", "profile", "status", "target_entity_id"},
+    "entity_state": {"target_entity_id", "state_data", "valid_from_text", "valid_until_text"},
+    "story_event": {"description", "participants", "event_time_text"},
+    "chapter_summary": {"summary", "key_facts"},
+    "entity_relation": {
+        "from_entity_id",
+        "to_entity_id",
+        "from_name",
+        "to_name",
+        "relation_type",
+        "story_time_text",
+        "storyline",
+    },
+    "foreshadowing": {
+        "description",
+        "status",
+        "payoff_chapter_id",
+        "event_time_text",
+        "character_discovered_text",
+        "reader_revealed_text",
+    },
+    "setting_supplement": {"target_entity_id", "target_name", "supplement"},
+    "potential_conflict": {"description", "finding_class", "issue_type"},
+}
+
+
+def _apply_edits(
+    proposal: MemoryChangeProposal,
+    payload: dict[str, Any],
+    edits: dict[str, Any] | None,
+    chapter: Chapter,
+) -> bool:
+    if not edits:
+        return False
+    allowed = _EDIT_KEYS.get(proposal.proposal_type, set())
+    changed = False
+    for key, value in edits.items():
+        if key == "evidence_quote":
+            quote = value.strip() if isinstance(value, str) else ""
+            text = document_to_text(chapter.content if isinstance(chapter.content, dict) else {})
+            if quote == "" or quote not in text:
+                raise InvalidReference("修改后的证据必须能在来源章节原文里找到。")
+            proposal.evidence_quote = quote[:500]
+            payload["evidence_in_source"] = True
+            changed = True
+            continue
+        if key not in allowed:
+            continue
+        payload[key] = value
+        changed = True
+    return changed
+
+
+def _open_same_proposal(session: Session, chapter_id: str, draft: ProposalDraft) -> bool:
+    row = session.scalars(
+        select(MemoryChangeProposal.id).where(
+            MemoryChangeProposal.source_chapter_id == chapter_id,
+            MemoryChangeProposal.proposal_type == draft.proposal_type,
+            MemoryChangeProposal.evidence_quote == draft.evidence_quote,
+            MemoryChangeProposal.status.in_(("pending", "deferred", "stale")),
+        )
+    ).first()
+    return row is not None
+
+
+def _analysis_mode(mode: str) -> ProviderMode:
+    if mode == "mock":
+        return "mock"
+    if mode == "rule":
+        return "rule"
+    return "openai_compatible"
+
+
 def _add_state(
     session: Session,
     *,
@@ -809,7 +1186,7 @@ def _revert_applied(
     applied: dict[str, Any],
 ) -> None:
     now = _now()
-    if proposal.proposal_type == "entity_update":
+    if proposal.proposal_type in {"entity_update", "setting_supplement"}:
         _revert_entity_fields(session, proposal, payload, applied, now)
     else:
         entity_id = applied.get("entity_id")
@@ -839,6 +1216,23 @@ def _revert_applied(
         if summary is not None and summary.chapter_id == proposal.source_chapter_id:
             summary.status = "rejected"
             summary.updated_at = now
+    relation_id = applied.get("relation_id")
+    if isinstance(relation_id, str):
+        relation = session.get(EntityRelation, relation_id)
+        if relation is not None and relation.novel_id == proposal.novel_id:
+            relation.deleted_at = now
+            relation.updated_at = now
+    foreshadowing_id = applied.get("foreshadowing_id")
+    if isinstance(foreshadowing_id, str):
+        hook = session.get(Foreshadowing, foreshadowing_id)
+        if hook is not None and hook.novel_id == proposal.novel_id:
+            session.delete(hook)
+    issue_id = applied.get("issue_id")
+    if isinstance(issue_id, str):
+        issue = session.get(QualityIssue, issue_id)
+        if issue is not None and issue.novel_id == proposal.novel_id:
+            issue.status = "expired"
+            issue.updated_at = now
 
 
 def _restore_entity(entity: StoryEntity, before: dict[str, Any], now: datetime) -> None:
@@ -1372,6 +1766,10 @@ def _proposal_type_literal(value: str) -> Any:
         "entity_state",
         "story_event",
         "chapter_summary",
+        "entity_relation",
+        "foreshadowing",
+        "setting_supplement",
+        "potential_conflict",
     }
     if value in allowed:
         return value
@@ -1379,7 +1777,15 @@ def _proposal_type_literal(value: str) -> Any:
 
 
 def _proposal_status_literal(value: str) -> Any:
-    allowed = {"pending", "accepted", "rejected", "reverted", "stale"}
+    allowed = {
+        "pending",
+        "accepted",
+        "rejected",
+        "reverted",
+        "stale",
+        "deferred",
+        "intentional",
+    }
     if value in allowed:
         return value
     return "pending"

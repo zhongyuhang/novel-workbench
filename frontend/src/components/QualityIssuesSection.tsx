@@ -8,6 +8,7 @@ import {
   rejectRepair,
   runQualityCheck,
   updateQualityIssue,
+  type FindingClass,
   type IssueStatus,
   type IssueType,
   type QualityIssue,
@@ -36,6 +37,14 @@ const STATUS_LABEL: Record<IssueStatus, string> = {
   ignored: "已忽略",
   fixed: "已修复",
   expired: "已过期",
+  deferred: "已延后",
+  intentional: "有意的矛盾",
+};
+
+const FINDING_LABEL: Record<FindingClass, string> = {
+  deterministic: "确定性错误",
+  suspected: "疑似矛盾",
+  creative_risk: "创作风险",
 };
 
 const SEVERITY_LABEL = {
@@ -210,7 +219,7 @@ function IssueCard({
   const [candidates, setCandidates] = useState(issue.candidates);
   const visible = candidates.filter((item) => item.status !== "rejected");
 
-  async function mark(status: "pending" | "confirmed" | "ignored") {
+  async function mark(status: "pending" | "confirmed" | "ignored" | "deferred" | "intentional") {
     onBusy(true);
     onError("");
     try {
@@ -283,7 +292,8 @@ function IssueCard({
       <div className="memory-card-head">
         <strong>{TYPE_LABEL[issue.issue_type]}</strong>
         <span className="stale-badge">
-          {STATUS_LABEL[issue.status]} · {SEVERITY_LABEL[issue.severity]} · 置信 {issue.confidence}
+          {STATUS_LABEL[issue.status]} · {SEVERITY_LABEL[issue.severity]} · {FINDING_LABEL[issue.finding_class]} ·
+          置信 {issue.confidence}
         </span>
       </div>
       <p>
@@ -317,6 +327,12 @@ function IssueCard({
         </button>
         <button className="ghost" type="button" disabled={busy} onClick={() => void mark("ignored")}>
           忽略
+        </button>
+        <button className="ghost" type="button" disabled={busy} onClick={() => void mark("deferred")}>
+          延后
+        </button>
+        <button className="ghost" type="button" disabled={busy} onClick={() => void mark("intentional")}>
+          标为有意的矛盾
         </button>
         <button className="ghost" type="button" disabled={busy} onClick={() => void mark("pending")}>
           标为待处理

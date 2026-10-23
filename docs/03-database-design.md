@@ -107,6 +107,7 @@
 - `arc_type`
 - `title`
 - `summary` nullable
+- `thread_visibility` nullable（`surface` 明线、`hidden` 暗线；空表示未区分。不替代 `arc_type`）
 - `sort_order`（大于等于 0）
 - `status` 同上
 - `revision`（大于等于 1）
@@ -208,7 +209,12 @@
 - `status` (`open`, `planned`, `resolved`, `abandoned`, `uncertain`)
 - `payoff_chapter_id` nullable FK
 - `evidence_quote` nullable
+- `event_time_text` nullable：事件实际发生时间，文本，不是日期列
+- `character_discovered_text` nullable：角色发现时间
+- `reader_revealed_text` nullable：向读者揭示的时间或位置
 - `created_at`, `updated_at`
+
+埋设位置仍是 `introduced_chapter_id`。最终回收状态仍是 `status`，回收章节仍是 `payoff_chapter_id`。这五项不合并成一个日期。
 
 索引：`(novel_id)`、`(novel_id, status)`。
 
@@ -231,7 +237,8 @@
 - `issue_type`（`fact_continuity`、`time_continuity`、`character_continuity`、`foreshadowing`、`outline_execution`、`text_surface`）
 - `severity`（`low`、`medium`、`high`）
 - `confidence`：0 到 100 的整数，接口再换算成 0 到 1
-- `status`（`pending`、`confirmed`、`ignored`、`fixed`、`expired`）
+- `status`（`pending`、`confirmed`、`ignored`、`fixed`、`expired`、`deferred`、`intentional`）
+- `finding_class`（`deterministic` 确定性错误、`suspected` 疑似矛盾、`creative_risk` 创作风险）。旧行默认 `suspected`
 - `manuscript_snippet`：用来定位的正文片段，可为空字符串
 - `target_revision` nullable：发现问题时的章节修订
 - `location_note` nullable
@@ -327,15 +334,15 @@
 - `novel_id` FK
 - `source_chapter_id` FK
 - `source_revision`
-- `proposal_type`
+- `proposal_type`（`entity_create`、`entity_update`、`entity_state`、`story_event`、`chapter_summary`、`entity_relation`、`foreshadowing`、`setting_supplement`、`potential_conflict`）
 - `payload` JSON
 - `evidence_quote`
 - `certainty` (`confirmed`, `inferred`, `uncertain`)
-- `status` (`pending`, `accepted`, `rejected`, `reverted`, `stale`)
+- `status` (`pending`, `accepted`, `rejected`, `reverted`, `stale`, `deferred`, `intentional`)
 - `review_note` nullable
 - `created_at`, `reviewed_at`
 
-章节修订变化后，仍为 `pending` 且 `source_revision` 对不上的提案改为 `stale`，不写入正式设定。`payload.applied` 记录接受时写下的行。`entity_update` 从接受之时起另写 `payload.field_changes`：只列出这次真正改过的字段，以及该字段接受前、接受后的值。撤回只回滚这些字段。某个字段如果之后又被改过，整次撤回拒绝，正式设定保持原样。没有 `field_changes` 的旧提案不能自动撤回，避免用整份 `before` 盖掉后来的手工修改。`before` 仍会留下，但不再当作回滚快照。
+章节修订变化后，仍为 `pending` 或 `deferred` 且 `source_revision` 对不上的提案改为 `stale`，不写入正式设定。迁移 `0013_manuscript_material_sync` 接在 `0012_model_config_center` 之后，只加列和放宽检查约束。`payload.applied` 记录接受时写下的行。`entity_update` 从接受之时起另写 `payload.field_changes`：只列出这次真正改过的字段，以及该字段接受前、接受后的值。撤回只回滚这些字段。某个字段如果之后又被改过，整次撤回拒绝，正式设定保持原样。没有 `field_changes` 的旧提案不能自动撤回，避免用整份 `before` 盖掉后来的手工修改。`before` 仍会留下，但不再当作回滚快照。
 
 ## 3. 关系原则
 

@@ -59,6 +59,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
   const [centerView, setCenterView] = useState<"manuscript" | "outline">("manuscript");
   const unsavedRef = useRef(false);
   const skipGuardRef = useRef(false);
+  const chapterStatusRef = useRef<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -97,6 +98,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
 
   useEffect(() => {
     if (!chapterId) {
+      chapterStatusRef.current = null;
       setChapter(null);
       setSelectionText("");
       setAdoptedChapter(null);
@@ -109,6 +111,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
     getChapter(chapterId, controller.signal)
       .then((next) => {
         if (active) {
+          chapterStatusRef.current = next.status;
           setChapter(next);
           setError("");
         }
@@ -190,6 +193,44 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
     }
     skipGuardRef.current = true;
     window.location.hash = hash;
+  }
+
+  function syncChapterRow(saved: Chapter) {
+    setChapters((current) =>
+      current.map((item) =>
+        item.id === saved.id
+          ? {
+              ...item,
+              title: saved.title,
+              status: saved.status,
+              word_count: saved.word_count,
+              revision: saved.revision,
+              updated_at: saved.updated_at,
+            }
+          : item,
+      ),
+    );
+  }
+
+  function noteManuscriptWrite(saved: Chapter, kind: "manual" | "autosave" | "adopt" | "sync") {
+    const previous = chapterStatusRef.current;
+    chapterStatusRef.current = saved.status;
+    setChapter(saved);
+    if (kind === "adopt") {
+      setAdoptedChapter(saved);
+    }
+    syncChapterRow(saved);
+    if (kind === "autosave" || kind === "sync") {
+      return;
+    }
+    const finished = previous !== "final" && saved.status === "final";
+    setSideTab("memory");
+    requestMemoryAnalyze({
+      chapterId: saved.id,
+      revision: saved.revision,
+      title: saved.title,
+      scope: finished ? "full" : "light",
+    });
   }
 
   function openChapter(id: string) {
@@ -517,6 +558,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
                             chapterId: item.id,
                             revision: item.revision,
                             title: item.title,
+                            scope: "full",
                           });
                         }}
                       >
@@ -614,22 +656,8 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
               }}
               onSelectionChange={setSelectionText}
               adoptedChapter={adoptedChapter}
-              onSaved={(saved) => {
-                setChapter(saved);
-                setChapters((current) =>
-                  current.map((item) =>
-                    item.id === saved.id
-                      ? {
-                          ...item,
-                          title: saved.title,
-                          status: saved.status,
-                          word_count: saved.word_count,
-                          revision: saved.revision,
-                          updated_at: saved.updated_at,
-                        }
-                      : item,
-                  ),
-                );
+              onSaved={(saved, kind) => {
+                noteManuscriptWrite(saved, kind);
               }}
             />
           ) : null}
@@ -684,22 +712,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
               selectionText={selectionText}
               editorDirty={unsaved}
               onAccepted={(saved) => {
-                setChapter(saved);
-                setAdoptedChapter(saved);
-                setChapters((current) =>
-                  current.map((item) =>
-                    item.id === saved.id
-                      ? {
-                          ...item,
-                          title: saved.title,
-                          status: saved.status,
-                          word_count: saved.word_count,
-                          revision: saved.revision,
-                          updated_at: saved.updated_at,
-                        }
-                      : item,
-                  ),
-                );
+                noteManuscriptWrite(saved, "adopt");
               }}
             />
           </div>
@@ -710,22 +723,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
               activeChapterId={chapterId}
               refreshKey={`${chapter?.revision ?? 0}:${chapters.map((item) => item.word_count).join(",")}`}
               onManuscriptUpdated={(saved) => {
-                setChapter(saved);
-                setAdoptedChapter(saved);
-                setChapters((current) =>
-                  current.map((item) =>
-                    item.id === saved.id
-                      ? {
-                          ...item,
-                          title: saved.title,
-                          status: saved.status,
-                          word_count: saved.word_count,
-                          revision: saved.revision,
-                          updated_at: saved.updated_at,
-                        }
-                      : item,
-                  ),
-                );
+                noteManuscriptWrite(saved, "adopt");
               }}
             />
           </div>

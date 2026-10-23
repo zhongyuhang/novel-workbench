@@ -95,11 +95,18 @@
 - `GET /api/v1/novels/{novel_id}/memory-proposals`
 - `POST /api/v1/memory-proposals/{proposal_id}/accept`
 - `POST /api/v1/memory-proposals/{proposal_id}/reject`
+- `POST /api/v1/memory-proposals/{proposal_id}/defer`
+- `POST /api/v1/memory-proposals/{proposal_id}/intentional`
 - `POST /api/v1/memory-proposals/{proposal_id}/revert`
+- `GET /api/v1/novels/{novel_id}/material-impact`
 - `GET /api/v1/novels/{novel_id}/chapter-summaries`
 - `GET /api/v1/novels/{novel_id}/events`
 
-分析请求带 `revision`，可选 `model_config_id` 和 `use_mock`。它只创建提案。响应里的 `formal_memory_changed` 和 `manuscript_changed` 固定为 false。没有证据的条目 `certainty` 为 `inferred` 或 `uncertain`。接受才写入正式记忆，并且不改正文。拒绝不改正式设定。章节修订变化后，相关摘要和待审核提案变为 `stale`。
+分析请求带 `revision`，可选 `model_config_id`、`use_mock` 和 `scope`。`scope` 默认 `full`。完整分析指定 `model_config_id` 就用那一份配置，否则用默认模型；都走统一模型调用层。`scope=light` 只做本地轻量检查，不调用模型。两种范围都只创建提案。响应里的 `formal_memory_changed` 和 `manuscript_changed` 固定为 false。没有证据的条目 `certainty` 为 `inferred` 或 `uncertain`。
+
+确认（`accept`）才写入正式资料，并且不改正文。请求体可以带 `edits`，只合并该类型允许的字段，这就是修改后确认；证据若改写，必须仍能在来源章节原文里找到。忽略（`reject`）和延后（`defer`）不写正式资料。`intentional` 把候选标成有意安排的矛盾；若类型是潜在冲突，只额外记一条质量问题，不改设定和正文。章节修订变化后，相关摘要以及待审核、已延后的提案变为 `stale`。
+
+`material-impact` 的查询参数是 `kind`（`entity`、`relation`、`event`、`foreshadowing`、`story_arc`）和 `target_id`。它只列出仍关联着的资料，`manuscript_changed` 和 `formal_memory_changed` 固定为 false。
 
 动态状态的 `valid_from_text` 和 `valid_until_text` 可空。空字符串会存成空，不会因为没填时间而拒绝保存。来源章节必须属于该设定所在的作品。手工记录的 `source_type` 为 `manual`，并写下来源章节当时的修订号。
 
@@ -115,7 +122,7 @@
 - `GET /api/v1/novels/{novel_id}/stats`
 - `PUT /api/v1/novels/{novel_id}/writing-goal`
 
-伏笔状态为 `open`、`planned`、`resolved`、`abandoned`、`uncertain`，并且只属于一本作品。冲突检查只返回疑似冲突：类型、正文片段、已确认事实、来源章节与引用、严重程度、置信度、建议的人工处理。响应里的 `manuscript_changed` 和 `formal_memory_changed` 固定为 false。没有外部模型，或请求 `use_mock=true` 时，使用本地规则，`provider_mode` 为 `mock`。人物状态变化本身不算冲突。字数统计按正文字数函数计算每章和全书，目标字数是可选项。
+伏笔状态为 `open`、`planned`、`resolved`、`abandoned`、`uncertain`，并且只属于一本作品。创建和更新还可以分别填写 `event_time_text`、`character_discovered_text`、`reader_revealed_text`。埋设章节、回收状态和这三个时间各自独立，留空不会被收成同一个日期。冲突检查只返回疑似冲突：类型、正文片段、已确认事实、来源章节与引用、严重程度、置信度、建议的人工处理。响应里的 `manuscript_changed` 和 `formal_memory_changed` 固定为 false。没有外部模型，或请求 `use_mock=true` 时，使用本地规则，`provider_mode` 为 `mock`。人物状态变化本身不算冲突。字数统计按正文字数函数计算每章和全书，目标字数是可选项。
 
 证据化质量问题另走下面这些接口，不替换上面的冲突检查：
 
@@ -127,7 +134,7 @@
 - `POST /api/v1/quality-repairs/{candidate_id}/accept`
 - `POST /api/v1/quality-repairs/{candidate_id}/reject`
 
-`quality-check` 默认只跑规则，`use_model` 默认 false。响应里的 `manuscript_changed` 和 `formal_memory_changed` 固定为 false。`provider_mode` 为 `rule`、`mock` 或 `openai_compatible`。列表默认只返回 `pending` 和 `confirmed`。`status` 可单独筛选 `fixed`、`ignored`、`expired`；`include_closed=true` 会把这些已关闭问题一并列出。`PATCH` 只能把状态改成 `pending`、`confirmed` 或 `ignored`。
+`quality-check` 默认只跑规则，`use_model` 默认 false。启用模型时可选 `model_config_id`，缺省用默认模型，并走统一模型调用层。响应里的 `manuscript_changed` 和 `formal_memory_changed` 固定为 false。`provider_mode` 为 `rule`、`mock` 或 `openai_compatible`。每条问题带 `finding_class`：`deterministic`、`suspected` 或 `creative_risk`。列表默认返回 `pending`、`confirmed` 和 `deferred`。`status` 可单独筛选；`include_closed=true` 会把已关闭问题一并列出。`PATCH` 可以把状态改成 `pending`、`confirmed`、`ignored`、`deferred` 或 `intentional`。
 
 生成修复建议同样不改正文。候选带 `diff_preview`。`applicable=false` 的候选不能采纳，返回 `422`。采纳要求请求里的 `target_revision` 和候选上的修订都等于当前章节修订，否则 `409 REVISION_CONFLICT`，候选变为 `conflict`，正文保持新内容。采纳成功才把正文写成新修订，`change_source` 为 `ai_accepted`，说明是「采纳质量修复建议」，版本行带上 `repair_candidate_id`，问题变为 `fixed`。这些写入和普通 AI 采纳在同一个事务里。正式设定内容不变。重复采纳返回 `409`。
 
@@ -152,7 +159,7 @@
 - `DELETE /api/v1/scenes/{scene_id}`
 - `POST /api/v1/chapters/{chapter_id}/scenes/reorder`：请求体是这一章全部 `scene_ids`，按新顺序排列。缺项、重复或其他章节的卡片返回 `422`。
 - `GET /api/v1/novels/{novel_id}/story-arcs`
-- `POST /api/v1/novels/{novel_id}/story-arcs`：创建。`arc_type` 为 `main`、`subplot`、`character` 或 `other`。
+- `POST /api/v1/novels/{novel_id}/story-arcs`：创建。`arc_type` 为 `main`、`subplot`、`character` 或 `other`。可选 `thread_visibility`：`surface` 或 `hidden`。空着表示还没区分明线暗线。
 - `PATCH /api/v1/story-arcs/{arc_id}`
 - `DELETE /api/v1/story-arcs/{arc_id}`：硬删除，并重排剩余故事线。
 - `POST /api/v1/novels/{novel_id}/story-arcs/reorder`：请求体必须是这本作品的全部 `arc_ids`。缺项、重复或其他作品的故事线返回 `422 INVALID_REFERENCE`。

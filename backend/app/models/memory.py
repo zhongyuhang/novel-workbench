@@ -74,12 +74,15 @@ class MemoryChangeProposal(Base):
     __table_args__ = (
         CheckConstraint(
             "proposal_type IN ("
-            "'entity_create', 'entity_update', 'entity_state', 'story_event', 'chapter_summary'"
+            "'entity_create', 'entity_update', 'entity_state', 'story_event', 'chapter_summary', "
+            "'entity_relation', 'foreshadowing', 'setting_supplement', 'potential_conflict'"
             ")",
             name="ck_memory_change_proposals_proposal_type",
         ),
         CheckConstraint(
-            "status IN ('pending', 'accepted', 'rejected', 'reverted', 'stale')",
+            "status IN ("
+            "'pending', 'accepted', 'rejected', 'reverted', 'stale', 'deferred', 'intentional'"
+            ")",
             name="ck_memory_change_proposals_status",
         ),
         CheckConstraint(

@@ -55,6 +55,9 @@ const openItem: Foreshadowing = {
   status: "open",
   payoff_chapter_id: null,
   evidence_quote: "钥匙还在",
+  event_time_text: null,
+  character_discovered_text: null,
+  reader_revealed_text: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
@@ -123,6 +126,9 @@ describe("QualityPanel", () => {
       status: "planned",
       payoff_chapter_id: null,
       evidence_quote: "钥匙还在",
+      event_time_text: null,
+      character_discovered_text: null,
+      reader_revealed_text: null,
     });
   });
 

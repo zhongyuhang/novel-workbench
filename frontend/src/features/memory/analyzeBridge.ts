@@ -2,6 +2,7 @@ export type AnalyzeRequest = {
   chapterId: string;
   revision: number;
   title: string;
+  scope?: "full" | "light";
 };
 
 type AnalyzeHandler = (request: AnalyzeRequest) => void;

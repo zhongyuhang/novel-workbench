@@ -33,13 +33,22 @@ class ForeshadowingCreate(BaseModel):
     status: ForeshadowingStatus = "open"
     payoff_chapter_id: str | None = None
     evidence_quote: str | None = Field(default=None, max_length=2000)
+    event_time_text: str | None = Field(default=None, max_length=200)
+    character_discovered_text: str | None = Field(default=None, max_length=200)
+    reader_revealed_text: str | None = Field(default=None, max_length=200)
 
     @field_validator("description")
     @classmethod
     def clean_description(cls, value: str) -> str:
         return _clean_required(value)
 
-    @field_validator("evidence_quote", "payoff_chapter_id")
+    @field_validator(
+        "evidence_quote",
+        "payoff_chapter_id",
+        "event_time_text",
+        "character_discovered_text",
+        "reader_revealed_text",
+    )
     @classmethod
     def clean_optional(cls, value: str | None) -> str | None:
         return _clean_optional(value)
@@ -51,6 +60,9 @@ class ForeshadowingPatch(BaseModel):
     status: ForeshadowingStatus | None = None
     payoff_chapter_id: str | None = None
     evidence_quote: str | None = Field(default=None, max_length=2000)
+    event_time_text: str | None = Field(default=None, max_length=200)
+    character_discovered_text: str | None = Field(default=None, max_length=200)
+    reader_revealed_text: str | None = Field(default=None, max_length=200)
 
     @field_validator("description")
     @classmethod
@@ -59,7 +71,14 @@ class ForeshadowingPatch(BaseModel):
             return None
         return _clean_required(value)
 
-    @field_validator("evidence_quote", "payoff_chapter_id", "introduced_chapter_id")
+    @field_validator(
+        "evidence_quote",
+        "payoff_chapter_id",
+        "introduced_chapter_id",
+        "event_time_text",
+        "character_discovered_text",
+        "reader_revealed_text",
+    )
     @classmethod
     def clean_optional(cls, value: str | None) -> str | None:
         return _clean_optional(value)
@@ -73,6 +92,9 @@ class ForeshadowingResponse(BaseModel):
     status: ForeshadowingStatus
     payoff_chapter_id: str | None
     evidence_quote: str | None
+    event_time_text: str | None
+    character_discovered_text: str | None
+    reader_revealed_text: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -135,8 +157,17 @@ IssueType = Literal[
     "outline_execution",
     "text_surface",
 ]
-IssueStatus = Literal["pending", "confirmed", "ignored", "fixed", "expired"]
-AuthorStatus = Literal["pending", "confirmed", "ignored"]
+IssueStatus = Literal[
+    "pending",
+    "confirmed",
+    "ignored",
+    "fixed",
+    "expired",
+    "deferred",
+    "intentional",
+]
+AuthorStatus = Literal["pending", "confirmed", "ignored", "deferred", "intentional"]
+FindingClass = Literal["deterministic", "suspected", "creative_risk"]
 EvidenceStatus = Literal["sufficient", "insufficient"]
 QualityProviderMode = Literal["rule", "mock", "openai_compatible"]
 RepairApplyMode = Literal["replace_selection", "append"]
@@ -187,6 +218,7 @@ class QualityIssueResponse(BaseModel):
     severity: Severity
     confidence: float = Field(ge=0, le=1)
     status: IssueStatus
+    finding_class: FindingClass
     manuscript_snippet: str
     target_revision: int | None
     location_note: str | None

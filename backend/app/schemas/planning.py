@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 PlanningStatus = Literal["draft", "confirmed", "stale", "archived"]
 EditablePlanningStatus = Literal["draft", "stale", "archived"]
 StoryArcType = Literal["main", "subplot", "character", "other"]
+ThreadVisibility = Literal["surface", "hidden"]
 OutlineProviderMode = Literal["mock", "openai_compatible"]
 
 
@@ -209,6 +210,7 @@ class StoryArcCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     summary: str | None = Field(default=None, max_length=4000)
     status: EditablePlanningStatus | None = None
+    thread_visibility: ThreadVisibility | None = None
 
     @field_validator("title", "summary")
     @classmethod
@@ -228,6 +230,7 @@ class StoryArcPatch(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     summary: str | None = Field(default=None, max_length=4000)
     status: EditablePlanningStatus | None = None
+    thread_visibility: ThreadVisibility | None = None
     expected_revision: int = Field(ge=1)
 
     @field_validator("title", "summary")
@@ -246,6 +249,7 @@ class StoryArcResponse(BaseModel):
     arc_type: StoryArcType
     title: str
     summary: str | None
+    thread_visibility: ThreadVisibility | None
     sort_order: int
     status: PlanningStatus
     revision: int

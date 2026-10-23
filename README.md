@@ -66,5 +66,6 @@ cd frontend && npm ci && npm run dev
 - [实施记录](docs/10-implementation-plan.md)
 - [差距分析](docs/11-evolution-gap-analysis.md)
 - [模型配置中心](docs/12-model-config-center.md)
+- [正文与资料同步](docs/13-manuscript-material-sync.md)
 - [release 1.0.0 方案](docs/release-1.0.0-plan.md)
 - [决策记录](docs/adr/)
