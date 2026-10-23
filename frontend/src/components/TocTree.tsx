@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type DragEvent } from "react";
 import type { ChapterSummary, Volume } from "../api/types.ts";
 import {
   moveVolumeToStart,
@@ -47,6 +47,20 @@ type TocTreeProps = {
 };
 
 const DRAG_MIME = "application/x-novel-toc";
+const MENU_WIDTH_REM = 13;
+
+function rootFontSize(): number {
+  const size = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+  return Number.isFinite(size) && size > 0 ? size : 15;
+}
+
+function placeMenuLeft(anchor: HTMLElement, width: number): number {
+  const rect = anchor.getBoundingClientRect();
+  const rail = anchor.closest(".toc-pane")?.getBoundingClientRect();
+  const minLeft = Math.max(8, (rail?.left ?? 0) + 8);
+  const maxLeft = Math.max(minLeft, (rail?.right ?? window.innerWidth) - 8 - width);
+  return Math.min(Math.max(rect.right - width, minLeft), maxLeft);
+}
 
 export function TocTree({
   groups,
@@ -69,6 +83,8 @@ export function TocTree({
   onAnalyzeChapter,
 }: TocTreeProps) {
   const dragRef = useRef<TocDrag | null>(null);
+  const menuAnchorRef = useRef<HTMLElement | null>(null);
+  const menuNodeRef = useRef<HTMLDivElement | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [dropKey, setDropKey] = useState<string | null>(null);
 
@@ -94,18 +110,49 @@ export function TocTree({
     window.addEventListener("pointerdown", onPointer);
     window.addEventListener("keydown", onKey);
     window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
     return () => {
       window.removeEventListener("pointerdown", onPointer);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
     };
   }, [menu]);
 
-  function openMenu(key: string, anchor: HTMLElement) {
+  useLayoutEffect(() => {
+    const node = menuNodeRef.current;
+    const anchor = menuAnchorRef.current;
+    if (!menu || !node || !anchor) {
+      return;
+    }
+    const box = node.getBoundingClientRect();
     const rect = anchor.getBoundingClientRect();
-    const width = 196;
-    const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
-    setMenu({ key, top: rect.bottom + 4, left });
+    const width = box.width > 0 ? box.width : MENU_WIDTH_REM * rootFontSize();
+    const height = box.height;
+    let top = rect.bottom + 4;
+    if (height > 0 && top + height > window.innerHeight - 8) {
+      const above = rect.top - height - 4;
+      if (above >= 8) {
+        top = above;
+      }
+    }
+    const left = placeMenuLeft(anchor, width);
+    const nextTop = Math.round(top);
+    const nextLeft = Math.round(left);
+    if (nextTop !== menu.top || nextLeft !== menu.left) {
+      setMenu({ ...menu, top: nextTop, left: nextLeft });
+    }
+  }, [menu]);
+
+  function openMenu(key: string, anchor: HTMLElement) {
+    menuAnchorRef.current = anchor;
+    const rect = anchor.getBoundingClientRect();
+    const width = MENU_WIDTH_REM * rootFontSize();
+    setMenu({
+      key,
+      top: Math.round(rect.bottom + 4),
+      left: Math.round(placeMenuLeft(anchor, width)),
+    });
   }
 
   function beginDrag(event: DragEvent, payload: TocDrag) {
@@ -297,7 +344,11 @@ export function TocTree({
                 }}
                 onContextMenu={(event) => {
                   event.preventDefault();
-                  openMenu(`chapter:${item.id}`, event.currentTarget);
+                  const more = event.currentTarget.querySelector(".toc-more");
+                  openMenu(
+                    `chapter:${item.id}`,
+                    more instanceof HTMLElement ? more : event.currentTarget,
+                  );
                 }}
               >
                 <div className={`toc-row${dropKey === item.id ? " is-drop-target" : ""}`}>
@@ -347,7 +398,13 @@ export function TocTree({
         </section>
       ))}
       {menu && menuChapter ? (
-        <div className="menu-panel toc-menu" role="menu" style={{ top: menu.top, left: menu.left }} aria-label={`${menuChapter.title}的操作`}>
+        <div
+          ref={menuNodeRef}
+          className="menu-panel toc-menu"
+          role="menu"
+          style={{ top: menu.top, left: menu.left }}
+          aria-label={`${menuChapter.title}的操作`}
+        >
           <button
             className="ghost"
             type="button"
@@ -420,7 +477,13 @@ export function TocTree({
         </div>
       ) : null}
       {menu && menuVolume ? (
-        <div className="menu-panel toc-menu" role="menu" style={{ top: menu.top, left: menu.left }} aria-label={`${menuVolume.title}的操作`}>
+        <div
+          ref={menuNodeRef}
+          className="menu-panel toc-menu"
+          role="menu"
+          style={{ top: menu.top, left: menu.left }}
+          aria-label={`${menuVolume.title}的操作`}
+        >
           <button
             className="ghost"
             type="button"
