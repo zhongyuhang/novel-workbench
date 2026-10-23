@@ -1276,6 +1276,8 @@ def _rules_text(novel: Novel) -> str:
     lines = ["作品硬规则："]
     if novel.genre and novel.genre.strip():
         lines.append(f"题材：{novel.genre.strip()}")
+    if novel.core_conflict and novel.core_conflict.strip():
+        lines.append(f"核心冲突：{novel.core_conflict.strip()}")
     if novel.style_guide and novel.style_guide.strip():
         lines.append(novel.style_guide.strip())
     else:

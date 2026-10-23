@@ -42,7 +42,7 @@ def test_upgrade_empty_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         }
     engine.dispose()
 
-    assert version == "0013_manuscript_material_sync"
+    assert version == "0014_guided_ideation"
     assert {
         "alembic_version",
         "novels",
@@ -66,6 +66,8 @@ def test_upgrade_empty_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         "entity_relations",
         "quality_issues",
         "quality_repair_candidates",
+        "ideation_sessions",
+        "ideation_candidates",
     } <= tables
     assert "ix_chapters_novel_id_sort_order" in indexes
     assert "ix_chapters_volume_id_sort_order" in indexes
@@ -124,7 +126,7 @@ def test_upgrade_from_previous_revision(tmp_path: Path, monkeypatch: pytest.Monk
             ).scalars()
         )
     engine.dispose()
-    assert version == "0013_manuscript_material_sync"
+    assert version == "0014_guided_ideation"
     assert "chapters" in tables
     assert "chapter_versions" in tables
     assert "model_configs" in tables
@@ -191,7 +193,7 @@ def test_upgrade_from_catalog_keeps_chapters_and_adds_versions(
         table_sql = connection.execute(
             text("SELECT sql FROM sqlite_master WHERE name = 'chapter_versions'")
         ).scalar_one()
-        assert version == "0013_manuscript_material_sync"
+        assert version == "0014_guided_ideation"
         assert "升级前正文" in str(stored)
         assert version_count == 0
         unique_name = next(row[1] for row in index_rows if row[2] == 1 and row[3] == "u")
@@ -264,7 +266,7 @@ def test_upgrade_from_chapter_versions_adds_ai_tables(
         foreign_keys = connection.execute(text("PRAGMA foreign_key_list(ai_tasks)")).all()
     engine.dispose()
 
-    assert version == "0013_manuscript_material_sync"
+    assert version == "0014_guided_ideation"
     assert title == "版本后"
     assert "ck_ai_tasks_status" in ai_sql
     assert "ck_ai_tasks_resolution" in ai_sql
@@ -312,7 +314,7 @@ def test_upgrade_from_ai_tables_adds_memory_and_keeps_novels(
             text("SELECT sql FROM sqlite_master WHERE name = 'foreshadowing'")
         ).scalar_one()
         foreign_keys = connection.execute(text("PRAGMA foreign_key_list(entity_states)")).all()
-    assert version == "0013_manuscript_material_sync"
+    assert version == "0014_guided_ideation"
     assert title == "记忆前"
     assert "ck_foreshadowing_status" in foreshadow_sql
     assert "abandoned" in foreshadow_sql
@@ -405,7 +407,7 @@ def test_upgrade_from_quality_adds_planning_and_keeps_chapters(
         scene_sql = connection.execute(
             text("SELECT sql FROM sqlite_master WHERE name = 'scene_cards'")
         ).scalar_one()
-    assert version == "0013_manuscript_material_sync"
+    assert version == "0014_guided_ideation"
     assert stored[1] == 3
     assert "升级前正文" in str(stored[0])
     assert plan_count == 0
@@ -525,7 +527,7 @@ def test_upgrade_from_planning_adds_bible_and_keeps_entities(
         revision = connection.execute(
             text("SELECT revision FROM chapters WHERE id = 'chapter-1'")
         ).scalar_one()
-    assert version == "0013_manuscript_material_sync"
+    assert version == "0014_guided_ideation"
     assert name == "林晚"
     assert validity == (None, None)
     assert relation_count == 0
@@ -611,7 +613,7 @@ def test_upgrade_from_story_bible_adds_quality_issues(
         stored = connection.execute(
             text("SELECT revision, content FROM chapters WHERE id = 'chapter-1'")
         ).one()
-    assert version == "0013_manuscript_material_sync"
+    assert version == "0014_guided_ideation"
     assert issue_count == 0
     assert repair_count == 0
     assert stored[0] == 3
@@ -707,7 +709,7 @@ def test_upgrade_from_quality_issues_adds_version_provenance(
             )
         ).one()
         links = connection.execute(text("PRAGMA foreign_key_list(chapter_versions)")).all()
-    assert version == "0013_manuscript_material_sync"
+    assert version == "0014_guided_ideation"
     assert row == (4, "manual", None, None)
     assert any(item[2] == "ai_tasks" and item[3] == "ai_task_id" for item in links)
     assert any(
@@ -809,7 +811,7 @@ def test_upgrade_from_version_provenance_adds_empty_planning_tables(
         volume_title = connection.execute(
             text("SELECT title FROM volumes WHERE id = 'volume-1'")
         ).scalar_one()
-    assert version == "0013_manuscript_material_sync"
+    assert version == "0014_guided_ideation"
     assert arc_count == 0
     assert volume_count == 0
     assert "uq_volume_outlines_volume_id" in outline_sql
@@ -834,3 +836,74 @@ def test_upgrade_from_version_provenance_adds_empty_planning_tables(
     assert "story_arcs" not in tables
     assert "volume_outlines" not in tables
     assert "chapters" in tables
+
+
+def test_upgrade_from_manuscript_sync_adds_ideation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database_path = tmp_path / "from-sync.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    config = Config(str(BACKEND_ROOT / "alembic.ini"))
+    command.upgrade(config, "0013_manuscript_material_sync")
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO novels (
+                    id, title, genre, synopsis, style_guide, status,
+                    created_at, updated_at, deleted_at
+                ) VALUES (
+                    'novel-ideation', '引导前', '旧题材', NULL, NULL, 'draft',
+                    '2026-01-01 00:00:00', '2026-01-01 00:00:00', NULL
+                )
+                """
+            )
+        )
+
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        stored = connection.execute(
+            text("SELECT title, genre, core_conflict FROM novels WHERE id = 'novel-ideation'")
+        ).one()
+        sessions = connection.execute(text("SELECT COUNT(*) FROM ideation_sessions")).scalar_one()
+        candidates = connection.execute(
+            text("SELECT COUNT(*) FROM ideation_candidates")
+        ).scalar_one()
+        index_rows = connection.execute(
+            text("SELECT name FROM sqlite_master WHERE type = 'index'")
+        ).scalars()
+        indexes = set(index_rows)
+        links = connection.execute(text("PRAGMA foreign_key_list(ideation_candidates)")).all()
+    assert version == "0014_guided_ideation"
+    assert stored == ("引导前", "旧题材", None)
+    assert sessions == 0
+    assert candidates == 0
+    assert "ix_ideation_sessions_novel_id" in indexes
+    assert "ix_ideation_candidates_session_id" in indexes
+    assert "ix_ideation_candidates_novel_id_status" in indexes
+    assert any(item[2] == "ideation_sessions" and item[3] == "session_id" for item in links)
+    assert any(item[2] == "novels" and item[3] == "novel_id" for item in links)
+
+    command.downgrade(config, "0013_manuscript_material_sync")
+    with engine.connect() as connection:
+        version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        tables = set(
+            connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'table'")
+            ).scalars()
+        )
+        columns = {item[1] for item in connection.execute(text("PRAGMA table_info(novels)")).all()}
+        title = connection.execute(
+            text("SELECT title, genre FROM novels WHERE id = 'novel-ideation'")
+        ).one()
+    engine.dispose()
+    assert version == "0013_manuscript_material_sync"
+    assert title == ("引导前", "旧题材")
+    assert "core_conflict" not in columns
+    assert "ideation_sessions" not in tables
+    assert "ideation_candidates" not in tables

@@ -18,6 +18,7 @@ export type NovelWrite = {
   genre?: string | null;
   synopsis?: string | null;
   style_guide?: string | null;
+  core_conflict?: string | null;
   status?: NovelStatus;
 };
 

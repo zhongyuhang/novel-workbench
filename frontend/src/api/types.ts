@@ -24,6 +24,7 @@ export type Novel = {
   genre: string | null;
   synopsis: string | null;
   style_guide: string | null;
+  core_conflict: string | null;
   status: NovelStatus;
   created_at: string;
   updated_at: string;
@@ -34,6 +35,7 @@ export type NovelDraft = {
   genre: string;
   synopsis: string;
   style_guide: string;
+  core_conflict: string;
   status: NovelStatus;
 };
 

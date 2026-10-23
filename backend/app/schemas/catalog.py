@@ -26,6 +26,7 @@ class NovelCreate(BaseModel):
     genre: str | None = Field(default=None, max_length=100)
     synopsis: str | None = Field(default=None, max_length=20000)
     style_guide: str | None = Field(default=None, max_length=20000)
+    core_conflict: str | None = Field(default=None, max_length=20000)
     status: NovelStatus = "draft"
 
     @field_validator("title")
@@ -39,6 +40,7 @@ class NovelUpdate(BaseModel):
     genre: str | None = Field(default=None, max_length=100)
     synopsis: str | None = Field(default=None, max_length=20000)
     style_guide: str | None = Field(default=None, max_length=20000)
+    core_conflict: str | None = Field(default=None, max_length=20000)
     status: NovelStatus | None = None
 
     @field_validator("title")
@@ -57,6 +59,7 @@ class NovelResponse(BaseModel):
     genre: str | None
     synopsis: str | None
     style_guide: str | None
+    core_conflict: str | None
     status: NovelStatus
     created_at: datetime
     updated_at: datetime

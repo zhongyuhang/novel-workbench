@@ -18,6 +18,7 @@ import { exportPortable } from "../api/portable.ts";
 import { ApiError, type Chapter, type ChapterSummary, type Novel, type Volume } from "../api/types.ts";
 import { AiPanel } from "../components/AiPanel.tsx";
 import { ChapterEditor } from "../components/ChapterEditor.tsx";
+import { IdeationPanel } from "../components/IdeationPanel.tsx";
 import { MemoryPanel } from "../components/MemoryPanel.tsx";
 import { ChapterPlanEditor, OutlinePanel } from "../components/OutlinePanel.tsx";
 import { QualityPanel } from "../components/QualityPanel.tsx";
@@ -54,7 +55,8 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
   const [busy, setBusy] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  const [sideTab, setSideTab] = useState<"write" | "memory" | "quality">("write");
+  const [sideTab, setSideTab] = useState<"write" | "memory" | "quality" | "ideation">("write");
+  const [materialVersion, setMaterialVersion] = useState(0);
   const [leftView, setLeftView] = useState<"toc" | "outline">("toc");
   const [centerView, setCenterView] = useState<"manuscript" | "outline">("manuscript");
   const unsavedRef = useRef(false);
@@ -374,6 +376,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
               chapters={chapters}
               volumes={volumes}
               activeChapterId={chapterId}
+              materialVersion={materialVersion}
               onOpenChapter={(id) => {
                 openChapterIn(id, "outline");
               }}
@@ -703,6 +706,17 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
             >
               质量
             </button>
+            <button
+              className={sideTab === "ideation" ? "primary" : "ghost"}
+              type="button"
+              role="tab"
+              aria-selected={sideTab === "ideation"}
+              onClick={() => {
+                setSideTab("ideation");
+              }}
+            >
+              创意
+            </button>
           </div>
           <div hidden={sideTab !== "write"}>
             <AiPanel
@@ -727,6 +741,14 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
               }}
             />
           </div>
+          <div hidden={sideTab !== "ideation"}>
+            <IdeationPanel
+              novelId={novelId}
+              onFormalWrite={() => {
+                setMaterialVersion((version) => version + 1);
+              }}
+            />
+          </div>
           <div hidden={sideTab !== "memory"}>
             <MemoryPanel
               novelId={novelId}
@@ -735,6 +757,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
               activeTitle={chapter?.title ?? null}
               editorDirty={unsaved}
               chapters={chapters}
+              materialVersion={materialVersion}
             />
           </div>
         </div>

@@ -98,6 +98,7 @@ def create_novel(session: Session, payload: NovelCreate) -> Novel:
         genre=_blank_to_none(payload.genre),
         synopsis=_blank_to_none(payload.synopsis),
         style_guide=_blank_to_none(payload.style_guide),
+        core_conflict=_blank_to_none(payload.core_conflict),
         status=payload.status,
         created_at=now,
         updated_at=now,
@@ -129,6 +130,8 @@ def update_novel(session: Session, novel_id: str, payload: NovelUpdate) -> Novel
         novel.synopsis = _blank_to_none(changes["synopsis"])
     if "style_guide" in changes:
         novel.style_guide = _blank_to_none(changes["style_guide"])
+    if "core_conflict" in changes:
+        novel.core_conflict = _blank_to_none(changes["core_conflict"])
     if "status" in changes:
         novel.status = changes["status"]
     novel.updated_at = _now()

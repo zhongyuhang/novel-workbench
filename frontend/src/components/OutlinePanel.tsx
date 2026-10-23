@@ -46,6 +46,7 @@ type OutlinePanelProps = {
   volumes: Volume[];
   activeChapterId: string | null;
   onOpenChapter: (chapterId: string) => void;
+  materialVersion?: number;
 };
 
 type ChapterPlanEditorProps = {
@@ -96,6 +97,7 @@ export function OutlinePanel({
   volumes,
   activeChapterId,
   onOpenChapter,
+  materialVersion = 0,
 }: OutlinePanelProps) {
   const [plan, setPlan] = useState<StoryPlan | null>(null);
   const [arcs, setArcs] = useState<StoryArc[]>([]);
@@ -142,7 +144,7 @@ export function OutlinePanel({
       active = false;
       controller.abort();
     };
-  }, [novelId]);
+  }, [novelId, materialVersion]);
 
   const outlineByChapter = new Map(outlines.map((item) => [item.chapter_id, item]));
   const volumeOutlineById = new Map(volumeOutlines.map((item) => [item.volume_id, item]));

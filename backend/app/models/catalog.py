@@ -32,6 +32,7 @@ class Novel(Base):
     genre: Mapped[str | None] = mapped_column(String(100))
     synopsis: Mapped[str | None] = mapped_column(Text)
     style_guide: Mapped[str | None] = mapped_column(Text)
+    core_conflict: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
