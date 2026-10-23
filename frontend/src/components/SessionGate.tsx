@@ -65,7 +65,6 @@ export function SessionGate({ children }: SessionGateProps) {
     <div className="page gate-page">
       <header className="topbar">
         <div className="brand">
-          <p className="eyebrow">个人长篇</p>
           <p className="wordmark">AI Novel Writer</p>
         </div>
         <ThemeSwitcher />

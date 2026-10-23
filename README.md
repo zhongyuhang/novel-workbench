@@ -72,5 +72,6 @@ cd frontend && npm ci && npm run dev
 - [引导式创意、世界观与人物设计](docs/14-guided-ideation.md)
 - [编年史与事件规划](docs/15-chronicle.md)
 - [界面视觉](docs/16-ui-refresh.md)
+- [界面去模板痕迹](docs/ui-taste.md)
 - [release 1.0.0 方案](docs/release-1.0.0-plan.md)
 - [决策记录](docs/adr/)

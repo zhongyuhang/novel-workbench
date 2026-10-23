@@ -20,7 +20,6 @@ import { AiPanel } from "../components/AiPanel.tsx";
 import { ChapterEditor } from "../components/ChapterEditor.tsx";
 import { ChroniclePanel } from "../components/ChroniclePanel.tsx";
 import { confirmDialog } from "../components/ConfirmDialog.tsx";
-import { EmptyMark } from "../components/EmptyMark.tsx";
 import { IdeationPanel } from "../components/IdeationPanel.tsx";
 import { MemoryPanel } from "../components/MemoryPanel.tsx";
 import { ChapterPlanEditor, OutlinePanel } from "../components/OutlinePanel.tsx";
@@ -289,8 +288,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
         >
           返回作品库
         </a>
-        <div>
-          <p className="eyebrow">作品</p>
+        <div className="workspace-heading">
           <h1>{novel?.title ?? "读取中"}</h1>
         </div>
         <div className="topbar-meta">
@@ -428,7 +426,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
           ) : null}
           {leftView === "toc" && loading ? <p role="status">正在读取目录</p> : null}
           {leftView === "toc" && !loading && chapters.length === 0 && volumes.length === 0 ? (
-            <p className="hint">还没有卷或章节。</p>
+            <p className="empty">还没有卷或章节。</p>
           ) : null}
           {leftView === "toc"
             ? toc.map((group) => (
@@ -721,7 +719,6 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
           ) : null}
           {!chapter || chapter.id !== chapterId ? (
             <div className="empty">
-              <EmptyMark />
               <p className="empty-title">{chapterId ? "正在打开章节" : "选择一章"}</p>
               <p>从左侧目录打开章节，或从这里新建。正文保存在服务器，刷新后仍在。</p>
               {chapterId ? null : (
