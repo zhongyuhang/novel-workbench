@@ -14,6 +14,7 @@ import {
   type QualityIssue,
   type RepairCandidate,
 } from "../api/quality.ts";
+import { confirmDialog } from "./ConfirmDialog.tsx";
 
 type QualityIssuesSectionProps = {
   novelId: string;
@@ -254,7 +255,7 @@ function IssueCard({
     if (!candidate.applicable) {
       return;
     }
-    if (!window.confirm("采纳后会写入新的正文版本。正式设定不会改。确定采纳？")) {
+    if (!(await confirmDialog("采纳后会写入新的正文版本。正式设定不会改。确定采纳？"))) {
       return;
     }
     onBusy(true);

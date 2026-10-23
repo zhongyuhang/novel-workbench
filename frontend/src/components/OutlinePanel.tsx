@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listModelConfigs } from "../api/models.ts";
+import { confirmDialog } from "./ConfirmDialog.tsx";
 import { listEntities, type StoryEntity } from "../api/memory.ts";
 import {
   PLANNING_STATUS_LABEL,
@@ -482,7 +483,7 @@ export function ChapterPlanEditor({ novelId, chapterId, chapterTitle }: ChapterP
   }
 
   async function removeScene(scene: SceneCard) {
-    if (!window.confirm(`删除场景「${scene.goal ?? "未命名"}」？`)) {
+    if (!(await confirmDialog(`删除场景「${scene.goal ?? "未命名"}」？`, { tone: "danger" }))) {
       return;
     }
     setBusy(true);
@@ -971,7 +972,7 @@ function StoryArcEditor({
   }
 
   async function removeArc(arc: StoryArc) {
-    if (!window.confirm(`删除故事线「${arc.title}」？`)) {
+    if (!(await confirmDialog(`删除故事线「${arc.title}」？`, { tone: "danger" }))) {
       return;
     }
     onBusy(true);

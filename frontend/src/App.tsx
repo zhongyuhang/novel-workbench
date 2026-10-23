@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ConfirmHost } from "./components/ConfirmDialog.tsx";
 import { SessionGate } from "./components/SessionGate.tsx";
 import { ModelSettingsPage } from "./pages/ModelSettingsPage.tsx";
 import { NovelLibraryPage } from "./pages/NovelLibraryPage.tsx";
@@ -8,7 +9,9 @@ import { parseHash, type Route } from "./routes.ts";
 export function App() {
   const route = useHashRoute();
   return (
-    <SessionGate>
+    <>
+      <ConfirmHost />
+      <SessionGate>
       {route.kind === "library" ? (
         <NovelLibraryPage />
       ) : route.kind === "settings" ? (
@@ -17,6 +20,7 @@ export function App() {
         <WorkspacePage novelId={route.novelId} chapterId={route.chapterId} />
       )}
     </SessionGate>
+    </>
   );
 }
 

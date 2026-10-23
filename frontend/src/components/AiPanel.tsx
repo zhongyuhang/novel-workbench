@@ -18,6 +18,7 @@ import {
   type CompiledContext,
   type ModelConfig,
 } from "../api/types.ts";
+import { confirmDialog } from "./ConfirmDialog.tsx";
 import { ContextPreview } from "./ContextPreview.tsx";
 import { idleCandidate, reduceCandidate, type CandidateState } from "../features/ai/candidateStream.ts";
 import { stateFromTask } from "../features/ai/taskRecovery.ts";
@@ -276,7 +277,9 @@ export function AiPanel({
       return;
     }
     if (applyMode === "replace_selection" && selectionText.trim() === "") {
-      const confirmed = window.confirm("没有选区，替换会覆盖整章正文。确定？");
+      const confirmed = await confirmDialog("没有选区，替换会覆盖整章正文。确定？", {
+        tone: "danger",
+      });
       if (!confirmed) {
         return;
       }

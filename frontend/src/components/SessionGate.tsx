@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { openSession, readToken, SESSION_REQUIRED_EVENT } from "../api/client.ts";
 import { ApiError } from "../api/types.ts";
+import { ThemeSwitcher } from "./ThemeSwitcher.tsx";
 
 type GateState =
   | { kind: "loading" }
@@ -61,12 +62,13 @@ export function SessionGate({ children }: SessionGateProps) {
   }
 
   return (
-    <div className="page">
+    <div className="page gate-page">
       <header className="topbar">
         <div className="brand">
           <p className="eyebrow">个人长篇</p>
           <p className="wordmark">AI Novel Writer</p>
         </div>
+        <ThemeSwitcher />
       </header>
       <main className="main">
         <section className="library">

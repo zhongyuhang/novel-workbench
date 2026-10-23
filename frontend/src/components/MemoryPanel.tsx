@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listModelConfigs } from "../api/models.ts";
+import { confirmDialog } from "./ConfirmDialog.tsx";
 import {
   acceptProposal,
   analyzeChapter,
@@ -344,7 +345,7 @@ export function MemoryPanel({
   }
 
   async function removeRelation(relationId: string) {
-    if (!window.confirm("删除这条人物关系？正式正文不会改动。")) {
+    if (!(await confirmDialog("删除这条人物关系？正式正文不会改动。", { tone: "danger" }))) {
       return;
     }
     setBusyId(relationId);
@@ -388,7 +389,7 @@ export function MemoryPanel({
   ) {
     const writing = action === "accept" || action === "edited";
     if (writing && proposal.status === "stale") {
-      const confirmed = window.confirm(
+      const confirmed = await confirmDialog(
         "这份候选对应的章节修订已经过期。仍然确认并写入正式资料？正文不会被修改。",
       );
       if (!confirmed) {
@@ -396,7 +397,7 @@ export function MemoryPanel({
       }
     }
     if (writing && (proposal.status === "pending" || proposal.status === "deferred")) {
-      const confirmed = window.confirm(
+      const confirmed = await confirmDialog(
         action === "edited"
           ? "按修改后的内容确认，并写入正式资料。正文不会被修改。"
           : "确认后会写入正式资料。正文不会被修改。",

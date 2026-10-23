@@ -18,13 +18,16 @@ import { exportPortable } from "../api/portable.ts";
 import { ApiError, type Chapter, type ChapterSummary, type Novel, type Volume } from "../api/types.ts";
 import { AiPanel } from "../components/AiPanel.tsx";
 import { ChapterEditor } from "../components/ChapterEditor.tsx";
+import { confirmDialog } from "../components/ConfirmDialog.tsx";
+import { EmptyMark } from "../components/EmptyMark.tsx";
 import { IdeationPanel } from "../components/IdeationPanel.tsx";
 import { MemoryPanel } from "../components/MemoryPanel.tsx";
 import { ChapterPlanEditor, OutlinePanel } from "../components/OutlinePanel.tsx";
 import { QualityPanel } from "../components/QualityPanel.tsx";
 import { requestMemoryAnalyze } from "../features/memory/analyzeBridge.ts";
 import { HealthBadge } from "../components/HealthBadge.tsx";
-import { allowChapterLeave } from "../editor/leaveGuard.ts";
+import { ThemeSwitcher } from "../components/ThemeSwitcher.tsx";
+import { UNSAVED_LEAVE_MESSAGE } from "../editor/leaveGuard.ts";
 import { useBackendHealth } from "../features/library/useBackendHealth.ts";
 import { parseHash, workspaceHash } from "../routes.ts";
 
@@ -59,6 +62,8 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
   const [materialVersion, setMaterialVersion] = useState(0);
   const [leftView, setLeftView] = useState<"toc" | "outline">("toc");
   const [centerView, setCenterView] = useState<"manuscript" | "outline">("manuscript");
+  const [tocOpen, setTocOpen] = useState(true);
+  const [sideOpen, setSideOpen] = useState(true);
   const unsavedRef = useRef(false);
   const skipGuardRef = useRef(false);
   const chapterStatusRef = useRef<string | null>(null);
@@ -167,10 +172,14 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
       if (sameChapter) {
         return;
       }
-      if (!allowChapterLeave(true, (message) => window.confirm(message))) {
+      const destination = window.location.hash;
+      void confirmDialog(UNSAVED_LEAVE_MESSAGE).then((ok) => {
+        if (ok || window.location.hash !== destination) {
+          return;
+        }
         skipGuardRef.current = true;
         window.location.hash = workspaceHash(novelId, chapterId);
-      }
+      });
     };
     window.addEventListener("hashchange", onHashChange);
     return () => {
@@ -179,14 +188,19 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
   }, [chapterId, novelId]);
 
   function tryNavigate(hash: string) {
-    if (!allowChapterLeave(unsavedRef.current, (message) => window.confirm(message))) {
-      return;
-    }
-    if (window.location.hash === hash) {
-      return;
-    }
-    skipGuardRef.current = true;
-    window.location.hash = hash;
+    void (async () => {
+      if (unsavedRef.current) {
+        const ok = await confirmDialog(UNSAVED_LEAVE_MESSAGE);
+        if (!ok) {
+          return;
+        }
+      }
+      if (window.location.hash === hash) {
+        return;
+      }
+      skipGuardRef.current = true;
+      window.location.hash = hash;
+    })();
   }
 
   function forceNavigate(hash: string) {
@@ -242,23 +256,25 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
   function openChapterIn(id: string, view: "manuscript" | "outline") {
     const leavingManuscript =
       centerView === "manuscript" && (id !== chapterId || view !== "manuscript");
-    if (
-      leavingManuscript &&
-      !allowChapterLeave(unsavedRef.current, (message) => window.confirm(message))
-    ) {
-      return;
-    }
-    setCenterView(view);
-    if (id === chapterId) {
-      return;
-    }
-    forceNavigate(workspaceHash(novelId, id));
+    void (async () => {
+      if (leavingManuscript && unsavedRef.current) {
+        const ok = await confirmDialog(UNSAVED_LEAVE_MESSAGE);
+        if (!ok) {
+          return;
+        }
+      }
+      setCenterView(view);
+      if (id === chapterId) {
+        return;
+      }
+      forceNavigate(workspaceHash(novelId, id));
+    })();
   }
 
   const toc = buildToc(volumes, chapters);
 
   return (
-    <div className="workspace">
+    <div className={`workspace${tocOpen ? "" : " is-toc-closed"}${sideOpen ? "" : " is-side-closed"}`}>
       <header className="workspace-top">
         <a
           className="ghost back-link"
@@ -275,48 +291,73 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
           <h1>{novel?.title ?? "读取中"}</h1>
         </div>
         <div className="topbar-meta">
-          <p className="milestone">E1 叙事规划</p>
+          <div className="inline-actions pane-toggle">
+            <button
+              className="ghost"
+              type="button"
+              aria-pressed={tocOpen}
+              onClick={() => {
+                setTocOpen((open) => !open);
+              }}
+            >
+              {tocOpen ? "收起目录" : "展开目录"}
+            </button>
+            <button
+              className="ghost"
+              type="button"
+              aria-pressed={sideOpen}
+              onClick={() => {
+                setSideOpen((open) => !open);
+              }}
+            >
+              {sideOpen ? "收起侧栏" : "展开侧栏"}
+            </button>
+          </div>
           <a className="ghost" href="#/settings">
             模型设置
           </a>
-          <div className="inline-actions">
-            <button
-              className="ghost"
-              type="button"
-              disabled={busy || !novel}
-              onClick={() => {
-                void run(async () => {
-                  await downloadExport(novelId, "markdown");
-                });
-              }}
-            >
-              导出 Markdown
-            </button>
-            <button
-              className="ghost"
-              type="button"
-              disabled={busy || !novel}
-              onClick={() => {
-                void run(async () => {
-                  await downloadExport(novelId, "txt");
-                });
-              }}
-            >
-              导出 TXT
-            </button>
-            <button
-              className="ghost"
-              type="button"
-              disabled={busy || !novel}
-              onClick={() => {
-                void run(async () => {
-                  await downloadPortable(novelId);
-                });
-              }}
-            >
-              导出作品包
-            </button>
-          </div>
+          <ThemeSwitcher />
+          <details className="menu">
+            <summary className="ghost">导出</summary>
+            <div className="menu-panel">
+              <button
+                className="ghost"
+                type="button"
+                disabled={busy || !novel}
+                onClick={() => {
+                  void run(async () => {
+                    await downloadExport(novelId, "markdown");
+                  });
+                }}
+              >
+                导出 Markdown
+              </button>
+              <button
+                className="ghost"
+                type="button"
+                disabled={busy || !novel}
+                onClick={() => {
+                  void run(async () => {
+                    await downloadExport(novelId, "txt");
+                  });
+                }}
+              >
+                导出 TXT
+              </button>
+              <button
+                className="ghost"
+                type="button"
+                disabled={busy || !novel}
+                onClick={() => {
+                  void run(async () => {
+                    await downloadPortable(novelId);
+                  });
+                }}
+              >
+                导出作品包
+              </button>
+            </div>
+          </details>
           <HealthBadge state={health} />
         </div>
       </header>
@@ -326,7 +367,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
         </p>
       ) : null}
       <div className="workspace-columns">
-        <nav className="workspace-pane toc-pane" aria-label="目录与大纲">
+        <nav className="workspace-pane toc-pane" aria-label="目录与大纲" inert={tocOpen ? undefined : true}>
           <div className="pane-toolbar">
             <div className="view-tabs" role="tablist" aria-label="左栏视图">
               <button
@@ -479,13 +520,19 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
                         if (!volume) {
                           return;
                         }
-                        if (!window.confirm(`删除「${volume.title}」？其中的章节会移到未分卷。`)) {
-                          return;
-                        }
-                        void run(async () => {
-                          await deleteVolume(volume.id);
-                          await refreshStructure();
-                        });
+                        void (async () => {
+                          const ok = await confirmDialog(
+                            `删除「${volume.title}」？其中的章节会移到未分卷。`,
+                            { tone: "danger" },
+                          );
+                          if (!ok) {
+                            return;
+                          }
+                          await run(async () => {
+                            await deleteVolume(volume.id);
+                            await refreshStructure();
+                          });
+                        })();
                       }}
                     >
                       删除卷
@@ -572,16 +619,21 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
                         type="button"
                         disabled={busy}
                         onClick={() => {
-                          if (!window.confirm(`删除章节「${item.title}」？`)) {
-                            return;
-                          }
-                          void run(async () => {
-                            await deleteChapter(item.id);
-                            await refreshStructure();
-                            if (chapterId === item.id) {
-                              forceNavigate(workspaceHash(novelId, null));
+                          void (async () => {
+                            const ok = await confirmDialog(`删除章节「${item.title}」？`, {
+                              tone: "danger",
+                            });
+                            if (!ok) {
+                              return;
                             }
-                          });
+                            await run(async () => {
+                              await deleteChapter(item.id);
+                              await refreshStructure();
+                              if (chapterId === item.id) {
+                                forceNavigate(workspaceHash(novelId, null));
+                              }
+                            });
+                          })();
                         }}
                       >
                         删除
@@ -666,12 +718,29 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
           ) : null}
           {!chapter || chapter.id !== chapterId ? (
             <div className="empty">
+              <EmptyMark />
               <p className="empty-title">{chapterId ? "正在打开章节" : "选择一章"}</p>
-              <p>从左侧目录打开章节，或在未分卷下新建。正文保存在服务器，刷新后仍在。</p>
+              <p>从左侧目录打开章节，或从这里新建。正文保存在服务器，刷新后仍在。</p>
+              {chapterId ? null : (
+                <button
+                  className="primary"
+                  type="button"
+                  disabled={busy || loading}
+                  onClick={() => {
+                    void run(async () => {
+                      const created = await createChapter(novelId, "未命名章节", null);
+                      await refreshStructure();
+                      openChapter(created.id);
+                    });
+                  }}
+                >
+                  新建章节
+                </button>
+              )}
             </div>
           ) : null}
         </main>
-        <div className="side-pane">
+        <div className="side-pane" inert={sideOpen ? undefined : true}>
           <div className="side-tabs" role="tablist" aria-label="写作侧栏">
             <button
               className={sideTab === "write" ? "primary" : "ghost"}

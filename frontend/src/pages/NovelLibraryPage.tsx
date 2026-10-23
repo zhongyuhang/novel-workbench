@@ -9,8 +9,11 @@ import {
   type PortablePreview,
 } from "../api/portable.ts";
 import { ApiError, type Novel, type NovelDraft, type NovelStatus } from "../api/types.ts";
+import { confirmDialog } from "../components/ConfirmDialog.tsx";
+import { EmptyMark } from "../components/EmptyMark.tsx";
 import { HealthBadge } from "../components/HealthBadge.tsx";
 import { LibraryMaintenance } from "../components/LibraryMaintenance.tsx";
+import { ThemeSwitcher } from "../components/ThemeSwitcher.tsx";
 import {
   CANONICAL_CONTENT_FORMAT,
   CANONICAL_CONTENT_FORMAT_VERSION,
@@ -85,17 +88,17 @@ export function NovelLibraryPage() {
   }, []);
 
   return (
-    <div className="page">
+    <div className="page library-page">
       <header className="topbar">
         <div className="brand">
           <p className="eyebrow">个人长篇</p>
           <p className="wordmark">AI Novel Writer</p>
         </div>
         <div className="topbar-meta">
-          <p className="milestone">M3 作品库</p>
           <a className="ghost" href="#/settings">
             模型设置
           </a>
+          <ThemeSwitcher />
           <HealthBadge state={health} />
         </div>
       </header>
@@ -197,8 +200,19 @@ export function NovelLibraryPage() {
           {novels === null ? <p role="status">正在读取作品</p> : null}
           {novels?.length === 0 ? (
             <div className="empty">
+              <EmptyMark />
               <p className="empty-title">还没有作品</p>
-              <p>用「新建作品」写下标题。这里不会展示虚构的样例小说。</p>
+              <p>写下标题即可开始。这里不会展示虚构的样例小说。</p>
+              <button
+                className="primary"
+                type="button"
+                onClick={() => {
+                  setCreating(true);
+                  setEditingId(null);
+                }}
+              >
+                新建作品
+              </button>
             </div>
           ) : null}
           <ul className="novel-list">
@@ -246,7 +260,12 @@ export function NovelLibraryPage() {
                       className="ghost danger"
                       type="button"
                       onClick={() => {
-                        if (!window.confirm(`删除「${novel.title}」？删除后不再出现在作品库。`)) {
+                        void (async () => {
+                        const ok = await confirmDialog(
+                          `删除「${novel.title}」？删除后不再出现在作品库。`,
+                          { tone: "danger" },
+                        );
+                        if (!ok) {
                           return;
                         }
                         void deleteNovel(novel.id)
@@ -254,6 +273,7 @@ export function NovelLibraryPage() {
                           .catch((cause: unknown) => {
                             setError(cause instanceof ApiError ? cause.message : "删除没有完成。");
                           });
+                        })();
                       }}
                     >
                       删除
