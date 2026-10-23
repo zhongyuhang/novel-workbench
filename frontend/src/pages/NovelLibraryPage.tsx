@@ -10,7 +10,6 @@ import {
 } from "../api/portable.ts";
 import { ApiError, type Novel, type NovelDraft, type NovelStatus } from "../api/types.ts";
 import { confirmDialog } from "../components/ConfirmDialog.tsx";
-import { EmptyMark } from "../components/EmptyMark.tsx";
 import { HealthBadge } from "../components/HealthBadge.tsx";
 import { LibraryMaintenance } from "../components/LibraryMaintenance.tsx";
 import { ThemeSwitcher } from "../components/ThemeSwitcher.tsx";
@@ -91,7 +90,6 @@ export function NovelLibraryPage() {
     <div className="page library-page">
       <header className="topbar">
         <div className="brand">
-          <p className="eyebrow">个人长篇</p>
           <p className="wordmark">AI Novel Writer</p>
         </div>
         <div className="topbar-meta">
@@ -200,7 +198,6 @@ export function NovelLibraryPage() {
           {novels === null ? <p role="status">正在读取作品</p> : null}
           {novels?.length === 0 ? (
             <div className="empty">
-              <EmptyMark />
               <p className="empty-title">还没有作品</p>
               <p>写下标题即可开始。这里不会展示虚构的样例小说。</p>
               <button

@@ -149,7 +149,7 @@ export function ChroniclePanel({ novelId, chapters, onFormalWrite }: ChroniclePa
       </p>
       {error ? <p className="error">{error}</p> : null}
       {message ? <p className="hint">{message}</p> : null}
-      {events.length === 0 ? <p className="hint">还没有编年史事件。</p> : null}
+      {events.length === 0 ? <p className="empty">还没有编年史事件。</p> : null}
       <ol className="chronicle-list" aria-label="编年史">
         {events.map((event) => (
           <EventCard

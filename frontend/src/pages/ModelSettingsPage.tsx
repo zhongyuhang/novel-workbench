@@ -226,7 +226,6 @@ export function ModelSettingsPage() {
           <a className="ghost" href="#/">
             返回作品库
           </a>
-          <p className="eyebrow">设置</p>
           <h1>模型配置</h1>
         </div>
         <ThemeSwitcher />
