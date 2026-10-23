@@ -21,6 +21,14 @@ import {
 import { confirmDialog } from "./ConfirmDialog.tsx";
 import { ContextPreview } from "./ContextPreview.tsx";
 import { idleCandidate, reduceCandidate, type CandidateState } from "../features/ai/candidateStream.ts";
+import {
+  compiledPromptText,
+  excludeIdsForScope,
+  localPromptPreview,
+  scopeLabel,
+  type ContextScope,
+} from "../features/ai/contextScope.ts";
+import { readSavedInstructions, saveInstructionText } from "../features/ai/savedInstructions.ts";
 import { stateFromTask } from "../features/ai/taskRecovery.ts";
 
 type AiPanelProps = {
@@ -32,14 +40,19 @@ type AiPanelProps = {
   onAccepted: (chapter: Chapter) => void;
 };
 
-const TASKS: Array<{ value: AiTaskType; label: string }> = [
-  { value: "continue", label: "续写" },
-  { value: "rewrite", label: "改写" },
-  { value: "polish", label: "润色" },
-  { value: "expand", label: "扩写" },
-  { value: "shrink", label: "缩写" },
-  { value: "proofread", label: "校对" },
+const VERBS: Array<{ value: AiTaskType; label: string; field: string; hint: string }> = [
+  { value: "continue", label: "续写", field: "接着写什么", hint: "写给这一次续写的要求。可以留空。" },
+  { value: "polish", label: "润色", field: "润色要求", hint: "说明要保留的语气。留空就按当前正文润色。" },
+  { value: "rewrite", label: "改写", field: "改成什么样", hint: "先在正文里选中一段，再说明想改成什么样。" },
+  { value: "expand", label: "扩写", field: "往哪里扩", hint: "说明要展开的情节、对话或感官。" },
 ];
+
+const EXTRA_TASKS: Array<{ value: AiTaskType; label: string; field: string; hint: string }> = [
+  { value: "shrink", label: "缩写", field: "缩写要求", hint: "说明要留下什么。" },
+  { value: "proofread", label: "校对", field: "校对要求", hint: "说明要检查的问题。" },
+];
+
+const TASKS = [...VERBS, ...EXTRA_TASKS];
 
 const APPLY_MODES: Array<{ value: ApplyMode; label: string }> = [
   { value: "append", label: "追加到章末" },
@@ -76,6 +89,9 @@ export function AiPanel({
   const [contextError, setContextError] = useState("");
   const [pinnedInclude, setPinnedInclude] = useState<string[]>([]);
   const [pinnedExclude, setPinnedExclude] = useState<string[]>([]);
+  const [contextScope, setContextScope] = useState<ContextScope>({ outline: false, characters: false });
+  const [savedInstructions, setSavedInstructions] = useState<string[]>(readSavedInstructions);
+  const [instructionNote, setInstructionNote] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -96,7 +112,8 @@ export function AiPanel({
     };
   }, []);
 
-  const taskLabel = TASKS.find((item) => item.value === taskType)?.label ?? "续写";
+  const taskMeta = TASKS.find((item) => item.value === taskType) ?? VERBS[0];
+  const taskLabel = taskMeta?.label ?? "续写";
   const realModels = (configs ?? []).filter(
     (item) => item.is_enabled && item.provider_type === "openai_compatible",
   );
@@ -146,6 +163,7 @@ export function AiPanel({
     let activeTaskId: string | null = null;
     try {
       const words = maxWords.trim() === "" ? undefined : Number(maxWords);
+      const pins = await resolvedPins();
       const task = await createAiTask({
         novel_id: novelId,
         chapter_id: chapter.id,
@@ -160,8 +178,8 @@ export function AiPanel({
           must_include: mustInclude.trim() || undefined,
           must_avoid: mustAvoid.trim() || undefined,
         },
-        pinned_include: pinnedInclude,
-        pinned_exclude: pinnedExclude,
+        pinned_include: pins.pinned_include,
+        pinned_exclude: pins.pinned_exclude,
       });
       activeTaskId = task.id;
       setTaskId(task.id);
@@ -327,6 +345,60 @@ export function AiPanel({
     }
   }
 
+  function compilePayload(include: string[], exclude: string[]) {
+    const words = maxWords.trim() === "" ? undefined : Number(maxWords);
+    return {
+      novel_id: novelId ?? "",
+      chapter_id: chapter?.id,
+      task_type: taskType,
+      instruction: instruction.trim(),
+      selection_text: selectionText,
+      target_revision: savedRevision ?? undefined,
+      constraints: {
+        max_words: words !== undefined && Number.isFinite(words) ? words : undefined,
+        must_include: mustInclude.trim() || undefined,
+        must_avoid: mustAvoid.trim() || undefined,
+      },
+      pinned_include: include,
+      pinned_exclude: exclude,
+    };
+  }
+
+  async function resolvedPins(): Promise<{
+    pinned_include: string[];
+    pinned_exclude: string[];
+    compiled: CompiledContext | null;
+  }> {
+    const manual = { pinned_include: pinnedInclude, pinned_exclude: pinnedExclude, compiled: null };
+    if (!novelId || !chapter || savedRevision === null) {
+      return manual;
+    }
+    try {
+      const probe = await compileContext(compilePayload(pinnedInclude, pinnedExclude));
+      if (!probe?.items) {
+        return manual;
+      }
+      const extra = excludeIdsForScope(probe.items, contextScope, pinnedInclude);
+      if (extra.length === 0) {
+        return { pinned_include: pinnedInclude, pinned_exclude: pinnedExclude, compiled: probe };
+      }
+      const exclude = [...pinnedExclude];
+      for (const id of extra) {
+        if (!exclude.includes(id)) {
+          exclude.push(id);
+        }
+      }
+      const next = await compileContext(compilePayload(pinnedInclude, exclude));
+      return {
+        pinned_include: pinnedInclude,
+        pinned_exclude: exclude,
+        compiled: next?.items ? next : probe,
+      };
+    } catch {
+      return manual;
+    }
+  }
+
   async function previewContext() {
     setContextError("");
     if (!novelId || !chapter || savedRevision === null) {
@@ -339,23 +411,12 @@ export function AiPanel({
     }
     setBusy(true);
     try {
-      const words = maxWords.trim() === "" ? undefined : Number(maxWords);
-      const next = await compileContext({
-        novel_id: novelId,
-        chapter_id: chapter.id,
-        task_type: taskType,
-        instruction: instruction.trim(),
-        selection_text: selectionText,
-        target_revision: savedRevision,
-        constraints: {
-          max_words: words !== undefined && Number.isFinite(words) ? words : undefined,
-          must_include: mustInclude.trim() || undefined,
-          must_avoid: mustAvoid.trim() || undefined,
-        },
-        pinned_include: pinnedInclude,
-        pinned_exclude: pinnedExclude,
-      });
-      setCompiled(next);
+      const pins = await resolvedPins();
+      if (pins.compiled) {
+        setCompiled(pins.compiled);
+        return;
+      }
+      setCompiled(await compileContext(compilePayload(pins.pinned_include, pins.pinned_exclude)));
     } catch (cause: unknown) {
       setCompiled(null);
       setContextError(cause instanceof ApiError ? cause.message : "上下文编译失败，没有开始生成。");
@@ -378,45 +439,74 @@ export function AiPanel({
     setPinnedInclude((current) => current.filter((item) => item !== id));
   }
 
+  function chooseTask(next: AiTaskType) {
+    setTaskType(next);
+    setApplyMode(defaultApplyMode(next, selectionText));
+    setCompiled(null);
+  }
+
+  const previewText = localPromptPreview({
+    taskLabel,
+    instruction,
+    selection: selectionText,
+    maxWords,
+    mustInclude,
+    mustAvoid,
+    scopeLabel: scopeLabel(contextScope),
+  });
+  const chapterOnly = !contextScope.outline && !contextScope.characters;
+
   return (
     <aside className="workspace-pane ai-pane" aria-labelledby="ai-heading">
       <h2 id="ai-heading">写作辅助</h2>
       <p className="hint">生成结果只是候选。采纳前不会改写正文，也不会写入记忆。</p>
-      <section className="selection-rewrite" aria-label="选区改写">
-        <h3>选区改写</h3>
-        <p className="hint">
-          {selectionText.trim()
-            ? "将只改写选中的文字。候选需要你比较后再采纳或放弃。"
-            : "在正文里选中一段文字后，可以只改这一段。"}
-        </p>
-        {selectionText.trim() ? (
-          <p className="candidate-box" aria-label="当前选区">
-            {selectionText}
-          </p>
-        ) : null}
-        <div className="inline-actions">
+      <div className="verb-chips" role="group" aria-label="写作动作">
+        {VERBS.map((item) => (
           <button
-            className="primary"
+            key={item.value}
             type="button"
-            disabled={streaming || configs === null || selectionText.trim() === ""}
+            aria-pressed={taskType === item.value}
+            aria-label={`选择${item.label}`}
             onClick={() => {
-              void start(false, "rewrite");
+              chooseTask(item.value);
             }}
           >
-            选区改写
+            {item.label}
           </button>
-          <button
-            className="ghost"
-            type="button"
-            disabled={streaming || configs === null || selectionText.trim() === ""}
-            onClick={() => {
-              void start(true, "rewrite");
-            }}
-          >
-            用模拟模型改写选区
-          </button>
-        </div>
-      </section>
+        ))}
+      </div>
+      <div className="context-chips" role="group" aria-label="本次上下文范围">
+        <button
+          type="button"
+          aria-pressed={chapterOnly}
+          onClick={() => {
+            setContextScope({ outline: false, characters: false });
+            setCompiled(null);
+          }}
+        >
+          仅本章
+        </button>
+        <button
+          type="button"
+          aria-pressed={contextScope.outline}
+          onClick={() => {
+            setContextScope((current) => ({ ...current, outline: !current.outline }));
+            setCompiled(null);
+          }}
+        >
+          +大纲
+        </button>
+        <button
+          type="button"
+          aria-pressed={contextScope.characters}
+          onClick={() => {
+            setContextScope((current) => ({ ...current, characters: !current.characters }));
+            setCompiled(null);
+          }}
+        >
+          +角色设定
+        </button>
+      </div>
       {configError ? (
         <p className="banner banner-error" role="alert">
           {configError}
@@ -430,129 +520,120 @@ export function AiPanel({
       ) : null}
       <div className="ai-form">
         <label>
-          任务
-          <select
-            aria-label="任务类型"
-            value={taskType}
-            onChange={(event) => {
-              const next = event.target.value as AiTaskType;
-              setTaskType(next);
-              setApplyMode(defaultApplyMode(next, selectionText));
-            }}
-          >
-            {TASKS.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          模型
-          <select
-            aria-label="模型"
-            value={modelId}
-            onChange={(event) => {
-              setModelId(event.target.value);
-            }}
-          >
-            <option value="">
-              {configs?.find((item) => item.is_default)
-                ? `使用默认模型（${configs.find((item) => item.is_default)?.display_name ?? ""}）`
-                : "使用默认模型"}
-            </option>
-            {(configs ?? [])
-              .filter((item) => item.is_enabled)
-              .map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.display_name}
-                  {item.is_default ? "（默认）" : ""}
-                  {item.provider_type === "mock" ? "（模拟）" : ""}
-                  {item.last_test_status === "stale" ? "（需重测）" : ""}
-                </option>
-              ))}
-          </select>
-        </label>
-        <label>
-          补充要求
+          {taskMeta?.field ?? "接着写什么"}
           <textarea
             value={instruction}
             maxLength={8000}
+            aria-label={taskMeta?.field ?? "接着写什么"}
+            placeholder={taskMeta?.hint}
             onChange={(event) => {
               setInstruction(event.target.value);
+              setInstructionNote("");
             }}
           />
         </label>
-        <label>
-          最多字数
-          <input
-            inputMode="numeric"
-            value={maxWords}
-            onChange={(event) => {
-              setMaxWords(event.target.value);
-            }}
-          />
-        </label>
-        <label>
-          必须包含
-          <input
-            value={mustInclude}
-            maxLength={2000}
-            onChange={(event) => {
-              setMustInclude(event.target.value);
-            }}
-          />
-        </label>
-        <label>
-          不要出现
-          <input
-            value={mustAvoid}
-            maxLength={2000}
-            onChange={(event) => {
-              setMustAvoid(event.target.value);
-            }}
-          />
-        </label>
-        <ContextPreview
-          context={compiled}
-          pinnedInclude={pinnedInclude}
-          pinnedExclude={pinnedExclude}
-          busy={streaming}
-          error={contextError}
-          onPreview={() => {
-            void previewContext();
-          }}
-          onRecompile={() => {
-            void previewContext();
-          }}
-          onToggleInclude={(id) => {
-            togglePin(id, true);
-          }}
-          onToggleExclude={(id) => {
-            togglePin(id, false);
-          }}
-        />
+        <p className="hint">{taskMeta?.hint}</p>
         <div className="inline-actions">
-          <button
-            className="primary"
-            type="button"
-            disabled={streaming || configs === null}
-            onClick={() => {
-              void start(false);
-            }}
-          >
-            {taskLabel}
-          </button>
           <button
             className="ghost"
             type="button"
-            disabled={streaming || configs === null}
+            disabled={instruction.trim() === ""}
             onClick={() => {
-              void start(true);
+              setSavedInstructions(saveInstructionText(instruction));
+              setInstructionNote("已存为我的指令。只保存在这台浏览器里。");
             }}
           >
-            用模拟模型试运行
+            存为我的指令
           </button>
+          {savedInstructions.length > 0 ? (
+            <label className="saved-instruction">
+              我的指令
+              <select
+                aria-label="我的指令"
+                value=""
+                onChange={(event) => {
+                  setInstruction(event.target.value);
+                  setInstructionNote("");
+                }}
+              >
+                <option value="">选用已保存的指令</option>
+                {savedInstructions.map((item) => (
+                  <option key={item} value={item}>
+                    {item.length > 36 ? `${item.slice(0, 36)}…` : item}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+        </div>
+        {instructionNote ? (
+          <p className="hint" role="status">
+            {instructionNote}
+          </p>
+        ) : null}
+        {taskType === "rewrite" ? (
+          <section className="selection-rewrite" aria-label="选区改写">
+            <h3>选区改写</h3>
+            <p className="hint">
+              {selectionText.trim()
+                ? "将只改写选中的文字。候选需要你比较后再采纳或放弃。"
+                : "在正文里选中一段文字后，可以只改这一段。"}
+            </p>
+            {selectionText.trim() ? (
+              <p className="candidate-box" aria-label="当前选区">
+                {selectionText}
+              </p>
+            ) : null}
+          </section>
+        ) : null}
+        <div className="inline-actions">
+          {taskType === "rewrite" ? (
+            <>
+              <button
+                className="primary"
+                type="button"
+                disabled={streaming || configs === null || selectionText.trim() === ""}
+                onClick={() => {
+                  void start(false, "rewrite");
+                }}
+              >
+                选区改写
+              </button>
+              <button
+                className="ghost"
+                type="button"
+                disabled={streaming || configs === null || selectionText.trim() === ""}
+                onClick={() => {
+                  void start(true, "rewrite");
+                }}
+              >
+                用模拟模型改写选区
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                className="primary"
+                type="button"
+                disabled={streaming || configs === null}
+                onClick={() => {
+                  void start(false);
+                }}
+              >
+                {taskLabel}
+              </button>
+              <button
+                className="ghost"
+                type="button"
+                disabled={streaming || configs === null}
+                onClick={() => {
+                  void start(true);
+                }}
+              >
+                用模拟模型试运行
+              </button>
+            </>
+          )}
           {candidate.status === "running" ? (
             <button
               className="ghost"
@@ -576,6 +657,111 @@ export function AiPanel({
             </button>
           ) : null}
         </div>
+        <details className="more-settings">
+          <summary>更多设置</summary>
+          <div className="ai-form">
+            <label>
+              模型
+              <select
+                aria-label="模型"
+                value={modelId}
+                onChange={(event) => {
+                  setModelId(event.target.value);
+                }}
+              >
+                <option value="">
+                  {configs?.find((item) => item.is_default)
+                    ? `使用默认模型（${configs.find((item) => item.is_default)?.display_name ?? ""}）`
+                    : "使用默认模型"}
+                </option>
+                {(configs ?? [])
+                  .filter((item) => item.is_enabled)
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.display_name}
+                      {item.is_default ? "（默认）" : ""}
+                      {item.provider_type === "mock" ? "（模拟）" : ""}
+                      {item.last_test_status === "stale" ? "（需重测）" : ""}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label>
+              最多字数
+              <input
+                inputMode="numeric"
+                value={maxWords}
+                onChange={(event) => {
+                  setMaxWords(event.target.value);
+                }}
+              />
+            </label>
+            <label>
+              必须包含
+              <input
+                value={mustInclude}
+                maxLength={2000}
+                onChange={(event) => {
+                  setMustInclude(event.target.value);
+                }}
+              />
+            </label>
+            <label>
+              不要出现
+              <input
+                value={mustAvoid}
+                maxLength={2000}
+                onChange={(event) => {
+                  setMustAvoid(event.target.value);
+                }}
+              />
+            </label>
+            <div className="verb-chips" role="group" aria-label="其他动作">
+              {EXTRA_TASKS.map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  aria-pressed={taskType === item.value}
+                  aria-label={`选择${item.label}`}
+                  onClick={() => {
+                    chooseTask(item.value);
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </details>
+        <section className="prompt-preview" aria-label="Prompt 预览">
+          <h3>将发送的内容</h3>
+          <p className="hint">下面是这次会交给模型的指令。点「查看本次上下文」可按当前范围编译材料。</p>
+          <pre className="prompt-preview-body">{compiled ? compiledPromptText(compiled) : previewText}</pre>
+          <p className="hint">
+            {compiled
+              ? `已按当前范围编译：纳入 ${compiled.items.filter((item) => item.included).length} 条。上面是将送给模型的材料，下面可以逐条固定或排除。`
+              : "还没编译。上面是这次的指令和范围；查看本次上下文后，这里换成将送给模型的材料。"}
+          </p>
+        </section>
+        <ContextPreview
+          context={compiled}
+          pinnedInclude={pinnedInclude}
+          pinnedExclude={pinnedExclude}
+          busy={streaming}
+          error={contextError}
+          onPreview={() => {
+            void previewContext();
+          }}
+          onRecompile={() => {
+            void previewContext();
+          }}
+          onToggleInclude={(id) => {
+            togglePin(id, true);
+          }}
+          onToggleExclude={(id) => {
+            togglePin(id, false);
+          }}
+        />
       </div>
       {candidate.providerMode === "mock" ? <p className="mock-badge">模拟输出</p> : null}
       {compareSelection && candidate.status === "completed" ? (

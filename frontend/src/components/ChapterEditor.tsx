@@ -83,6 +83,7 @@ export function ChapterEditor({
   const [preview, setPreview] = useState<ChapterVersionDetail | null>(null);
   const [versionDiff, setVersionDiff] = useState<ChapterVersionDiff | null>(null);
   const [diffError, setDiffError] = useState("");
+  const [selectionActive, setSelectionActive] = useState(false);
 
   const autosave = useChapterAutosave({
     chapterId: chapter.id,
@@ -124,6 +125,7 @@ export function ChapterEditor({
     onSelectionUpdate: ({ editor: instance }) => {
       const { from, to } = instance.state.selection;
       const text = from === to ? "" : instance.state.doc.textBetween(from, to, "\n\n");
+      setSelectionActive(from !== to);
       onSelectionChangeRef.current?.(text);
     },
     onUpdate: ({ editor: instance }) => {
@@ -385,9 +387,9 @@ export function ChapterEditor({
 
   return (
     <div className="editor-form">
-      <div className="editor-meta">
-        <label>
-          章节标题
+      <div className="editor-meta editor-meta-line">
+        <label className="editor-title-field">
+          <span className="visually-hidden">章节标题</span>
           <input
             value={title}
             maxLength={200}
@@ -399,9 +401,10 @@ export function ChapterEditor({
             }}
           />
         </label>
-        <label>
-          状态
+        <label className="editor-status-field">
+          <span className="visually-hidden">状态</span>
           <select
+            aria-label="状态"
             value={status}
             onChange={(event) => {
               const next = event.target.value as ChapterStatus;
@@ -417,58 +420,72 @@ export function ChapterEditor({
             ))}
           </select>
         </label>
-        <p className="hint" role="status">
-          {PHASE_LABEL[autosave.phase]} · 修订号 {autosave.revision} · 字数 {liveCount}
+        <p className="hint editor-sync" role="status" aria-label="章节状态">
+          {PHASE_LABEL[autosave.phase]} · 修订号 {autosave.revision} · {liveCount} 字
         </p>
       </div>
-      <div className="editor-toolbar" role="toolbar" aria-label="正文格式">
-        <button
-          type="button"
-          className="ghost"
-          aria-pressed={editor?.isActive("bold") ?? false}
-          disabled={!editor}
-          onClick={() => {
-            editor?.chain().focus().toggleBold().run();
-          }}
-        >
-          粗体
-        </button>
-        <button
-          type="button"
-          className="ghost"
-          aria-pressed={editor?.isActive("italic") ?? false}
-          disabled={!editor}
-          onClick={() => {
-            editor?.chain().focus().toggleItalic().run();
-          }}
-        >
-          斜体
-        </button>
-        <button
-          type="button"
-          className="ghost"
-          aria-pressed={editor?.isActive("heading", { level: 2 }) ?? false}
-          disabled={!editor}
-          onClick={() => {
-            editor?.chain().focus().toggleHeading({ level: 2 }).run();
-          }}
-        >
-          标题
-        </button>
-        <button
-          type="button"
-          className="ghost"
-          aria-pressed={editor?.isActive("bulletList") ?? false}
-          disabled={!editor}
-          onClick={() => {
-            editor?.chain().focus().toggleBulletList().run();
-          }}
-        >
-          列表
-        </button>
-      </div>
-      <div className="editor-body">
-        <EditorContent editor={editor} />
+      <div className="editor-stage">
+        <div className="editor-toolbar" role="toolbar" aria-label="正文格式" hidden={!selectionActive}>
+          <button
+            type="button"
+            className="ghost"
+            aria-pressed={editor?.isActive("bold") ?? false}
+            disabled={!editor}
+            onMouseDown={(event) => {
+              event.preventDefault();
+            }}
+            onClick={() => {
+              editor?.chain().focus().toggleBold().run();
+            }}
+          >
+            粗体
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            aria-pressed={editor?.isActive("italic") ?? false}
+            disabled={!editor}
+            onMouseDown={(event) => {
+              event.preventDefault();
+            }}
+            onClick={() => {
+              editor?.chain().focus().toggleItalic().run();
+            }}
+          >
+            斜体
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            aria-pressed={editor?.isActive("heading", { level: 2 }) ?? false}
+            disabled={!editor}
+            onMouseDown={(event) => {
+              event.preventDefault();
+            }}
+            onClick={() => {
+              editor?.chain().focus().toggleHeading({ level: 2 }).run();
+            }}
+          >
+            标题
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            aria-pressed={editor?.isActive("bulletList") ?? false}
+            disabled={!editor}
+            onMouseDown={(event) => {
+              event.preventDefault();
+            }}
+            onClick={() => {
+              editor?.chain().focus().toggleBulletList().run();
+            }}
+          >
+            列表
+          </button>
+        </div>
+        <div className="editor-body">
+          <EditorContent editor={editor} />
+        </div>
       </div>
       <p className="hint">
         正文以 Tiptap JSON 保存。停笔后会自动保存当前正文；手动保存会留下可恢复的快照。自动保存失败时，编辑器里的文字会留下来。

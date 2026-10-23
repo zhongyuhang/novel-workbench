@@ -827,10 +827,37 @@ a {
 }
 
 .workspace.is-toc-closed .toc-pane,
-.workspace.is-side-closed .side-pane {
+.workspace.is-side-closed .side-pane,
+.workspace.is-focus .toc-pane,
+.workspace.is-focus .side-pane {
   opacity: 0;
   pointer-events: none;
   overflow: hidden;
+}
+
+.workspace.is-focus {
+  --toc-width: 0px;
+  --side-width: 0px;
+}
+
+.focus-edge {
+  position: fixed;
+  z-index: 20;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  border: 1px solid var(--border);
+  border-left: 0;
+  border-radius: 0 10px 10px 0;
+  background: var(--surface);
+  color: var(--text-secondary);
+  padding: var(--control-py) 10px;
+  writing-mode: vertical-rl;
+}
+
+.focus-edge:hover {
+  background: var(--hover);
+  color: var(--text-primary);
 }
 
 .side-pane {
@@ -861,25 +888,45 @@ a {
 }
 
 .editor-form {
-  margin-top: 0.85rem;
+  margin-top: 0;
 }
 
-.editor-meta {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
+.editor-meta.editor-meta-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-height: 48px;
+  min-height: 40px;
 }
 
-.editor-meta label:first-child {
-  grid-column: 1 / -1;
+.editor-title-field,
+.editor-status-field,
+.saved-instruction {
+  min-width: 0;
+  margin: 0;
 }
 
-.editor-meta input {
-  font-size: 1.45rem;
+.editor-title-field {
+  flex: 1 1 auto;
+}
+
+.editor-status-field {
+  flex: 0 0 6.5rem;
+}
+
+.editor-meta-line input,
+.editor-meta-line select {
+  height: 40px;
+  padding: 8px var(--control-px);
+  font-size: 1rem;
   font-weight: 600;
+  line-height: 1.2;
+}
+
+.editor-meta-line input {
   letter-spacing: 0;
   border-color: transparent;
   background: transparent;
-  padding: var(--control-py) var(--control-px);
 }
 
 .editor-meta input:hover,
@@ -888,14 +935,36 @@ a {
   background: var(--surface-raised);
 }
 
+.editor-sync {
+  flex: 0 1 auto;
+  margin: 0;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.editor-stage {
+  position: relative;
+}
+
 .editor-toolbar {
+  position: absolute;
+  z-index: 4;
+  top: 8px;
+  left: var(--control-px);
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   padding: 8px;
   width: fit-content;
   border-radius: 12px;
-  background: var(--surface-raised);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.editor-toolbar[hidden] {
+  display: none;
 }
 
 .editor-toolbar .ghost {
@@ -1012,8 +1081,130 @@ a {
 }
 
 .toc-list li {
-  display: grid;
-  gap: 0.25rem;
+  display: block;
+}
+
+.toc-list li[draggable="true"] {
+  cursor: grab;
+}
+
+.toc-row,
+.toc-group-head {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-radius: var(--radius);
+}
+
+.toc-group-head {
+  cursor: grab;
+}
+
+.toc-group-head h3 {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.toc-row .toc-link {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.toc-more {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  padding: var(--control-py) var(--control-px);
+  line-height: 1;
+}
+
+.toc-more:hover,
+.toc-more[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text-primary);
+}
+
+.toc-menu {
+  position: fixed;
+  z-index: 30;
+  min-width: 11rem;
+}
+
+.menu-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+.toc-group.is-drop-target > .toc-group-head,
+.toc-row.is-drop-target {
+  background: var(--hover);
+}
+
+.verb-chips,
+.context-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--surface-raised);
+}
+
+.verb-chips button,
+.context-chips button {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: var(--control-py) var(--control-px);
+  border-radius: 9px;
+  line-height: 1.35;
+}
+
+.verb-chips button[aria-pressed="true"],
+.context-chips button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+.more-settings {
+  border-radius: 12px;
+  background: var(--surface-raised);
+}
+
+.more-settings > summary {
+  padding: var(--control-py) var(--control-px);
+  cursor: pointer;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.more-settings > summary::-webkit-details-marker {
+  display: none;
+}
+
+.more-settings > .ai-form {
+  padding: 0 var(--control-px) var(--control-py);
+}
+
+.prompt-preview h3 {
+  margin: 0.2rem 0;
+  font-size: 0.95rem;
+}
+
+.prompt-preview-body {
+  margin: 0;
+  max-height: 8.5rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+  line-height: 1.55;
 }
 
 .toc-link {
@@ -1302,12 +1493,17 @@ a {
 
 :root[data-theme="dark"] .theme-switch .ghost[aria-pressed="true"],
 :root[data-theme="dark"] .editor-pane .view-tabs .primary,
-:root[data-theme="dark"] .editor-toolbar button[aria-pressed="true"] {
+:root[data-theme="dark"] .editor-toolbar button[aria-pressed="true"],
+:root[data-theme="dark"] .verb-chips button[aria-pressed="true"],
+:root[data-theme="dark"] .context-chips button[aria-pressed="true"] {
   background: var(--surface-raised);
 }
 
 :root[data-theme="dark"] .toc-pane .view-tabs,
 :root[data-theme="dark"] .side-tabs,
+:root[data-theme="dark"] .verb-chips,
+:root[data-theme="dark"] .context-chips,
+:root[data-theme="dark"] .more-settings,
 :root[data-theme="dark"] .side-pane [role="radiogroup"].memory-actions {
   background: var(--canvas);
 }
@@ -1332,16 +1528,16 @@ a {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .toc-list .inline-actions,
-  .toc-group-head .inline-actions {
+  .toc-more {
     opacity: 0;
     transition: opacity var(--ease);
   }
 
-  .toc-list li:hover .inline-actions,
-  .toc-list li:focus-within .inline-actions,
-  .toc-group:hover > .toc-group-head .inline-actions,
-  .toc-group:focus-within > .toc-group-head .inline-actions {
+  .toc-row:hover .toc-more,
+  .toc-row:focus-within .toc-more,
+  .toc-group-head:hover .toc-more,
+  .toc-group-head:focus-within .toc-more,
+  .toc-more[aria-expanded="true"] {
     opacity: 1;
   }
 }

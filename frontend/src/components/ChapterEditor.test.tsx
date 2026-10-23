@@ -163,6 +163,19 @@ describe("ChapterEditor", () => {
     expect(payload?.title).toBe("本地标题");
   });
 
+  it("puts title, status, and sync on one line and hides formatting until text is selected", async () => {
+    render(<ChapterEditor chapter={chapter} onSaved={() => {}} onUnsavedChange={() => {}} />);
+
+    expect(screen.queryByRole("toolbar", { name: "正文格式" })).toBeNull();
+    const status = await screen.findByRole("status", { name: "章节状态" });
+    expect(status.textContent).toContain("已同步");
+    expect(status.textContent).toContain("修订号 1");
+    expect(status.textContent).toContain("字");
+    expect(screen.getByLabelText("章节标题")).toBeTruthy();
+    expect(screen.getByLabelText("状态")).toBeTruthy();
+    expect(status.closest(".editor-meta-line")).toBeTruthy();
+  });
+
   it("previews a version diff before restore", async () => {
     const older = { ...storedVersion, id: "version-old", revision: 2, preview: "旧句子" };
     const newer = {

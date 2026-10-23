@@ -24,24 +24,18 @@ import { IdeationPanel } from "../components/IdeationPanel.tsx";
 import { MemoryPanel } from "../components/MemoryPanel.tsx";
 import { ChapterPlanEditor, OutlinePanel } from "../components/OutlinePanel.tsx";
 import { QualityPanel } from "../components/QualityPanel.tsx";
+import { buildToc, TocTree } from "../components/TocTree.tsx";
 import { requestMemoryAnalyze } from "../features/memory/analyzeBridge.ts";
 import { HealthBadge } from "../components/HealthBadge.tsx";
 import { ThemeSwitcher } from "../components/ThemeSwitcher.tsx";
 import { UNSAVED_LEAVE_MESSAGE } from "../editor/leaveGuard.ts";
 import { useBackendHealth } from "../features/library/useBackendHealth.ts";
+import { readFocusMode, writeFocusMode } from "../features/ui/focusPreference.ts";
 import { parseHash, workspaceHash } from "../routes.ts";
 
 type WorkspacePageProps = {
   novelId: string;
   chapterId: string | null;
-};
-
-type TocGroup = {
-  key: string;
-  title: string;
-  volumeId: string | null;
-  volume: Volume | null;
-  chapters: ChapterSummary[];
 };
 
 export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
@@ -66,6 +60,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
   const [centerView, setCenterView] = useState<"manuscript" | "outline">("manuscript");
   const [tocOpen, setTocOpen] = useState(true);
   const [sideOpen, setSideOpen] = useState(true);
+  const [focusMode, setFocusMode] = useState(readFocusMode);
   const unsavedRef = useRef(false);
   const skipGuardRef = useRef(false);
   const chapterStatusRef = useRef<string | null>(null);
@@ -189,6 +184,34 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
     };
   }, [chapterId, novelId]);
 
+  useEffect(() => {
+    if (!focusMode) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) {
+        return;
+      }
+      if (document.querySelector("dialog[open]")) {
+        return;
+      }
+      setFocusMode(false);
+      writeFocusMode(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [focusMode]);
+
+  function toggleFocus() {
+    setFocusMode((current) => {
+      const next = !current;
+      writeFocusMode(next);
+      return next;
+    });
+  }
+
   function tryNavigate(hash: string) {
     void (async () => {
       if (unsavedRef.current) {
@@ -274,9 +297,23 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
   }
 
   const toc = buildToc(volumes, chapters);
+  const workspaceClass = [
+    "workspace",
+    tocOpen || focusMode ? "" : "is-toc-closed",
+    sideOpen || focusMode ? "" : "is-side-closed",
+    focusMode ? "is-focus" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
-    <div className={`workspace${tocOpen ? "" : " is-toc-closed"}${sideOpen ? "" : " is-side-closed"}`}>
+    <div className={workspaceClass}>
+      {focusMode ? (
+        <button className="focus-edge" type="button" onClick={toggleFocus}>
+          退出专注
+        </button>
+      ) : null}
+      {focusMode ? null : (
       <header className="workspace-top">
         <a
           className="ghost back-link"
@@ -312,6 +349,9 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
               }}
             >
               {sideOpen ? "收起侧栏" : "展开侧栏"}
+            </button>
+            <button className="ghost" type="button" aria-pressed={focusMode} onClick={toggleFocus}>
+              专注
             </button>
           </div>
           <a className="ghost" href="#/settings">
@@ -362,13 +402,14 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
           <HealthBadge state={health} />
         </div>
       </header>
+      )}
       {error ? (
         <p className="banner banner-error workspace-banner" role="alert">
           {error}
         </p>
       ) : null}
       <div className="workspace-columns">
-        <nav className="workspace-pane toc-pane" aria-label="目录与大纲" inert={tocOpen ? undefined : true}>
+        <nav className="workspace-pane toc-pane" aria-label="目录与大纲" inert={tocOpen && !focusMode ? undefined : true}>
           <div className="pane-toolbar">
             <div className="view-tabs" role="tablist" aria-label="左栏视图">
               <button
@@ -428,238 +469,105 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
           {leftView === "toc" && !loading && chapters.length === 0 && volumes.length === 0 ? (
             <p className="empty">还没有卷或章节。</p>
           ) : null}
-          {leftView === "toc"
-            ? toc.map((group) => (
-            <section key={group.key} className="toc-group">
-              <div className="toc-group-head">
-                {renamingId === group.volume?.id ? (
-                  <form
-                    className="rename-form"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      const volume = group.volume;
-                      if (!volume) {
-                        return;
-                      }
-                      void run(async () => {
-                        await updateVolume(volume.id, renameValue.trim());
-                        setRenamingId(null);
-                        await refreshStructure();
-                      });
-                    }}
-                  >
-                    <input
-                      value={renameValue}
-                      aria-label="卷标题"
-                      onChange={(event) => {
-                        setRenameValue(event.target.value);
-                      }}
-                    />
-                    <button className="ghost" type="submit" disabled={renameValue.trim() === ""}>
-                      保存
-                    </button>
-                  </form>
-                ) : (
-                  <h3>{group.title}</h3>
-                )}
-                {group.volume ? (
-                  <div className="inline-actions">
-                    <button
-                      className="ghost"
-                      type="button"
-                      disabled={busy || group.volume.sort_order === 0}
-                      onClick={() => {
-                        const volume = group.volume;
-                        if (!volume) {
-                          return;
-                        }
-                        void run(async () => {
-                          await shiftVolume(novelId, volumes, volume.id, -1);
-                          await refreshStructure();
-                        });
-                      }}
-                    >
-                      上移
-                    </button>
-                    <button
-                      className="ghost"
-                      type="button"
-                      disabled={busy || group.volume.sort_order === volumes.length - 1}
-                      onClick={() => {
-                        const volume = group.volume;
-                        if (!volume) {
-                          return;
-                        }
-                        void run(async () => {
-                          await shiftVolume(novelId, volumes, volume.id, 1);
-                          await refreshStructure();
-                        });
-                      }}
-                    >
-                      下移
-                    </button>
-                    <button
-                      className="ghost"
-                      type="button"
-                      disabled={busy}
-                      onClick={() => {
-                        if (!group.volume) {
-                          return;
-                        }
-                        setRenamingId(group.volume.id);
-                        setRenameValue(group.volume.title);
-                      }}
-                    >
-                      改名
-                    </button>
-                    <button
-                      className="ghost danger"
-                      type="button"
-                      disabled={busy}
-                      onClick={() => {
-                        const volume = group.volume;
-                        if (!volume) {
-                          return;
-                        }
-                        void (async () => {
-                          const ok = await confirmDialog(
-                            `删除「${volume.title}」？其中的章节会移到未分卷。`,
-                            { tone: "danger" },
-                          );
-                          if (!ok) {
-                            return;
-                          }
-                          await run(async () => {
-                            await deleteVolume(volume.id);
-                            await refreshStructure();
-                          });
-                        })();
-                      }}
-                    >
-                      删除卷
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-              <ol className="toc-list">
-                {group.chapters.map((item, index) => (
-                  <li key={item.id} className={item.id === chapterId ? "toc-current" : undefined}>
-                    <button
-                      className="toc-link"
-                      type="button"
-                      onClick={() => {
-                        openChapterIn(item.id, "manuscript");
-                      }}
-                    >
-                      <span>{item.title}</span>
-                      <span className="hint">{item.word_count} 字</span>
-                    </button>
-                    <div className="inline-actions">
-                      <button
-                        className="ghost"
-                        type="button"
-                        disabled={busy || index === 0}
-                        onClick={() => {
-                          void run(async () => {
-                            await moveChapter(item.id, group.volumeId, index - 1);
-                            await refreshStructure();
-                          });
-                        }}
-                      >
-                        上移
-                      </button>
-                      <button
-                        className="ghost"
-                        type="button"
-                        disabled={busy || index === group.chapters.length - 1}
-                        onClick={() => {
-                          void run(async () => {
-                            await moveChapter(item.id, group.volumeId, index + 1);
-                            await refreshStructure();
-                          });
-                        }}
-                      >
-                        下移
-                      </button>
-                      <button
-                        className="ghost"
-                        type="button"
-                        disabled={busy}
-                        onClick={() => {
-                          void run(async () => {
-                            const copy = await duplicateChapter(item.id);
-                            await refreshStructure();
-                            openChapter(copy.id);
-                          });
-                        }}
-                      >
-                        复制
-                      </button>
-                      <button
-                        className="ghost"
-                        type="button"
-                        disabled={busy}
-                        onClick={() => {
-                          if (item.id === chapterId && unsaved) {
-                            setError("正文还有未保存的修改。请先保存，再分析这一章。");
-                            return;
-                          }
-                          setSideTab("memory");
-                          requestMemoryAnalyze({
-                            chapterId: item.id,
-                            revision: item.revision,
-                            title: item.title,
-                            scope: "full",
-                          });
-                        }}
-                      >
-                        分析记忆
-                      </button>
-                      <button
-                        className="ghost danger"
-                        type="button"
-                        disabled={busy}
-                        onClick={() => {
-                          void (async () => {
-                            const ok = await confirmDialog(`删除章节「${item.title}」？`, {
-                              tone: "danger",
-                            });
-                            if (!ok) {
-                              return;
-                            }
-                            await run(async () => {
-                              await deleteChapter(item.id);
-                              await refreshStructure();
-                              if (chapterId === item.id) {
-                                forceNavigate(workspaceHash(novelId, null));
-                              }
-                            });
-                          })();
-                        }}
-                      >
-                        删除
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-              <button
-                className="ghost"
-                type="button"
-                disabled={busy || loading}
-                onClick={() => {
-                  void run(async () => {
-                    const created = await createChapter(novelId, "未命名章节", group.volumeId);
+          {leftView === "toc" ? (
+            <TocTree
+              groups={toc}
+              volumeIds={volumes.map((volume) => volume.id)}
+              chapterId={chapterId}
+              busy={busy || loading}
+              renamingId={renamingId}
+              renameValue={renameValue}
+              onRenameValue={setRenameValue}
+              onStartRename={(volume) => {
+                setRenamingId(volume.id);
+                setRenameValue(volume.title);
+              }}
+              onSubmitRename={(volume) => {
+                void run(async () => {
+                  await updateVolume(volume.id, renameValue.trim());
+                  setRenamingId(null);
+                  await refreshStructure();
+                });
+              }}
+              onOpenChapter={(id) => {
+                openChapterIn(id, "manuscript");
+              }}
+              onCreateChapter={(volumeId) => {
+                void run(async () => {
+                  const created = await createChapter(novelId, "未命名章节", volumeId);
+                  await refreshStructure();
+                  openChapter(created.id);
+                });
+              }}
+              onMoveChapter={(id, volumeId, sortOrder) => {
+                void run(async () => {
+                  await moveChapter(id, volumeId, sortOrder);
+                  await refreshStructure();
+                });
+              }}
+              onReorderVolumes={(ids) => {
+                void run(async () => {
+                  await reorderVolumes(novelId, ids);
+                  await refreshStructure();
+                });
+              }}
+              onShiftVolume={(volumeId, direction) => {
+                void run(async () => {
+                  await shiftVolume(novelId, volumes, volumeId, direction);
+                  await refreshStructure();
+                });
+              }}
+              onDuplicateChapter={(id) => {
+                void run(async () => {
+                  const copy = await duplicateChapter(id);
+                  await refreshStructure();
+                  openChapter(copy.id);
+                });
+              }}
+              onDeleteChapter={(item) => {
+                void (async () => {
+                  const ok = await confirmDialog(`删除章节「${item.title}」？`, { tone: "danger" });
+                  if (!ok) {
+                    return;
+                  }
+                  await run(async () => {
+                    await deleteChapter(item.id);
                     await refreshStructure();
-                    openChapter(created.id);
+                    if (chapterId === item.id) {
+                      forceNavigate(workspaceHash(novelId, null));
+                    }
                   });
-                }}
-              >
-                在此新建章节
-              </button>
-            </section>
-          ))
-            : null}
+                })();
+              }}
+              onDeleteVolume={(volume) => {
+                void (async () => {
+                  const ok = await confirmDialog(`删除「${volume.title}」？其中的章节会移到未分卷。`, {
+                    tone: "danger",
+                  });
+                  if (!ok) {
+                    return;
+                  }
+                  await run(async () => {
+                    await deleteVolume(volume.id);
+                    await refreshStructure();
+                  });
+                })();
+              }}
+              onAnalyzeChapter={(item) => {
+                if (item.id === chapterId && unsaved) {
+                  setError("正文还有未保存的修改。请先保存，再分析这一章。");
+                  return;
+                }
+                setSideTab("memory");
+                requestMemoryAnalyze({
+                  chapterId: item.id,
+                  revision: item.revision,
+                  title: item.title,
+                  scope: "full",
+                });
+              }}
+            />
+          ) : null}
         </nav>
         <main className="workspace-pane editor-pane">
           {chapter && chapter.id === chapterId ? (
@@ -740,7 +648,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
             </div>
           ) : null}
         </main>
-        <div className="side-pane" inert={sideOpen ? undefined : true}>
+        <div className="side-pane" inert={sideOpen && !focusMode ? undefined : true}>
           <div className="side-tabs" role="tablist" aria-label="写作侧栏">
             <button
               className={sideTab === "write" ? "primary" : "ghost"}
@@ -853,29 +761,6 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
       </div>
     </div>
   );
-}
-
-function buildToc(volumes: Volume[], chapters: ChapterSummary[]): TocGroup[] {
-  const unassigned = chapters.filter((item) => item.volume_id === null);
-  const groups: TocGroup[] = [
-    {
-      key: "unassigned",
-      title: "未分卷",
-      volumeId: null,
-      volume: null,
-      chapters: unassigned,
-    },
-  ];
-  for (const volume of volumes) {
-    groups.push({
-      key: volume.id,
-      title: volume.title,
-      volumeId: volume.id,
-      volume,
-      chapters: chapters.filter((item) => item.volume_id === volume.id),
-    });
-  }
-  return groups;
 }
 
 async function shiftVolume(

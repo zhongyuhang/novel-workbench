@@ -324,6 +324,7 @@ describe("AiPanel", () => {
     const user = userEvent.setup();
     renderPanel();
 
+    await user.click(await screen.findByRole("button", { name: "选择改写" }));
     expect(screen.getByLabelText("当前选区").textContent).toContain("原有正文");
     await user.click(await screen.findByRole("button", { name: "用模拟模型改写选区" }));
 
@@ -417,7 +418,7 @@ describe("AiPanel", () => {
 
     await user.click(await screen.findByRole("button", { name: "查看本次上下文" }));
 
-    expect(await screen.findByText(/作品硬规则：短句/)).toBeTruthy();
+    expect((await screen.findAllByText(/作品硬规则：短句/)).length).toBeGreaterThan(0);
     expect(screen.getByText(/草稿不能当作事实/)).toBeTruthy();
     expect(screen.getByText(/预算还有余量/)).toBeTruthy();
     const includeButtons = screen.getAllByRole("button", { name: "固定纳入" });
@@ -451,6 +452,51 @@ describe("AiPanel", () => {
     expect(await screen.findByLabelText("候选文本")).toHaveProperty("textContent", expect.stringContaining("服务器上的候选"));
     expect(screen.queryByText("stream closed")).toBeNull();
     expect(getAiTask).toHaveBeenCalledWith("task-drop");
+  });
+
+  it("switches verbs and keeps model constraints inside more settings", async () => {
+    vi.mocked(listModelConfigs).mockResolvedValue([model]);
+    const user = userEvent.setup();
+    renderPanel();
+
+    expect(await screen.findByRole("button", { name: "选择续写" })).toHaveProperty("ariaPressed", "true");
+    expect(screen.getByRole("textbox", { name: "接着写什么" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "选择润色" })?.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByText("更多设置").closest("details")?.open).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "选择润色" }));
+
+    expect(screen.getByRole("button", { name: "选择润色" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("textbox", { name: "润色要求" })).toBeTruthy();
+    expect(screen.queryByRole("textbox", { name: "接着写什么" })).toBeNull();
+    expect(screen.getByRole("button", { name: "润色" })).toBeTruthy();
+
+    await user.click(screen.getByText("更多设置"));
+    expect(screen.getByText("更多设置").closest("details")?.open).toBe(true);
+    expect(screen.getByLabelText("模型")).toBeTruthy();
+    expect(screen.getByLabelText("必须包含")).toBeTruthy();
+    expect(screen.getByLabelText("不要出现")).toBeTruthy();
+  });
+
+  it("saves an instruction locally and previews the request", async () => {
+    vi.mocked(listModelConfigs).mockResolvedValue([model]);
+    localStorage.removeItem("novel-workbench-instructions");
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.type(await screen.findByRole("textbox", { name: "接着写什么" }), "雨声再近一点");
+    expect(screen.getByLabelText("Prompt 预览").textContent).toContain("动作：续写");
+    expect(screen.getByLabelText("Prompt 预览").textContent).toContain("雨声再近一点");
+    expect(screen.getByLabelText("Prompt 预览").textContent).toContain("仅本章");
+
+    await user.click(screen.getByRole("button", { name: "存为我的指令" }));
+    expect(await screen.findByText(/已存为我的指令/)).toBeTruthy();
+    expect(JSON.parse(localStorage.getItem("novel-workbench-instructions") ?? "[]")).toEqual(["雨声再近一点"]);
+
+    await user.click(screen.getByRole("button", { name: "+大纲" }));
+    expect(screen.getByRole("button", { name: "+大纲" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "仅本章" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByLabelText("Prompt 预览").textContent).toContain("本章 + 大纲");
   });
 
   it("shows the stored candidate when cancel arrives after the task already finished", async () => {
