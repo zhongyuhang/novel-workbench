@@ -16,6 +16,7 @@ from app.schemas.catalog import (
     ChapterVersionDiffResponse,
     ChapterVersionResponse,
     ChapterWrite,
+    ShellCleanupResponse,
     TextDiffHunkResponse,
     VersionDiffSide,
 )
@@ -45,6 +46,18 @@ def create_chapter(
 ) -> ChapterResponse:
     chapter = catalog_service.create_chapter(session, novel_id, payload)
     return ChapterResponse.model_validate(chapter)
+
+
+@router.post(
+    "/novels/{novel_id}/chapters/cleanup-shells",
+    response_model=ShellCleanupResponse,
+)
+def cleanup_shell_chapters(
+    novel_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> ShellCleanupResponse:
+    deleted = catalog_service.cleanup_duplicate_shells(session, novel_id)
+    return ShellCleanupResponse(deleted=deleted)
 
 
 @router.get("/chapters/{chapter_id}", response_model=ChapterResponse)

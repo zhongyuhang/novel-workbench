@@ -30,6 +30,14 @@ def compile_task_context(
     return ai_service.preview_context(session, payload)
 
 
+@router.get("", response_model=list[AiTaskResponse])
+def list_open_tasks(
+    chapter_id: str,
+    session: Annotated[Session, Depends(get_db)],
+) -> list[AiTaskResponse]:
+    return ai_service.list_open_tasks(session, chapter_id)
+
+
 @router.post("", response_model=AiTaskResponse, status_code=status.HTTP_201_CREATED)
 def create_task(
     payload: AiTaskCreate,

@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { apiDocsUrl } from "../api/client.ts";
-import { createNovel, deleteNovel, listNovels, updateNovel } from "../api/catalog.ts";
+import { createNovel, deleteNovel, listChapters, listNovels, listVolumes, updateNovel } from "../api/catalog.ts";
 import {
   createBackup,
   importPortable,
@@ -17,7 +17,9 @@ import {
   CANONICAL_CONTENT_FORMAT,
   CANONICAL_CONTENT_FORMAT_VERSION,
 } from "../editor/contentFormat.ts";
+import { latestWritingChapter } from "../features/library/continueWriting.ts";
 import { useBackendHealth } from "../features/library/useBackendHealth.ts";
+import { workspaceHash } from "../routes.ts";
 
 const EMPTY_DRAFT: NovelDraft = {
   title: "",
@@ -225,7 +227,27 @@ export function NovelLibraryPage() {
                     </p>
                   </div>
                   <div className="inline-actions">
-                    <a className="primary link-button" href={`#/novels/${novel.id}`}>
+                    <button
+                      className="primary"
+                      type="button"
+                      onClick={() => {
+                        void (async () => {
+                          try {
+                            const [chapters, volumes] = await Promise.all([
+                              listChapters(novel.id),
+                              listVolumes(novel.id),
+                            ]);
+                            const target = latestWritingChapter(volumes, chapters);
+                            window.location.hash = workspaceHash(novel.id, target?.id ?? null);
+                          } catch (cause: unknown) {
+                            setError(cause instanceof ApiError ? cause.message : "无法打开最近的章节。");
+                          }
+                        })();
+                      }}
+                    >
+                      继续写
+                    </button>
+                    <a className="ghost link-button" href={`#/novels/${novel.id}`}>
                       打开
                     </a>
                     <button

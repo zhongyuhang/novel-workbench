@@ -96,6 +96,15 @@ class MockProvider:
                 "MODEL_UNAVAILABLE",
                 "模型暂时不可用。生成没有写进正文。",
             )
+        if behavior == "empty":
+            yield StreamEvent(event="finish", data="stop")
+            return
+        if behavior == "empty_length":
+            yield StreamEvent(event="finish", data="length")
+            return
+        if behavior == "empty_filter":
+            yield StreamEvent(event="finish", data="content_filter")
+            return
         tokens = _tokens(request.endpoint)
         script = _script(request.endpoint)
         if script is None and _script_id(request.endpoint):

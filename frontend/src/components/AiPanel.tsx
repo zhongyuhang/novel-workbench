@@ -6,6 +6,7 @@ import {
   createAiTask,
   getAiTask,
   getTaskContext,
+  listOpenTasks,
   rejectAiTask,
   streamAiTask,
 } from "../api/ai.ts";
@@ -30,6 +31,18 @@ import {
 } from "../features/ai/contextScope.ts";
 import { readSavedInstructions, saveInstructionText } from "../features/ai/savedInstructions.ts";
 import { stateFromTask } from "../features/ai/taskRecovery.ts";
+import {
+  activityFromCandidate,
+  canAdoptCandidate,
+  CANCELLED_WITH_TEXT_MESSAGE,
+  failurePresentation,
+  followOpenTask,
+  noticeForTask,
+  pickOpenTask,
+  taskWatchSnapshot,
+  waitWithSignal,
+  type GenerationActivity,
+} from "../features/ai/taskWatch.ts";
 
 type AiPanelProps = {
   novelId: string | null;
@@ -38,6 +51,7 @@ type AiPanelProps = {
   selectionText: string;
   editorDirty: boolean;
   onAccepted: (chapter: Chapter) => void;
+  onActivity?: (activity: GenerationActivity | null) => void;
 };
 
 const VERBS: Array<{ value: AiTaskType; label: string; field: string; hint: string }> = [
@@ -67,6 +81,7 @@ export function AiPanel({
   selectionText,
   editorDirty,
   onAccepted,
+  onActivity,
 }: AiPanelProps) {
   const [configs, setConfigs] = useState<ModelConfig[] | null>(null);
   const [configError, setConfigError] = useState("");
@@ -111,6 +126,70 @@ export function AiPanel({
       controller.abort();
     };
   }, []);
+
+  const chapterKey = chapter?.id ?? null;
+  useEffect(() => {
+    if (!chapter || chapterKey === null) {
+      return;
+    }
+    const controller = new AbortController();
+    listOpenTasks(chapterKey, controller.signal)
+      .then((tasks) => {
+        const picked = pickOpenTask(tasks);
+        if (!picked) {
+          return;
+        }
+        setTaskId((current) => current ?? picked.id);
+        setLockedRevision((current) => current ?? savedRevision);
+        setCandidate((current) => (current.status === "idle" ? stateFromTask(current, picked) : current));
+        setNotice((current) => current || noticeForTask(picked));
+      })
+      .catch((cause: unknown) => {
+        if (isAbort(cause)) {
+          return;
+        }
+      });
+    return () => {
+      controller.abort();
+    };
+  }, [chapter, chapterKey, savedRevision]);
+
+  useEffect(() => {
+    if (!taskId || candidate.status !== "running" || !candidate.disconnected) {
+      return;
+    }
+    const controller = new AbortController();
+    const watchingId = taskId;
+    void followOpenTask(() => getAiTask(watchingId, controller.signal).then(taskWatchSnapshot), {
+      signal: controller.signal,
+      wait: waitWithSignal,
+      onTask: (task) => {
+        setCandidate((current) =>
+          stateFromTask(current, {
+            status: task.status,
+            output_text: task.output_text,
+            error_message_safe: task.error_message_safe ?? null,
+            provider_mode: task.provider_mode ?? current.providerMode ?? "openai_compatible",
+            partial: task.partial,
+            error_code: task.error_code,
+          }),
+        );
+        setNotice(task.status === "failed" ? "" : noticeForTask(task));
+      },
+    }).catch((cause: unknown) => {
+      if (isAbort(cause)) {
+        return;
+      }
+      setNotice("仍在后台生成。可以稍后查看这一章。这次等待不会取消任务。");
+    });
+    return () => {
+      controller.abort();
+    };
+  }, [taskId, candidate.status, candidate.disconnected]);
+
+  useEffect(() => {
+    onActivity?.(activityFromCandidate(candidate));
+  }, [candidate, onActivity]);
 
   const taskMeta = TASKS.find((item) => item.value === taskType) ?? VERBS[0];
   const taskLabel = taskMeta?.label ?? "续写";
@@ -216,12 +295,14 @@ export function AiPanel({
           return;
         }
       }
+      const failure = failurePresentation(api?.code, api?.message);
       setCandidate((current) => ({
         ...current,
         status: "failed",
         ignoreTokens: true,
         disconnected: false,
-        errorMessage: api?.message ?? "生成没有完成。正文没有被修改。",
+        canRetry: failure.canRetry,
+        errorMessage: failure.message,
       }));
     } finally {
       setBusy(false);
@@ -232,8 +313,13 @@ export function AiPanel({
     try {
       const task = await getAiTask(taskIdToRead);
       setCandidate((current) => stateFromTask(current, task));
-      if (task.status === "queued" || task.status === "running") {
-        setNotice("连接中断。任务仍在服务器上，可以重新查看。正文没有被改写。");
+      if (task.status === "failed") {
+        setNotice("");
+      } else {
+        const note = noticeForTask(task);
+        if (note) {
+          setNotice(note);
+        }
       }
       return true;
     } catch (cause: unknown) {
@@ -247,7 +333,7 @@ export function AiPanel({
           errorMessage: cause instanceof ApiError ? cause.message : "无法读取任务状态。",
         };
       });
-      setNotice("连接中断。任务状态以服务器为准，可以重新查看。正文没有被改写。");
+      setNotice("仍在后台生成，或结果还在服务器上。这次查看失败不会取消任务。正文没有被改写。");
       return false;
     }
   }
@@ -287,7 +373,7 @@ export function AiPanel({
   }
 
   async function accept() {
-    if (!taskId || lockedRevision === null || candidate.status !== "completed") {
+    if (!taskId || lockedRevision === null || !canAdoptCandidate(candidate)) {
       return;
     }
     if (editorDirty) {
@@ -327,7 +413,7 @@ export function AiPanel({
   }
 
   async function reject() {
-    if (!taskId || candidate.status !== "completed") {
+    if (!taskId || !canAdoptCandidate(candidate)) {
       return;
     }
     setBusy(true);
@@ -779,7 +865,12 @@ export function AiPanel({
       <p className="candidate-box" aria-label="候选文本" aria-live="polite">
         {candidate.text || "候选会显示在这里。"}
       </p>
-      {candidate.disconnected ? (
+      {candidate.disconnected && candidate.status === "running" ? (
+        <p className="banner" role="status">
+          仍在后台生成。可以稍后查看这一章。这次等待不会取消任务，正文也不会被自动改写。
+        </p>
+      ) : null}
+      {candidate.disconnected && candidate.status !== "running" ? (
         <p className="banner" role="status">
           进度连接中断了。上面的文字只是已经收到的片段，最终候选以服务器上的任务为准。
         </p>
@@ -789,6 +880,19 @@ export function AiPanel({
           {candidate.errorMessage}
         </p>
       ) : null}
+      {candidate.canRetry && !streaming ? (
+        <div className="inline-actions">
+          <button
+            className="primary"
+            type="button"
+            onClick={() => {
+              void start(candidate.providerMode === "mock");
+            }}
+          >
+            再试一次
+          </button>
+        </div>
+      ) : null}
       {candidate.status === "completed" && candidate.partial ? (
         <p className="banner" role="status">
           {candidate.errorMessage || "模型超时，下面是已生成的片段，可以采纳。"}
@@ -796,10 +900,10 @@ export function AiPanel({
       ) : null}
       {candidate.status === "cancelled" ? (
         <p className="banner" role="status">
-          已取消。正文没有被改写。
+          {candidate.text.trim() ? CANCELLED_WITH_TEXT_MESSAGE : "已取消。正文没有被改写。"}
         </p>
       ) : null}
-      {candidate.status === "completed" ? (
+      {canAdoptCandidate(candidate) ? (
         <div className="ai-form">
           <label>
             采纳方式

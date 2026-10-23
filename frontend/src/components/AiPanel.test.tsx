@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { acceptAiTask, cancelAiTask, compileContext, createAiTask, getAiTask, getTaskContext, rejectAiTask, streamAiTask } from "../api/ai.ts";
+import { acceptAiTask, cancelAiTask, compileContext, createAiTask, getAiTask, getTaskContext, listOpenTasks, rejectAiTask, streamAiTask } from "../api/ai.ts";
 import { ApiError } from "../api/types.ts";
 import type { AiTask } from "../api/types.ts";
 import { listModelConfigs } from "../api/models.ts";
@@ -21,6 +21,7 @@ vi.mock("../api/ai.ts", () => ({
   compileContext: vi.fn(),
   getTaskContext: vi.fn(),
   getAiTask: vi.fn(),
+  listOpenTasks: vi.fn(),
 }));
 
 const chapter: Chapter = {
@@ -116,6 +117,8 @@ describe("AiPanel", () => {
     vi.mocked(cancelAiTask).mockReset();
     vi.mocked(getAiTask).mockReset();
     vi.mocked(getAiTask).mockImplementation(async (id: string) => taskFixture(id, "completed", "候选"));
+    vi.mocked(listOpenTasks).mockReset();
+    vi.mocked(listOpenTasks).mockResolvedValue([]);
     vi.mocked(getTaskContext).mockResolvedValue({
       task_type: "continue",
       novel_id: "novel-1",
@@ -598,5 +601,58 @@ describe("AiPanel", () => {
     expect(screen.getByLabelText("候选文本").textContent).toContain("甲乙");
     expect(screen.queryByText("已取消。正文没有被改写。")).toBeNull();
     releaseStream();
+  });
+
+  it("keeps a running task when the stream drops and does not cancel it", async () => {
+    vi.mocked(listModelConfigs).mockResolvedValue([model]);
+    vi.mocked(createAiTask).mockResolvedValue(taskFixture("task-poll", "queued", null));
+    vi.mocked(streamAiTask).mockRejectedValue(new Error("poll give up"));
+    vi.mocked(getAiTask).mockResolvedValue(taskFixture("task-poll", "running", "已写到的片段"));
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole("button", { name: "用模拟模型试运行" }));
+
+    expect((await screen.findAllByText(/仍在后台生成/)).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("候选文本").textContent).toContain("已写到的片段");
+    expect(cancelAiTask).not.toHaveBeenCalled();
+  });
+
+  it("shows an unused candidate from task history so it can be adopted", async () => {
+    vi.mocked(listModelConfigs).mockResolvedValue([model]);
+    vi.mocked(listOpenTasks).mockResolvedValue([
+      taskFixture("task-held", "completed", "昨晚没人采纳的正文"),
+    ]);
+    renderPanel();
+
+    expect(await screen.findByLabelText("候选文本")).toHaveProperty(
+      "textContent",
+      expect.stringContaining("昨晚没人采纳的正文"),
+    );
+    expect(screen.getByRole("button", { name: "采纳" })).toBeTruthy();
+    expect(screen.getByText(/可以采纳或放弃/)).toBeTruthy();
+    expect(cancelAiTask).not.toHaveBeenCalled();
+  });
+
+  it("offers a retry when the model returns nothing", async () => {
+    vi.mocked(listModelConfigs).mockResolvedValue([model]);
+    vi.mocked(createAiTask).mockResolvedValue(taskFixture("task-empty", "queued", null));
+    vi.mocked(streamAiTask).mockResolvedValue();
+    vi.mocked(getAiTask).mockResolvedValue({
+      ...taskFixture("task-empty", "failed", null),
+      error_code: "EMPTY_OUTPUT",
+      error_message_safe: "模型这次没有写出可用正文。正文没有改动，可以再试一次。",
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole("button", { name: "用模拟模型试运行" }));
+
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      expect.stringContaining("没有写出可用正文"),
+    );
+    expect(screen.getByRole("button", { name: "再试一次" })).toBeTruthy();
+    expect(screen.queryByText("EMPTY_OUTPUT")).toBeNull();
   });
 });

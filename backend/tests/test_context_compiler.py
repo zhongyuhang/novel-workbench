@@ -516,7 +516,9 @@ def test_selection_rewrite_skips_distant_summary(auth_client: TestClient) -> Non
         json={
             "revision": earlier["revision"],
             "save_kind": "manual",
-            "content": _document("林晚说道：“序章里的旧伤。”"),
+            "content": _document(
+                "林晚说道：“序章里的旧伤还在，雨夜里他沿着旧巷走了很久，始终没有回头，也没有叫人。”"
+            ),
         },
     )
     assert saved_earlier.status_code == 200, saved_earlier.text
@@ -535,6 +537,7 @@ def test_selection_rewrite_skips_distant_summary(auth_client: TestClient) -> Non
         f"/api/v1/novels/{novel_id}/chapters",
         json={"title": "正文"},
     ).json()
+    assert current["id"] != earlier["id"]
     saved = auth_client.put(
         f"/api/v1/chapters/{current['id']}",
         json={

@@ -40,6 +40,7 @@ from app.schemas.catalog import (
     VolumeReorder,
     VolumeUpdate,
 )
+from app.services.chapter_shells import ShellChapter, duplicate_shell_ids, reusable_shell_id
 from app.services.memory import mark_chapter_memory_stale
 from app.services.planning import discard_volume_outline, mark_volume_outline_stale
 
@@ -213,6 +214,13 @@ def create_chapter(session: Session, novel_id: str, payload: ChapterCreate) -> C
     _require_novel(session, novel_id)
     _require_volume_in_novel(session, novel_id, payload.volume_id)
     group = catalog_repo.list_chapters_in_group(session, novel_id, payload.volume_id)
+    reusable_id = reusable_shell_id(
+        [_shell_ref(chapter) for chapter in group],
+        payload.title,
+        payload.volume_id,
+    )
+    if reusable_id is not None:
+        return _require_chapter(session, reusable_id)
     document = empty_document()
     now = _now()
     chapter = Chapter(
@@ -455,6 +463,31 @@ def apply_accepted_candidate(
     return _reload_chapter(session, chapter_id)
 
 
+def cleanup_duplicate_shells(session: Session, novel_id: str) -> int:
+    """Delete extra empty shells that share a title. One written chapter, or one shell, stays."""
+
+    _require_novel(session, novel_id)
+    chapters = catalog_repo.list_chapters(session, novel_id)
+    remove = set(duplicate_shell_ids([_shell_ref(chapter) for chapter in chapters]))
+    if not remove:
+        return 0
+    now = _now()
+    volumes: set[str | None] = set()
+    for chapter in chapters:
+        if chapter.id not in remove:
+            continue
+        chapter.deleted_at = now
+        chapter.updated_at = now
+        volumes.add(chapter.volume_id)
+    session.flush()
+    for volume_id in volumes:
+        remaining = catalog_repo.list_chapters_in_group(session, novel_id, volume_id)
+        _renumber(remaining, volume_id)
+        mark_volume_outline_stale(session, novel_id, volume_id)
+    session.commit()
+    return len(remove)
+
+
 def delete_chapter(session: Session, chapter_id: str) -> None:
     chapter = _require_chapter(session, chapter_id)
     volume_id = chapter.volume_id
@@ -565,7 +598,7 @@ def _claim_ai_resolution(session: Session, task_id: str, chapter: Chapter) -> No
                 AiTask.id == task_id,
                 AiTask.chapter_id == chapter.id,
                 AiTask.novel_id == chapter.novel_id,
-                AiTask.status == "completed",
+                AiTask.status.in_(("completed", "cancelled")),
                 AiTask.resolution.is_(None),
             )
             .values(resolution="accepted")
@@ -777,6 +810,16 @@ def _blank_to_none(value: str | None) -> str | None:
         return None
     stripped = value.strip()
     return stripped or None
+
+
+def _shell_ref(chapter: Chapter) -> ShellChapter:
+    return ShellChapter(
+        id=chapter.id,
+        title=chapter.title,
+        word_count=chapter.word_count,
+        sort_order=chapter.sort_order,
+        volume_id=chapter.volume_id,
+    )
 
 
 def _new_id() -> str:
