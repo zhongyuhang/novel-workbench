@@ -81,6 +81,12 @@ export function listChapters(novelId: string, signal?: AbortSignal): Promise<Cha
   return apiRequest<ChapterSummary[]>(`/api/v1/novels/${novelId}/chapters`, { signal });
 }
 
+export function cleanupShellChapters(novelId: string): Promise<{ deleted: number }> {
+  return apiRequest<{ deleted: number }>(`/api/v1/novels/${novelId}/chapters/cleanup-shells`, {
+    method: "POST",
+  });
+}
+
 export function createChapter(
   novelId: string,
   title: string,

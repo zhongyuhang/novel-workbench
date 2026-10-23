@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type DragEvent } from "react";
 import type { ChapterSummary, Volume } from "../api/types.ts";
+import { shellBadge } from "../features/library/continueWriting.ts";
 import {
   moveVolumeToStart,
   planChapterMove,
@@ -314,7 +315,9 @@ export function TocTree({
             ) : null}
           </div>
           <ol className="toc-list">
-            {group.chapters.map((item) => (
+            {group.chapters.map((item) => {
+              const badge = shellBadge(item.word_count);
+              return (
               <li
                 key={item.id}
                 className={item.id === chapterId ? "toc-current" : undefined}
@@ -361,7 +364,10 @@ export function TocTree({
                     }}
                   >
                     <span>{item.title}</span>
-                    <span className="hint">{item.word_count} 字</span>
+                    <span className="toc-meta">
+                      {badge ? <span className="toc-badge">{badge}</span> : null}
+                      <span className="hint">{item.word_count} 字</span>
+                    </span>
                   </button>
                   <button
                     className="toc-more"
@@ -383,7 +389,8 @@ export function TocTree({
                   </button>
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ol>
           <button
             className="ghost"

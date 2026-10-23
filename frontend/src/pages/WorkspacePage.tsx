@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  cleanupShellChapters,
   createChapter,
   createVolume,
   deleteChapter,
@@ -25,6 +26,8 @@ import { MemoryPanel } from "../components/MemoryPanel.tsx";
 import { ChapterPlanEditor, OutlinePanel } from "../components/OutlinePanel.tsx";
 import { QualityPanel } from "../components/QualityPanel.tsx";
 import { buildToc, TocTree } from "../components/TocTree.tsx";
+import { titleForNewChapter } from "../features/library/continueWriting.ts";
+import type { GenerationActivity } from "../features/ai/taskWatch.ts";
 import { requestMemoryAnalyze } from "../features/memory/analyzeBridge.ts";
 import { HealthBadge } from "../components/HealthBadge.tsx";
 import { ThemeSwitcher } from "../components/ThemeSwitcher.tsx";
@@ -61,6 +64,18 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
   const [tocOpen, setTocOpen] = useState(true);
   const [sideOpen, setSideOpen] = useState(true);
   const [focusMode, setFocusMode] = useState(readFocusMode);
+  const [activity, setActivity] = useState<GenerationActivity | null>(null);
+  const noteActivity = useCallback((next: GenerationActivity | null) => {
+    setActivity((current) => {
+      if (current === next) {
+        return current;
+      }
+      if (current && next && current.phase === next.phase && current.message === next.message) {
+        return current;
+      }
+      return next;
+    });
+  }, []);
   const unsavedRef = useRef(false);
   const skipGuardRef = useRef(false);
   const chapterStatusRef = useRef<string | null>(null);
@@ -274,6 +289,13 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
     });
   }
 
+  function chapterTitleFor(volumeId: string | null): string {
+    const inGroup = chapters
+      .filter((item) => item.volume_id === volumeId)
+      .sort((left, right) => left.sort_order - right.sort_order);
+    return titleForNewChapter(inGroup);
+  }
+
   function openChapter(id: string) {
     tryNavigate(workspaceHash(novelId, id));
   }
@@ -452,6 +474,20 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
             >
               新建卷
             </button>
+            <button
+              hidden={leftView !== "toc"}
+              className="ghost"
+              type="button"
+              disabled={busy || loading}
+              onClick={() => {
+                void run(async () => {
+                  await cleanupShellChapters(novelId);
+                  await refreshStructure();
+                });
+              }}
+            >
+              清理空章
+            </button>
           </div>
           {leftView === "outline" ? (
             <OutlinePanel
@@ -494,7 +530,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
               }}
               onCreateChapter={(volumeId) => {
                 void run(async () => {
-                  const created = await createChapter(novelId, "未命名章节", volumeId);
+                  const created = await createChapter(novelId, chapterTitleFor(volumeId), volumeId);
                   await refreshStructure();
                   openChapter(created.id);
                 });
@@ -570,6 +606,11 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
           ) : null}
         </nav>
         <main className="workspace-pane editor-pane">
+          {focusMode && activity ? (
+            <p className="focus-generation" role="status">
+              {activity.message}
+            </p>
+          ) : null}
           {chapter && chapter.id === chapterId ? (
             <div className="view-tabs" role="tablist" aria-label="章节视图">
               <button
@@ -636,7 +677,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
                   disabled={busy || loading}
                   onClick={() => {
                     void run(async () => {
-                      const created = await createChapter(novelId, "未命名章节", null);
+                      const created = await createChapter(novelId, chapterTitleFor(null), null);
                       await refreshStructure();
                       openChapter(created.id);
                     });
@@ -716,6 +757,7 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
               onAccepted={(saved) => {
                 noteManuscriptWrite(saved, "adopt");
               }}
+              onActivity={noteActivity}
             />
           </div>
           <div hidden={sideTab !== "quality"}>

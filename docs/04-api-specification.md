@@ -40,7 +40,8 @@
 
 ### Chapters
 - `GET /api/v1/novels/{novel_id}/chapters`
-- `POST /api/v1/novels/{novel_id}/chapters`
+- `POST /api/v1/novels/{novel_id}/chapters`：同一卷里若已有同名、或同一序号位置上的空章/过短草稿（约 40 字以内），返回这一章，不再插入重复空壳。有正文的同名章仍会新建。
+- `POST /api/v1/novels/{novel_id}/chapters/cleanup-shells`：删掉与更完整章节同名的空壳，或同一标题下多余的空壳。至少留下一章。
 - `GET /api/v1/chapters/{chapter_id}`
 - `PUT /api/v1/chapters/{chapter_id}`
 - `POST /api/v1/chapters/{chapter_id}/duplicate`
@@ -53,6 +54,7 @@
 ### AI
 - `POST /api/v1/ai/tasks/context/compile`：只编译上下文，不创建任务，不改正文、正式设定或大纲。
 - `POST /api/v1/ai/tasks`
+- `GET /api/v1/ai/tasks?chapter_id=`：这一章仍在生成的任务，以及还没采纳/放弃、并且有正文的完成或已取消候选。客户端停止轮询不会取消任务。
 - `GET /api/v1/ai/tasks/{task_id}`
 - `GET /api/v1/ai/tasks/{task_id}/context`：返回该任务保存的上下文条目。旧任务没有条目时 `legacy=true`，`items` 为空，并说明当时只保存了整段提示。
 - `POST /api/v1/ai/tasks/{task_id}/cancel`
@@ -62,7 +64,7 @@
 
 采纳请求包含 `target_revision` 和 `apply_mode`（`append`、`insert`、`replace_selection`）。修订号不一致时返回 `409`，不覆盖正文。任务快照里的 `target_revision` 也必须等于当前正文修订，否则同样 `409`，并说明没有写入。选区缺失或出现多次时返回 `422 SELECTION_NOT_FOUND`，不写库。空选区的 `replace_selection` 仍替换整章。`append` 追加，`insert` 插在唯一选区之后。采纳在一个事务里更新正文、字数、修订、版本快照和任务 `resolution`。重复采纳或并发采纳只有一次成功，另一次返回 `409 TASK_STATE` 或 `409 REVISION_CONFLICT`，正文不重复插入。拒绝只标记任务，不改正文。任务类型为 `continue`、`rewrite`、`polish`、`expand`、`shrink`、`proofread`。显式 `use_mock=true` 或选择模拟配置时，响应里的 `provider_mode` 为 `mock`。模拟模型也走同一个上下文编译器。`rewrite` 且带有非空 `selection_text` 时，`prompt_version` 为 `rewrite_selection_v1`，候选仍要等到采纳才写入正文。
 
-任务状态以数据库为准。`GET /api/v1/ai/tasks/{task_id}/events` 只做通知。连接断开后仍用 `GET /api/v1/ai/tasks/{task_id}` 读取状态和已有 `output_text`。取消只对 `queued` 或 `running` 生效；已经结束返回 `409 TASK_STATE`。取消之后迟到的 token 不再写入 `output_text`。超时、限流、模型不可用和无法解析的响应使用安全错误信息，不回传密钥或上游正文。
+任务状态以数据库为准。`GET /api/v1/ai/tasks/{task_id}/events` 只做通知。连接断开或客户端停止轮询后，仍用 `GET /api/v1/ai/tasks/{task_id}` 读取状态和已有 `output_text`，不要因此取消任务。任务若仍是 `queued` 或 `running`，界面应说明它还在后台生成，可以稍后再看。完成后从章节的未处理任务列表里采纳。取消只对 `queued` 或 `running` 生效；已经结束返回 `409 TASK_STATE`。取消之后迟到的 token 不再写入 `output_text`。若取消前已经有正文，这份正文仍可采纳或放弃，不会自动写入章节。超时、限流、模型不可用和无法解析的响应使用安全错误信息，不回传密钥或上游正文。模型没有写出正文时，`error_code` 为 `EMPTY_OUTPUT`，说明里会区分长度上限、内容过滤或普通结束；提供方的结束原因只记在任务快照的 `provider_finish_reason`，不放进给读者看的密钥或原文。
 
 模型超时、连接中断或无法继续解析流时，如果已经收到非空正文，任务记为 `completed` 而不是 `failed`。响应里 `partial` 为 true，并保留 `error_code`（例如 `MODEL_TIMEOUT`）和说明片段可以采纳。采纳仍走 `POST /ai/tasks/{task_id}/accept`。没有收到正文时仍是 `failed`，不能采纳。
 

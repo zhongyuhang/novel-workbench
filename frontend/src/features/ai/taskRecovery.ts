@@ -2,6 +2,7 @@ import {
   reduceCandidate,
   type CandidateState,
 } from "./candidateStream.ts";
+import { failurePresentation } from "./taskWatch.ts";
 
 export type TaskSnapshot = {
   status: "queued" | "running" | "completed" | "failed" | "cancelled";
@@ -9,6 +10,7 @@ export type TaskSnapshot = {
   error_message_safe: string | null;
   provider_mode: "mock" | "openai_compatible";
   partial?: boolean;
+  error_code?: string | null;
 };
 
 export function stateFromTask(previous: CandidateState, task: TaskSnapshot): CandidateState {
@@ -29,15 +31,18 @@ export function stateFromTask(previous: CandidateState, task: TaskSnapshot): Can
     };
   }
   if (task.status === "failed") {
+    const failure = failurePresentation(task.error_code, task.error_message_safe);
     return {
       ...reduceCandidate(previous, {
         event: "task.failed",
         data: {
-          error_message: task.error_message_safe ?? "生成没有完成。正文没有被修改。",
+          error_message: failure.message,
+          error_code: task.error_code ?? undefined,
           provider_mode: providerMode,
           status: task.status,
         },
       }),
+      canRetry: failure.canRetry,
       disconnected: false,
     };
   }

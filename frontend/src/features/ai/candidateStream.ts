@@ -28,6 +28,7 @@ export type CandidateState = {
   providerMode: "mock" | "openai_compatible" | null;
   disconnected: boolean;
   partial: boolean;
+  canRetry: boolean;
 };
 
 export const idleCandidate: CandidateState = {
@@ -39,6 +40,7 @@ export const idleCandidate: CandidateState = {
   providerMode: null,
   disconnected: false,
   partial: false,
+  canRetry: false,
 };
 
 export function reduceCandidate(state: CandidateState, event: StreamEvent): CandidateState {
@@ -50,7 +52,7 @@ export function reduceCandidate(state: CandidateState, event: StreamEvent): Cand
     if (isTerminal(state.status)) {
       return state;
     }
-    return { ...state, status: "running", providerMode, disconnected: false };
+    return { ...state, status: "running", providerMode, disconnected: false, canRetry: false };
   }
   if (event.event === "token") {
     if (state.ignoreTokens || isTerminal(state.status)) {
@@ -62,6 +64,7 @@ export function reduceCandidate(state: CandidateState, event: StreamEvent): Cand
       providerMode,
       text: state.text + (event.data.text ?? ""),
       disconnected: false,
+      canRetry: false,
     };
   }
   if (event.event === "task.completed") {
@@ -76,6 +79,7 @@ export function reduceCandidate(state: CandidateState, event: StreamEvent): Cand
       completedCount: state.completedCount + 1,
       disconnected: false,
       partial: event.data.partial === true,
+      canRetry: false,
       errorMessage:
         event.data.partial === true
           ? (event.data.error_message ?? "模型中断前已经写出一段正文，可以采纳这段片段。")
@@ -92,6 +96,7 @@ export function reduceCandidate(state: CandidateState, event: StreamEvent): Cand
       ignoreTokens: true,
       providerMode,
       partial: false,
+      canRetry: event.data.error_code !== "MODEL_NOT_CONFIGURED" && event.data.error_code !== "MODEL_CONFIG_INVALID",
       errorMessage: event.data.error_message ?? "生成没有完成。正文没有被修改。",
       disconnected: false,
     };
@@ -102,6 +107,7 @@ export function reduceCandidate(state: CandidateState, event: StreamEvent): Cand
     ignoreTokens: true,
     providerMode,
     partial: false,
+    canRetry: false,
     disconnected: false,
   };
 }

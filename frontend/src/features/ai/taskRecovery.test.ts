@@ -55,6 +55,21 @@ describe("task recovery", () => {
     expect(recovered.text).toBe("已写到的片段");
   });
 
+  it("turns an empty-output failure into a retryable explanation", () => {
+    const recovered = stateFromTask(idleCandidate, {
+      status: "failed",
+      output_text: null,
+      error_code: "EMPTY_OUTPUT",
+      error_message_safe: "模型这次没有写出可用正文。正文没有改动，可以再试一次。",
+      provider_mode: "openai_compatible",
+    });
+
+    expect(recovered.status).toBe("failed");
+    expect(recovered.canRetry).toBe(true);
+    expect(recovered.errorMessage).toContain("再试一次");
+    expect(recovered.errorMessage).not.toContain("EMPTY_OUTPUT");
+  });
+
   it("shows a safe failure from the task row", () => {
     const recovered = stateFromTask(idleCandidate, {
       status: "failed",

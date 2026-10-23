@@ -21,6 +21,7 @@ vi.mock("../api/client.ts", async () => {
 });
 
 vi.mock("../api/catalog.ts", () => ({
+  cleanupShellChapters: vi.fn(async () => ({ deleted: 0 })),
   createChapter: vi.fn(),
   createVolume: vi.fn(),
   deleteChapter: vi.fn(),
@@ -55,9 +56,23 @@ vi.mock("../api/memory.ts", () => ({
   listEntities: vi.fn(async () => []),
 }));
 
-vi.mock("../components/AiPanel.tsx", () => ({
-  AiPanel: () => <aside>生成面板</aside>,
-}));
+vi.mock("../components/AiPanel.tsx", async () => {
+  const React = await import("react");
+  return {
+    AiPanel: (props: {
+      onActivity?: (activity: { phase: "background"; message: string } | null) => void;
+    }) => {
+      const onActivity = props.onActivity;
+      React.useEffect(() => {
+        onActivity?.({
+          phase: "background",
+          message: "仍在后台生成。可以稍后查看。",
+        });
+      }, [onActivity]);
+      return React.createElement("aside", null, "生成面板");
+    },
+  };
+});
 
 vi.mock("../components/MemoryPanel.tsx", () => ({
   MemoryPanel: () => <aside>设定面板</aside>,
@@ -135,6 +150,7 @@ describe("WorkspacePage planning view", () => {
     expect(await screen.findByRole("tab", { name: "目录" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "新建卷" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "第一章，4 字" })).toBeTruthy();
+    expect(screen.getByText("过短")).toBeTruthy();
     expect(await screen.findByText("原句还在")).toBeTruthy();
 
     await user.click(screen.getByRole("tab", { name: "大纲" }));
@@ -205,6 +221,7 @@ describe("WorkspacePage planning view", () => {
     expect(document.querySelector(".workspace")?.classList.contains("is-focus")).toBe(true);
     expect(screen.queryByRole("link", { name: "返回作品库" })).toBeNull();
     expect(screen.getByRole("button", { name: "退出专注" })).toBeTruthy();
+    expect(screen.getByText("仍在后台生成。可以稍后查看。")).toBeTruthy();
     expect(localStorage.getItem("novel-workbench-focus")).toBe("1");
 
     await user.keyboard("{Escape}");

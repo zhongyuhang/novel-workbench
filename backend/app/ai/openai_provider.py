@@ -156,10 +156,7 @@ class OpenAICompatibleProvider:
                 response.read()
                 raise _status_error(response.status_code, _error_hint(response))
             for line in response.iter_lines():
-                text = _delta_text(line)
-                if text is None or text == "":
-                    continue
-                yield StreamEvent(event="token", data=text)
+                yield from _events_from_line(line)
 
     def _client(self, endpoint: ModelEndpoint) -> httpx.Client:
         timeout = httpx.Timeout(
@@ -241,34 +238,35 @@ def _usage(body: dict[str, object]) -> UsageEstimate | None:
     )
 
 
-def _delta_text(line: str) -> str | None:
+def _events_from_line(line: str) -> list[StreamEvent]:
     stripped = line.strip()
     if stripped == "" or not stripped.startswith("data:"):
-        return None
+        return []
     data = stripped.removeprefix("data:").strip()
     if data == "[DONE]":
-        return None
+        return []
     try:
         parsed = json.loads(data)
     except ValueError as exc:
         raise ProviderError("MODEL_BAD_RESPONSE", "模型流返回了无法解析的片段。") from exc
     if not isinstance(parsed, dict):
-        return None
+        return []
     choices = parsed.get("choices")
     if not isinstance(choices, list) or not choices:
-        return None
+        return []
     first = choices[0]
     if not isinstance(first, dict):
-        return None
+        return []
+    events: list[StreamEvent] = []
     delta = first.get("delta")
-    if not isinstance(delta, dict):
-        return None
-    content = delta.get("content")
-    if content is None:
-        return None
-    if not isinstance(content, str):
-        return None
-    return content
+    if isinstance(delta, dict):
+        content = delta.get("content")
+        if isinstance(content, str) and content != "":
+            events.append(StreamEvent(event="token", data=content))
+    reason = first.get("finish_reason")
+    if isinstance(reason, str) and reason.strip() != "":
+        events.append(StreamEvent(event="finish", data=reason.strip().lower()))
+    return events
 
 
 def _error_hint(response: httpx.Response) -> str:

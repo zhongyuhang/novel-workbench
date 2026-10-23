@@ -1,6 +1,7 @@
 """Background execution. A finished task is a candidate; the chapter is not modified."""
 
 import logging
+import re
 import threading
 from datetime import UTC, datetime
 from typing import cast
@@ -27,6 +28,8 @@ from app.core.secrets import SecretStorageError
 from app.models.ai import AiTask, ModelConfig
 
 logger = logging.getLogger("app.ai.runner")
+
+_FINISH_REASON = re.compile(r"^[a-z0-9_]{1,40}$")
 
 
 def run_ai_task(
@@ -149,8 +152,12 @@ def _execute(
 
     pieces: list[str] = []
     dropping = False
+    finish_reason = ""
     try:
         for event in provider.stream(request):
+            if event.event == "finish":
+                finish_reason = _safe_finish_reason(event.data) or finish_reason
+                continue
             cancelled = cancel_event.is_set() or not _is_running(session_factory, task_id)
             if not dropping and cancelled:
                 dropping = True
@@ -190,12 +197,13 @@ def _execute(
         _cancel_open(session_factory, broker, task_id)
         return
     if text == "":
+        _remember_finish_reason(session_factory, task_id, finish_reason)
         _fail_if_open(
             session_factory,
             broker,
             task_id,
             "EMPTY_OUTPUT",
-            "模型没有返回可用文本。正文没有被修改。",
+            empty_output_message(finish_reason),
         )
         return
     if _complete_running(
@@ -534,6 +542,48 @@ def _optional_int(value: object) -> int | None:
     if isinstance(value, int) and not isinstance(value, bool):
         return value
     return None
+
+
+def empty_output_message(reason: str) -> str:
+    if reason == "length":
+        return "模型在长度上限处停了，没有写出可用正文。正文没有改动，可以再试一次。"
+    if reason in {"content_filter", "content_filter_recitation"}:
+        return "模型因为内容过滤停了，没有写出可用正文。正文没有改动。"
+    if reason == "stop":
+        return "模型正常结束，但没有写出可用正文。正文没有改动，可以再试一次。"
+    return "模型这次没有写出可用正文。正文没有改动，可以再试一次。"
+
+
+def _safe_finish_reason(value: str) -> str:
+    token = value.strip().lower()
+    if _FINISH_REASON.fullmatch(token) is None:
+        return ""
+    return token
+
+
+def _remember_finish_reason(
+    session_factory: sessionmaker[Session],
+    task_id: str,
+    reason: str,
+) -> None:
+    """Keep the provider stop token off the user-facing error, next to the task row."""
+
+    stored = reason or "unknown"
+    session = session_factory()
+    try:
+        task = session.get(AiTask, task_id)
+        if task is None:
+            return
+        snapshot = dict(task.input_snapshot) if isinstance(task.input_snapshot, dict) else {}
+        snapshot["provider_finish_reason"] = stored
+        task.input_snapshot = snapshot
+        session.commit()
+    finally:
+        session.close()
+    logger.info(
+        "provider finish",
+        extra={"task_id": task_id, "provider_finish_reason": stored},
+    )
 
 
 def _now() -> datetime:

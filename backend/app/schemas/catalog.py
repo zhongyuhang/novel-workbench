@@ -99,6 +99,10 @@ class VolumeResponse(BaseModel):
     updated_at: datetime
 
 
+class ShellCleanupResponse(BaseModel):
+    deleted: int = Field(ge=0)
+
+
 class ChapterCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     volume_id: str | None = None

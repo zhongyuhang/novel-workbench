@@ -42,6 +42,11 @@ export function getAiTask(taskId: string, signal?: AbortSignal): Promise<AiTask>
   return apiRequest<AiTask>(`/api/v1/ai/tasks/${taskId}`, { signal });
 }
 
+export function listOpenTasks(chapterId: string, signal?: AbortSignal): Promise<AiTask[]> {
+  const query = new URLSearchParams({ chapter_id: chapterId });
+  return apiRequest<AiTask[]>(`/api/v1/ai/tasks?${query}`, { signal });
+}
+
 export function cancelAiTask(taskId: string): Promise<AiTask> {
   return apiRequest<AiTask>(`/api/v1/ai/tasks/${taskId}/cancel`, { method: "POST" });
 }

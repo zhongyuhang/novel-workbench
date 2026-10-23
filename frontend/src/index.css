@@ -860,6 +860,19 @@ a {
   color: var(--text-primary);
 }
 
+.focus-generation {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  width: min(44rem, 100%);
+  margin: 12px auto 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+
 .side-pane {
   display: flex;
   flex-direction: column;
@@ -1213,6 +1226,22 @@ a {
   font-family: var(--font-ui);
   font-size: 0.8125rem;
   line-height: 1.55;
+}
+
+.toc-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+}
+
+.toc-badge {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
 }
 
 .toc-link {

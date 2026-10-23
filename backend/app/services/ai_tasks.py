@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Literal, cast
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
@@ -156,6 +156,25 @@ def get_ai_task(session: Session, task_id: str) -> AiTaskResponse:
     return _response(_require(session, task_id))
 
 
+def list_open_tasks(session: Session, chapter_id: str) -> list[AiTaskResponse]:
+    """In-flight work and unused candidates for one chapter.
+
+    Giving up a poll does not cancel anything. This list is how a later visit
+    finds a task that finished after the client stopped watching.
+    """
+
+    chapter = catalog_repo.get_chapter(session, chapter_id)
+    if chapter is None:
+        raise NotFound("章节不存在。")
+    rows = session.scalars(
+        select(AiTask)
+        .where(AiTask.chapter_id == chapter.id)
+        .order_by(AiTask.created_at.desc(), AiTask.id.desc())
+        .limit(40)
+    ).all()
+    return [_response(task) for task in rows if _is_open_task(task)]
+
+
 def preview_context(session: Session, payload: ContextCompileRequest) -> CompiledContext:
     """Compile without creating a task and without writing memory or outlines."""
 
@@ -286,10 +305,10 @@ def accept_ai_task(
     runtime: AiRuntime | None = None,
 ) -> tuple[AiTaskResponse, ChapterResponse]:
     task = _require(session, task_id)
-    if task.status != TaskStatus.COMPLETED.value:
-        raise TaskStateError("只有生成完成的候选才能采纳。")
-    if task.resolution is not None:
-        raise TaskStateError("这份候选已经处理过。")
+    if not _can_resolve(task):
+        if task.resolution is not None:
+            raise TaskStateError("这份候选已经处理过。")
+        raise TaskStateError("只有还没处理、并且有正文的候选才能采纳。")
     if task.chapter_id is None:
         raise InvalidReference("这个任务没有关联章节，不能写入正文。")
     output = (task.output_text or "").strip()
@@ -331,10 +350,10 @@ def accept_ai_task(
 
 def reject_ai_task(session: Session, task_id: str) -> AiTaskResponse:
     task = _require(session, task_id)
-    if task.status != TaskStatus.COMPLETED.value:
-        raise TaskStateError("只有生成完成的候选才能放弃。")
-    if task.resolution is not None:
-        raise TaskStateError("这份候选已经处理过。")
+    if not _can_resolve(task):
+        if task.resolution is not None:
+            raise TaskStateError("这份候选已经处理过。")
+        raise TaskStateError("只有还没处理、并且有正文的候选才能放弃。")
     task.resolution = "rejected"
     session.commit()
     session.refresh(task)
@@ -365,6 +384,20 @@ def _resolve_model(session: Session, payload: AiTaskCreate) -> tuple[ModelConfig
     if config is None:
         raise ModelNotConfigured()
     return config, "openai_compatible"
+
+
+def _can_resolve(task: AiTask) -> bool:
+    if task.resolution is not None or (task.output_text or "").strip() == "":
+        return False
+    return task.status in {TaskStatus.COMPLETED.value, TaskStatus.CANCELLED.value}
+
+
+def _is_open_task(task: AiTask) -> bool:
+    if task.resolution is not None:
+        return False
+    if task.status in {TaskStatus.QUEUED.value, TaskStatus.RUNNING.value}:
+        return True
+    return _can_resolve(task)
 
 
 def _require(session: Session, task_id: str) -> AiTask:
