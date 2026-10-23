@@ -180,15 +180,22 @@
 ### story_events
 - `id` PK
 - `novel_id` FK
-- `chapter_id` FK
+- `chapter_id` FK，可空。还没放进某一章的编年史事件可以不填
+- `title` nullable
 - `event_time_text` nullable（故事内时间可能不精确）
+- `sort_order` nullable。只用来排列读不出时间的事件，小的在前
 - `description`
-- `participants` JSON
+- `participants` JSON，仍是文本名单
+- `participant_entity_ids` JSON，可空。可选的人物编号，必须是同一作品的人物
+- `story_arc_id` nullable FK -> story_arcs
+- `foreshadowing_id` nullable FK -> foreshadowing
 - `evidence_quote`
 - `certainty` (`confirmed`, `inferred`, `uncertain`)
 - `source_revision` nullable
 - `proposal_id` nullable FK -> memory_change_proposals
 - `created_at`, `deleted_at`
+
+`0015_chronicle` 给已有事件补上这些可空列，并把 `chapter_id` 改为可空。旧行的新列为空，原来的章节还在。正式编年史就是这张表里未删除的行，不另建事件表。排序和规划见 [编年史](15-chronicle.md)。
 
 ### chapter_summaries
 - `id` PK
@@ -373,6 +380,32 @@
 
 迁移 `0014_guided_ideation` 接在 `0013_manuscript_material_sync` 之后。旧作品的核心冲突为空。这两张表初始为空。`pending` 和 `deferred` 都不是正式设定。
 
+### chronicle_candidates
+
+事件规划的确认队列。不是第二份编年史。确认之后才把内容写入 `story_events`。
+
+- `id` PK
+- `novel_id` FK
+- `status`（`pending`、`accepted`、`rejected`、`deferred`）
+- `title` nullable
+- `description`
+- `event_time_text` nullable
+- `sort_order` nullable
+- `participants` JSON
+- `participant_entity_ids` JSON
+- `chapter_id`、`story_arc_id`、`foreshadowing_id` 均可空
+- `evidence_quote`
+- `certainty`
+- `hint` nullable，作者这次规划的说明
+- `model_config_id` nullable FK -> model_configs
+- `provider_mode`（`mock`、`openai_compatible`）
+- `model_name`、`prompt_version`
+- `review_note` nullable
+- `applied` JSON nullable，确认后记下 `story_event_id`
+- `created_at`、`reviewed_at` nullable
+
+迁移 `0015_chronicle` 接在 `0014_guided_ideation` 之后。这张表初始为空。未确认的行不进入上下文，也不算正式事件。
+
 ## 3. 关系原则
 
 - 一个 novel 有多个 volume、chapter、entity、event、story_arcs，最多一份 `story_plans`。
@@ -383,7 +416,7 @@
 - 场景卡片的地点和人物必须引用同一作品里的实体。
 - entity 的静态档案与 entity_states 的动态历史分开。
 - 人物关系的两端必须是同一作品的实体。故事时间、来源章节和证据都可以空。
-- AI 提案必须引用源章节和源 revision。引导式创意的候选属于作品，不要求已经有章节。
+- AI 提案必须引用源章节和源 revision。引导式创意的候选属于作品，不要求已经有章节。编年史规划的候选也属于作品；确认后才写入 `story_events`，章节可以空着。
 - 删除章节时，优先软删除并保留历史证据；清理孤儿数据应由单独、可测试的操作执行。
 
 ## 4. 并发与保存

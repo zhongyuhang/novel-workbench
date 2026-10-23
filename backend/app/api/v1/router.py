@@ -7,6 +7,7 @@ from app.api.v1 import (
     ai,
     auth,
     chapters,
+    chronicle,
     health,
     ideation,
     memory,
@@ -28,6 +29,7 @@ router.include_router(chapters.router)
 router.include_router(settings.router)
 router.include_router(ai.router)
 router.include_router(ideation.router)
+router.include_router(chronicle.router)
 router.include_router(memory.router)
 router.include_router(quality.router)
 router.include_router(planning.router)

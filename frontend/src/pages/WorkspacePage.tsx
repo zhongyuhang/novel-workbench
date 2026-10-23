@@ -18,6 +18,7 @@ import { exportPortable } from "../api/portable.ts";
 import { ApiError, type Chapter, type ChapterSummary, type Novel, type Volume } from "../api/types.ts";
 import { AiPanel } from "../components/AiPanel.tsx";
 import { ChapterEditor } from "../components/ChapterEditor.tsx";
+import { ChroniclePanel } from "../components/ChroniclePanel.tsx";
 import { confirmDialog } from "../components/ConfirmDialog.tsx";
 import { EmptyMark } from "../components/EmptyMark.tsx";
 import { IdeationPanel } from "../components/IdeationPanel.tsx";
@@ -58,7 +59,9 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
   const [busy, setBusy] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  const [sideTab, setSideTab] = useState<"write" | "memory" | "quality" | "ideation">("write");
+  const [sideTab, setSideTab] = useState<
+    "write" | "memory" | "quality" | "ideation" | "chronicle"
+  >("write");
   const [materialVersion, setMaterialVersion] = useState(0);
   const [leftView, setLeftView] = useState<"toc" | "outline">("toc");
   const [centerView, setCenterView] = useState<"manuscript" | "outline">("manuscript");
@@ -786,6 +789,17 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
             >
               创意
             </button>
+            <button
+              className={sideTab === "chronicle" ? "primary" : "ghost"}
+              type="button"
+              role="tab"
+              aria-selected={sideTab === "chronicle"}
+              onClick={() => {
+                setSideTab("chronicle");
+              }}
+            >
+              编年史
+            </button>
           </div>
           <div hidden={sideTab !== "write"}>
             <AiPanel
@@ -813,6 +827,15 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
           <div hidden={sideTab !== "ideation"}>
             <IdeationPanel
               novelId={novelId}
+              onFormalWrite={() => {
+                setMaterialVersion((version) => version + 1);
+              }}
+            />
+          </div>
+          <div hidden={sideTab !== "chronicle"}>
+            <ChroniclePanel
+              novelId={novelId}
+              chapters={chapters}
               onFormalWrite={() => {
                 setMaterialVersion((version) => version + 1);
               }}

@@ -1512,17 +1512,29 @@ def _summary_response(summary: ChapterSummary, chapter: Chapter) -> ChapterSumma
 
 
 def _event_response(session: Session, row: StoryEvent) -> StoryEventResponse:
-    chapter = session.get(Chapter, row.chapter_id)
+    chapter = session.get(Chapter, row.chapter_id) if row.chapter_id else None
+    if row.chapter_id is None:
+        chapter_title = "尚未关联章节"
+    elif chapter is None:
+        chapter_title = "未知章节"
+    else:
+        chapter_title = chapter.title
+    linked = row.participant_entity_ids if isinstance(row.participant_entity_ids, list) else []
     return StoryEventResponse(
         id=row.id,
         novel_id=row.novel_id,
         chapter_id=row.chapter_id,
-        chapter_title=chapter.title if chapter is not None else "未知章节",
+        chapter_title=chapter_title,
         source_revision=row.source_revision,
         chapter_revision=chapter.revision if chapter is not None else 0,
+        title=row.title,
         event_time_text=row.event_time_text,
+        sort_order=row.sort_order,
         description=row.description,
         participants=_aliases(row.participants),
+        participant_entity_ids=[item for item in linked if isinstance(item, str)],
+        story_arc_id=row.story_arc_id,
+        foreshadowing_id=row.foreshadowing_id,
         evidence_quote=row.evidence_quote,
         certainty=_certainty_literal(row.certainty),
         created_at=row.created_at,

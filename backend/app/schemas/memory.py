@@ -327,13 +327,18 @@ class RelationResponse(BaseModel):
 class StoryEventResponse(BaseModel):
     id: str
     novel_id: str
-    chapter_id: str
+    chapter_id: str | None
     chapter_title: str
     source_revision: int | None
     chapter_revision: int
+    title: str | None = None
     event_time_text: str | None
+    sort_order: int | None = None
     description: str
     participants: list[str]
+    participant_entity_ids: list[str] = Field(default_factory=list)
+    story_arc_id: str | None = None
+    foreshadowing_id: str | None = None
     evidence_quote: str
     certainty: Certainty
     created_at: datetime
