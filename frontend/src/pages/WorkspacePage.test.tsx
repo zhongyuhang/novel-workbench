@@ -71,6 +71,10 @@ vi.mock("../components/IdeationPanel.tsx", () => ({
   IdeationPanel: () => <aside>创意面板</aside>,
 }));
 
+vi.mock("../components/ChroniclePanel.tsx", () => ({
+  ChroniclePanel: () => <aside>编年史面板</aside>,
+}));
+
 const novel: Novel = {
   id: "novel-1",
   title: "城门",
@@ -150,5 +154,10 @@ describe("WorkspacePage planning view", () => {
     await user.click(ideation);
     expect(ideation.getAttribute("aria-selected")).toBe("true");
     expect(screen.getByText("创意面板")).toBeTruthy();
+
+    const chronicle = screen.getByRole("tab", { name: "编年史" });
+    await user.click(chronicle);
+    expect(chronicle.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("编年史面板")).toBeTruthy();
   });
 });

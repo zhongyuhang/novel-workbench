@@ -3,6 +3,7 @@
 from app.db.base import Base
 from app.models.ai import AiTask, ModelConfig
 from app.models.catalog import Chapter, ChapterVersion, Novel, Volume
+from app.models.chronicle import ChronicleCandidate
 from app.models.ideation import IdeationCandidate, IdeationSession
 from app.models.memory import (
     ChapterSummary,
@@ -20,6 +21,7 @@ __all__ = [
     "Base",
     "Chapter",
     "ChapterOutline",
+    "ChronicleCandidate",
     "ChapterSummary",
     "ChapterVersion",
     "EntityRelation",

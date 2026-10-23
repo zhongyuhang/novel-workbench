@@ -1746,6 +1746,19 @@ def _order_kind(early: str | None, late: str | None) -> Literal["ok", "reversed"
     return "ok"
 
 
+def parse_story_time(text: str | None) -> tuple[str, int] | None:
+    """Return ``(scale, value)`` when the chronicle can order this text.
+
+    Scales are ``date``, ``day`` (第N天) and ``chapter`` (第N章). They are not
+    converted into one calendar.
+    """
+
+    point = _parse_point(text or "")
+    if point is None:
+        return None
+    return point.scale, point.value
+
+
 def _parse_point(text: str) -> _Point | None:
     cleaned = text.strip()
     if cleaned == "":

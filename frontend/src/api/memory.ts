@@ -155,13 +155,18 @@ export type ChapterSummaryRecord = {
 export type StoryEventRecord = {
   id: string;
   novel_id: string;
-  chapter_id: string;
+  chapter_id: string | null;
   chapter_title: string;
   source_revision: number | null;
   chapter_revision: number;
+  title: string | null;
   event_time_text: string | null;
+  sort_order: number | null;
   description: string;
   participants: string[];
+  participant_entity_ids: string[];
+  story_arc_id: string | null;
+  foreshadowing_id: string | null;
   evidence_quote: string;
   certainty: Certainty;
   created_at: string;

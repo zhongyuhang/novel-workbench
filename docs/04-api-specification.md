@@ -192,6 +192,23 @@
 
 作品方向里的非空题材、调性、简介和核心冲突写入作品。调性写入文风备注，留空则不改。方向写入全书大纲的一句话，状态为草稿。世界设定和人物卡确认后新建正式实体。关系的两端必须已经存在，否则返回 `422` 且不写关系。人物弧线确认后是 `character` 草稿，`counts_as_fact` 为 false。重名设定返回 `409 DUPLICATE_ENTITY`，候选保持原状态。已经确认或忽略的候选再操作返回 `409 TASK_STATE`。
 
+### 编年史
+
+正式事件仍是 `story_events`。都要认证。手写和确认都不改章节正文，也不增加 `chapters.revision`。
+
+- `GET /api/v1/novels/{novel_id}/chronicle`：未删除的事件，按发生时间排序。能解析的公历、`第N天`、`第N章` 各自成组；读不出时间的排在后面。
+- `GET /api/v1/novels/{novel_id}/events`：仍按创建时间倒序，供设定页使用。响应多了 `title`、`sort_order`、`participant_entity_ids`、`story_arc_id`、`foreshadowing_id`。`chapter_id` 可以是 null，这时 `chapter_title` 为「尚未关联章节」。
+- `POST /api/v1/novels/{novel_id}/events`：手动写入正式事件。
+- `PATCH /api/v1/events/{event_id}`
+- `DELETE /api/v1/events/{event_id}`：软删除。
+- `GET /api/v1/novels/{novel_id}/chronicle/candidates`
+- `POST /api/v1/novels/{novel_id}/chronicle/plan`：可选 `hint`、`model_config_id`。`use_mock` 默认 true。不模拟且未指定模型时用默认模型。成功时 `manuscript_changed=false`、`formal_material_changed=false`。不插入 `story_events`。
+- `POST /api/v1/chronicle-candidates/{candidate_id}/accept`：确认后才写入正式事件。请求体可以带修改后的 `event`，没写的字段沿用候选。
+- `POST /api/v1/chronicle-candidates/{candidate_id}/reject`：忽略，不写正式事件。
+- `POST /api/v1/chronicle-candidates/{candidate_id}/defer`：延后，不写正式事件。已延后的候选仍可确认或忽略。
+
+章节、故事线或伏笔若不属于这本作品，返回 `422 INVALID_REFERENCE`。人物编号若不是这本作品的人物，同样是 `422`。参与者文本里若有和唯一人物同名的名字，会写入 `participant_entity_ids`。`use_mock=true` 不能绑定外部模型。没有可用模型且不模拟时返回 `409 MODEL_NOT_CONFIGURED`，并且不留下候选。已经确认或忽略的候选再操作返回 `409 TASK_STATE`。
+
 ### Model settings
 - `GET /api/v1/settings/models/presets`：服务商预设。只含默认地址和提示
 - `GET /api/v1/settings/models`
@@ -205,7 +222,7 @@
 
 响应含 `api_key_configured`、`api_key_hint`、`custom_header_names`、`is_default`、`last_test_status`、`last_test_error_code`。不返回 API Key 或 Header 值。创建、测试和调用都会拒绝回环、内网和云元数据地址，除非主机在 `MODEL_BASE_URL_ALLOWLIST`。重定向不跟随。
 
-续写、润色、改写、扩写、章节分析、大纲候选、冲突检查和质量检查都接受 `model_config_id`。不传时用已启用的默认模型；还没有默认时，沿用最近更新的已启用外部模型。任务行记下 `model_config_id`，快照记下模型标识。大纲候选的预览同样带回所用配置。
+续写、润色、改写、扩写、章节分析、大纲候选、冲突检查、质量检查和编年史规划都接受 `model_config_id`。不传时用已启用的默认模型；还没有默认时，沿用最近更新的已启用外部模型。任务行记下 `model_config_id`，快照记下模型标识。大纲候选的预览和编年史规划同样带回所用配置。
 
 ### Export / backup
 - `POST /api/v1/novels/{novel_id}/export`：Markdown 或 TXT。只含标题、简介、卷、章和正文，顺序与目录一致。

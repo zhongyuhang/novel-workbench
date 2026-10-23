@@ -741,6 +741,13 @@ textarea {
   list-style: none;
 }
 
+.chronicle-list {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0.4rem 0 0;
+  padding-left: 1.4rem;
+}
+
 .memory-card,
 .stale-box {
   padding: 0.75rem;

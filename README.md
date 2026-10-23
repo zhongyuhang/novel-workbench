@@ -8,6 +8,7 @@
 - 大纲、故事线、卷大纲、人物、世界观、编年史和伏笔
 - 续写、润色、改写、扩写；大纲候选确认后才写入草稿
 - 引导式创意、世界观和人物设计；候选确认后才写入作品信息或正式设定
+- 编年史按发生时间排列；事件可以手写，模型规划确认后才写入正式事件
 - 从正文提取资料候选，并做一致性检查
 - 模型配置：增删改、测试、默认模型、按任务切换
 - 单用户登录、密钥加密、整库备份与恢复
@@ -69,5 +70,6 @@ cd frontend && npm ci && npm run dev
 - [模型配置中心](docs/12-model-config-center.md)
 - [正文与资料同步](docs/13-manuscript-material-sync.md)
 - [引导式创意、世界观与人物设计](docs/14-guided-ideation.md)
+- [编年史与事件规划](docs/15-chronicle.md)
 - [release 1.0.0 方案](docs/release-1.0.0-plan.md)
 - [决策记录](docs/adr/)

@@ -128,7 +128,7 @@ _LABELS = {
 }
 _PLAN_STATUS = {"draft", "confirmed", "stale", "archived"}
 _ARC_TYPES = {"main", "subplot", "character", "other"}
-_ID_LIST_KEYS = {"participants", "character_entity_ids"}
+_ID_LIST_KEYS = {"participants", "character_entity_ids", "participant_entity_ids"}
 
 
 class RowError(Exception):
@@ -492,12 +492,17 @@ def _write_plan(session: Session, plan: PackagePlan) -> Novel:
             StoryEvent(
                 id=_s(row, "id"),
                 novel_id=_s(row, "novel_id"),
-                chapter_id=_s(row, "chapter_id"),
+                chapter_id=_opt_str(row, "chapter_id"),
                 source_revision=_opt_int(row, "source_revision"),
                 proposal_id=_opt_str(row, "proposal_id"),
+                title=_opt_str(row, "title"),
                 event_time_text=_opt_str(row, "event_time_text"),
+                sort_order=_opt_int(row, "sort_order"),
                 description=_s(row, "description"),
                 participants=_str_list_value(row, "participants"),
+                participant_entity_ids=_str_list_value(row, "participant_entity_ids"),
+                story_arc_id=_opt_str(row, "story_arc_id"),
+                foreshadowing_id=_opt_str(row, "foreshadowing_id"),
                 evidence_quote=_s(row, "evidence_quote"),
                 certainty=_s(row, "certainty"),
                 created_at=_dt(row, "created_at"),
@@ -1242,15 +1247,26 @@ def _parse_relation(raw: object) -> dict[str, object]:
 
 def _parse_event(raw: object) -> dict[str, object]:
     body = _record(raw)
+    participants = body.get("participants")
+    if participants is None:
+        names: list[str] = []
+    else:
+        names = _plain_list(participants, max_len=80, max_items=40)
+    linked = body.get("participant_entity_ids")
     return {
         "id": _id(body.get("id"), required=True),
         "novel_id": _id(body.get("novel_id"), required=True),
-        "chapter_id": _id(body.get("chapter_id"), required=True),
+        "chapter_id": _id(body.get("chapter_id"), required=False),
         "source_revision": _optional_number(body.get("source_revision"), minimum=1),
         "proposal_id": _id(body.get("proposal_id"), required=False),
+        "title": _text(body.get("title"), max_len=200, required=False),
         "event_time_text": _text(body.get("event_time_text"), max_len=200, required=False),
+        "sort_order": _optional_number(body.get("sort_order"), minimum=0),
         "description": _text(body.get("description"), max_len=MAX_TEXT, required=True, strip=True),
-        "participants": _id_list(body.get("participants")),
+        "participants": names,
+        "participant_entity_ids": _id_list(linked) if linked is not None else [],
+        "story_arc_id": _id(body.get("story_arc_id"), required=False),
+        "foreshadowing_id": _id(body.get("foreshadowing_id"), required=False),
         "evidence_quote": _text(body.get("evidence_quote"), max_len=MAX_TEXT, required=True),
         "certainty": _enum(body.get("certainty"), {"confirmed", "inferred", "uncertain"}),
         "created_at": _when(body.get("created_at"), required=True),
@@ -2140,15 +2156,21 @@ def _relation_dict(row: EntityRelation) -> dict[str, object]:
 
 
 def _event_dict(row: StoryEvent) -> dict[str, object]:
+    linked = row.participant_entity_ids if isinstance(row.participant_entity_ids, list) else []
     return {
         "id": row.id,
         "novel_id": row.novel_id,
         "chapter_id": row.chapter_id,
         "source_revision": row.source_revision,
         "proposal_id": row.proposal_id,
+        "title": row.title,
         "event_time_text": row.event_time_text,
+        "sort_order": row.sort_order,
         "description": row.description,
         "participants": list(row.participants),
+        "participant_entity_ids": [item for item in linked if isinstance(item, str)],
+        "story_arc_id": row.story_arc_id,
+        "foreshadowing_id": row.foreshadowing_id,
         "evidence_quote": row.evidence_quote,
         "certainty": row.certainty,
         "created_at": _dump_dt(row.created_at),
