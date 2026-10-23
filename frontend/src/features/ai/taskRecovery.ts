@@ -8,6 +8,7 @@ export type TaskSnapshot = {
   output_text: string | null;
   error_message_safe: string | null;
   provider_mode: "mock" | "openai_compatible";
+  partial?: boolean;
 };
 
 export function stateFromTask(previous: CandidateState, task: TaskSnapshot): CandidateState {
@@ -20,6 +21,8 @@ export function stateFromTask(previous: CandidateState, task: TaskSnapshot): Can
           output_text: task.output_text ?? "",
           provider_mode: providerMode,
           status: task.status,
+          partial: task.partial === true,
+          error_message: task.partial === true ? (task.error_message_safe ?? undefined) : undefined,
         },
       }),
       disconnected: false,

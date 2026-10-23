@@ -213,6 +213,82 @@ describe("AiPanel", () => {
     expect(onAccepted).toHaveBeenCalledWith(saved);
   });
 
+  it("shows a timeout fragment and accepts it on the same path", async () => {
+    vi.mocked(listModelConfigs).mockResolvedValue([model]);
+    vi.mocked(createAiTask).mockResolvedValue({
+      id: "task-partial",
+      novel_id: "novel-1",
+      chapter_id: chapter.id,
+      task_type: "continue",
+      status: "queued",
+      model_config_id: model.id,
+      provider_mode: "openai_compatible",
+      model_name: "demo",
+      prompt_version: "m3.v1",
+      output_text: null,
+      error_code: null,
+      error_message_safe: null,
+      input_tokens: null,
+      output_tokens: null,
+      resolution: null,
+      started_at: null,
+      finished_at: null,
+      created_at: "2026-01-01T00:00:00Z",
+    });
+    vi.mocked(streamAiTask).mockImplementation(async (_taskId, onEvent) => {
+      onEvent({ event: "token", data: { text: "已写出" } });
+      onEvent({
+        event: "task.completed",
+        data: {
+          output_text: "已写出一段",
+          partial: true,
+          error_message: "模型超时，已保留已生成的片段。正文还没改，可以采纳这段候选。",
+          provider_mode: "openai_compatible",
+        },
+      });
+    });
+    const saved = { ...chapter, revision: 3, word_count: 8 };
+    vi.mocked(acceptAiTask).mockResolvedValue({
+      task: {
+        id: "task-partial",
+        novel_id: "novel-1",
+        chapter_id: chapter.id,
+        task_type: "continue",
+        status: "completed",
+        model_config_id: model.id,
+        provider_mode: "openai_compatible",
+        model_name: "demo",
+        prompt_version: "m3.v1",
+        output_text: "已写出一段",
+        error_code: "MODEL_TIMEOUT",
+        error_message_safe: "模型超时，已保留已生成的片段。正文还没改，可以采纳这段候选。",
+        partial: true,
+        input_tokens: 1,
+        output_tokens: 2,
+        resolution: "accepted",
+        started_at: null,
+        finished_at: null,
+        created_at: "2026-01-01T00:00:00Z",
+      },
+      chapter: saved,
+    });
+    const onAccepted = vi.fn();
+    const user = userEvent.setup();
+    renderPanel(onAccepted);
+
+    await user.click(await screen.findByRole("button", { name: "续写" }));
+
+    expect(await screen.findByText(/可以采纳这段候选/)).toBeTruthy();
+    expect(screen.getByLabelText("候选文本").textContent).toContain("已写出一段");
+    await user.click(screen.getByRole("button", { name: "采纳" }));
+
+    expect(acceptAiTask).toHaveBeenCalledWith("task-partial", {
+      target_revision: 2,
+      apply_mode: "append",
+    });
+    expect(onAccepted).toHaveBeenCalledWith(saved);
+  });
+
   it("reject leaves the accept callback unused", async () => {
     vi.mocked(listModelConfigs).mockResolvedValue([model]);
     vi.mocked(createAiTask).mockResolvedValue({

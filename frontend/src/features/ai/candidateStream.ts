@@ -12,6 +12,8 @@ export type StreamEvent = {
     text?: string;
     output_text?: string;
     error_message?: string;
+    error_code?: string;
+    partial?: boolean;
     provider_mode?: "mock" | "openai_compatible";
     status?: string;
   };
@@ -25,6 +27,7 @@ export type CandidateState = {
   errorMessage: string;
   providerMode: "mock" | "openai_compatible" | null;
   disconnected: boolean;
+  partial: boolean;
 };
 
 export const idleCandidate: CandidateState = {
@@ -35,6 +38,7 @@ export const idleCandidate: CandidateState = {
   errorMessage: "",
   providerMode: null,
   disconnected: false,
+  partial: false,
 };
 
 export function reduceCandidate(state: CandidateState, event: StreamEvent): CandidateState {
@@ -71,6 +75,11 @@ export function reduceCandidate(state: CandidateState, event: StreamEvent): Cand
       text: event.data.output_text ?? state.text,
       completedCount: state.completedCount + 1,
       disconnected: false,
+      partial: event.data.partial === true,
+      errorMessage:
+        event.data.partial === true
+          ? (event.data.error_message ?? "模型中断前已经写出一段正文，可以采纳这段片段。")
+          : "",
     };
   }
   if (event.event === "task.failed") {
@@ -82,6 +91,7 @@ export function reduceCandidate(state: CandidateState, event: StreamEvent): Cand
       status: "failed",
       ignoreTokens: true,
       providerMode,
+      partial: false,
       errorMessage: event.data.error_message ?? "生成没有完成。正文没有被修改。",
       disconnected: false,
     };
@@ -91,6 +101,7 @@ export function reduceCandidate(state: CandidateState, event: StreamEvent): Cand
     status: "cancelled",
     ignoreTokens: true,
     providerMode,
+    partial: false,
     disconnected: false,
   };
 }

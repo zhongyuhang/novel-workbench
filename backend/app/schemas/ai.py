@@ -322,6 +322,7 @@ class AiTaskResponse(BaseModel):
     output_text: str | None
     error_code: str | None
     error_message_safe: str | None
+    partial: bool = False
     input_tokens: int | None
     output_tokens: int | None
     resolution: Resolution | None

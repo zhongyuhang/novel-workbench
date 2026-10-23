@@ -64,6 +64,10 @@
 
 任务状态以数据库为准。`GET /api/v1/ai/tasks/{task_id}/events` 只做通知。连接断开后仍用 `GET /api/v1/ai/tasks/{task_id}` 读取状态和已有 `output_text`。取消只对 `queued` 或 `running` 生效；已经结束返回 `409 TASK_STATE`。取消之后迟到的 token 不再写入 `output_text`。超时、限流、模型不可用和无法解析的响应使用安全错误信息，不回传密钥或上游正文。
 
+模型超时、连接中断或无法继续解析流时，如果已经收到非空正文，任务记为 `completed` 而不是 `failed`。响应里 `partial` 为 true，并保留 `error_code`（例如 `MODEL_TIMEOUT`）和说明片段可以采纳。采纳仍走 `POST /ai/tasks/{task_id}/accept`。没有收到正文时仍是 `failed`，不能采纳。
+
+采纳成功后会在后台用本地提取刷新这一章的现行摘要，并写入提取器已经能认出的人物、事件和伏笔。这不调用模型，也不阻塞采纳响应。作品还没有任何章节摘要时，`context/compile` 仍返回 200，并在 `warnings` 里说明长篇记忆还没写上。
+
 创建任务和编译请求包含：
 - `novel_id`
 - `chapter_id`（可选；创建任务时若关联章节则必填）

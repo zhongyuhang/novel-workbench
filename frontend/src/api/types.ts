@@ -201,6 +201,7 @@ export type AiTask = {
   output_text: string | null;
   error_code: string | null;
   error_message_safe: string | null;
+  partial?: boolean;
   input_tokens: number | null;
   output_tokens: number | null;
   resolution: "accepted" | "rejected" | null;

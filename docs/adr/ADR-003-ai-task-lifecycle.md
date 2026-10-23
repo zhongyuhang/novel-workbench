@@ -8,3 +8,5 @@
 `queued -> running -> completed | failed | cancelled`。
 
 生成成功仅表示候选结果就绪，不表示正文已采纳。
+
+模型超时或同类中断时，若流里已经有非空正文，任务仍进入 `completed`，并带上原来的错误码，表示这是可采纳的片段。缓冲为空时才进入 `failed`。状态机不增加新的终态。

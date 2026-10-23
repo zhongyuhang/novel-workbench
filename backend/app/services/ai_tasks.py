@@ -14,7 +14,7 @@ from app.ai.gateway import enabled_default, latest_enabled
 from app.ai.prompts import TASK_LABELS, build_prompt, prompt_version_for
 from app.ai.runner import run_ai_task
 from app.ai.runtime import AiRuntime
-from app.ai.tasks import IllegalTaskTransition, TaskStatus, transition
+from app.ai.tasks import IllegalTaskTransition, TaskStatus, is_partial_candidate, transition
 from app.core.content import apply_candidate_text, document_to_text
 from app.core.errors import (
     AppError,
@@ -45,6 +45,7 @@ from app.services.context_builder import (
     render_included,
     snapshot_context_fields,
 )
+from app.services.memory import schedule_chapter_memory_deposit
 
 logger = logging.getLogger("app.ai.tasks")
 
@@ -282,6 +283,7 @@ def accept_ai_task(
     session: Session,
     task_id: str,
     payload: AiTaskAccept,
+    runtime: AiRuntime | None = None,
 ) -> tuple[AiTaskResponse, ChapterResponse]:
     task = _require(session, task_id)
     if task.status != TaskStatus.COMPLETED.value:
@@ -322,6 +324,8 @@ def accept_ai_task(
     session.expire_all()
     task = _require(session, task_id)
     logger.info("ai candidate stored", extra={"task_id": task.id})
+    if runtime is not None:
+        schedule_chapter_memory_deposit(runtime, saved.id)
     return _response(task), ChapterResponse.model_validate(saved)
 
 
@@ -395,6 +399,7 @@ def _response(task: AiTask) -> AiTaskResponse:
         output_text=task.output_text,
         error_code=task.error_code,
         error_message_safe=task.error_message_safe,
+        partial=is_partial_candidate(task.status, task.error_code, task.output_text),
         input_tokens=task.input_tokens,
         output_tokens=task.output_tokens,
         resolution=cast("Literal['accepted', 'rejected'] | None", resolution),
