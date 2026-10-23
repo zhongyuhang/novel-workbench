@@ -841,14 +841,19 @@ a {
   position: sticky;
   top: 0;
   z-index: 2;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   margin: 12px 12px 0;
   background: color-mix(in srgb, var(--canvas) 55%, var(--sidebar));
 }
 
+.side-tabs button {
+  flex: 1 1 5.75rem;
+}
+
 .side-pane .workspace-pane,
-.side-pane .memory-pane {
+.side-pane .memory-pane,
+.side-pane .chronicle-pane {
   border: 0;
   background: transparent;
   padding: 16px 16px 32px;
@@ -1070,6 +1075,30 @@ a {
   margin: 0.35rem 0 0;
   padding: 0;
   list-style: none;
+}
+
+.chronicle-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.25rem 0.2rem 0.25rem 1.85rem;
+}
+
+.chronicle-list > li {
+  min-width: 0;
+}
+
+.chronicle-pane {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.chronicle-pane select[multiple] {
+  min-height: 7.5rem;
+}
+
+.chronicle-pane .memory-actions {
+  margin-top: 0.15rem;
 }
 
 .context-item header,
@@ -1358,8 +1387,8 @@ a {
     flex-direction: column;
   }
 
-  .side-tabs {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .side-tabs button {
+    flex-basis: calc(50% - 4px);
   }
 }
 

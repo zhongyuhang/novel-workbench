@@ -916,21 +916,29 @@ def _relation_candidate(
 
 
 def _event_candidate(event: StoryEvent, titles: dict[str, Chapter]) -> _Candidate:
-    chapter = titles.get(event.chapter_id)
-    title = chapter.title if chapter is not None else "未知章节"
     certain = event.certainty == "confirmed"
     heading = "已确认事件" if certain else "不确定推断（不是已确认事实）"
     revision = event.source_revision if event.source_revision is not None else "未知"
     warnings: list[str] = []
-    if chapter is None:
-        warnings.append("事件的来源章节不在这本作品的可见章节里。")
-    elif event.source_revision is not None and event.source_revision != chapter.revision:
-        warnings.append(
-            f"事件来源修订 {event.source_revision} 落后于章节「{chapter.title}」"
-            f"当前修订 {chapter.revision}。"
-        )
+    if event.chapter_id is None:
+        title = "尚未关联章节"
+    else:
+        chapter = titles.get(event.chapter_id)
+        title = chapter.title if chapter is not None else "未知章节"
+        if chapter is None:
+            warnings.append("事件的来源章节不在这本作品的可见章节里。")
+        elif event.source_revision is not None and event.source_revision != chapter.revision:
+            warnings.append(
+                f"事件来源修订 {event.source_revision} 落后于章节「{chapter.title}」"
+                f"当前修订 {chapter.revision}。"
+            )
+    when = (event.event_time_text or "").strip()
+    time_line = f"故事时间：{when}" if when else "故事时间未填写"
+    label = (event.title or "").strip()
+    body = f"{label}。{event.description.strip()}" if label else event.description.strip()
     text = (
-        f"{heading}：{event.description.strip()}\n"
+        f"{heading}：{body}\n"
+        f"{time_line}\n"
         f"来源章节「{title}」修订 {revision}\n"
         f"证据：{event.evidence_quote}"
     )

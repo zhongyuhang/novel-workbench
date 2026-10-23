@@ -158,14 +158,27 @@ class EntityState(Base):
 
 
 class StoryEvent(Base):
+    """A formal chronicle event.
+
+    ``chapter_id`` may be empty when the event is planned but not yet placed in
+    a chapter. ``participants`` stays a text list. ``participant_entity_ids``
+    is the optional link to characters in the same novel.
+    """
+
     __tablename__ = "story_events"
     __table_args__ = (
         CheckConstraint(
             "certainty IN ('confirmed', 'inferred', 'uncertain')",
             name="ck_story_events_certainty",
         ),
+        CheckConstraint(
+            "sort_order IS NULL OR sort_order >= 0",
+            name="ck_story_events_sort_order",
+        ),
         Index("ix_story_events_novel_id", "novel_id"),
         Index("ix_story_events_chapter_id", "chapter_id"),
+        Index("ix_story_events_story_arc_id", "story_arc_id"),
+        Index("ix_story_events_foreshadowing_id", "foreshadowing_id"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -174,10 +187,9 @@ class StoryEvent(Base):
         ForeignKey("novels.id", name="fk_story_events_novel_id_novels"),
         nullable=False,
     )
-    chapter_id: Mapped[str] = mapped_column(
+    chapter_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("chapters.id", name="fk_story_events_chapter_id_chapters"),
-        nullable=False,
     )
     source_revision: Mapped[int | None] = mapped_column(Integer)
     proposal_id: Mapped[str | None] = mapped_column(
@@ -187,9 +199,28 @@ class StoryEvent(Base):
             name="fk_story_events_proposal_id_memory_change_proposals",
         ),
     )
+    title: Mapped[str | None] = mapped_column(String(200))
     event_time_text: Mapped[str | None] = mapped_column(String(200))
+    sort_order: Mapped[int | None] = mapped_column(Integer)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     participants: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    participant_entity_ids: Mapped[list[str] | None] = mapped_column(JSON)
+    story_arc_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "story_arcs.id",
+            name="fk_story_events_story_arc_id_story_arcs",
+            ondelete="SET NULL",
+        ),
+    )
+    foreshadowing_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "foreshadowing.id",
+            name="fk_story_events_foreshadowing_id_foreshadowing",
+            ondelete="SET NULL",
+        ),
+    )
     evidence_quote: Mapped[str] = mapped_column(Text, nullable=False)
     certainty: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

@@ -281,6 +281,8 @@ def _confirmed_facts(session: Session, novel_id: str) -> list[ConfirmedFact]:
     ).all()
     facts: list[ConfirmedFact] = []
     for row in rows:
+        if row.chapter_id is None:
+            continue
         quote = row.evidence_quote.strip()
         if quote == "":
             continue

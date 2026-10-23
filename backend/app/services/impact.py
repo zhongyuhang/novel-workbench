@@ -222,7 +222,7 @@ def _relation_impact(
 
 def _event_impact(session: Session, novel_id: str, event: StoryEvent) -> list[AffectedMaterial]:
     found: list[AffectedMaterial] = []
-    chapter = session.get(Chapter, event.chapter_id)
+    chapter = session.get(Chapter, event.chapter_id) if event.chapter_id else None
     if chapter is not None and chapter.deleted_at is None and chapter.novel_id == novel_id:
         found.append(
             AffectedMaterial(
@@ -232,6 +232,46 @@ def _event_impact(session: Session, novel_id: str, event: StoryEvent) -> list[Af
                 reason="事件来自这一章",
             )
         )
+    linked = event.participant_entity_ids if isinstance(event.participant_entity_ids, list) else []
+    linked_ids = [item for item in linked if isinstance(item, str)]
+    if linked_ids:
+        for entity in session.scalars(
+            select(StoryEntity).where(
+                StoryEntity.novel_id == novel_id,
+                StoryEntity.deleted_at.is_(None),
+                StoryEntity.id.in_(linked_ids),
+            )
+        ).all():
+            found.append(
+                AffectedMaterial(
+                    kind="entity",
+                    id=entity.id,
+                    label=entity.name,
+                    reason="事件关联了这个人物",
+                )
+            )
+    if event.story_arc_id:
+        arc = session.get(StoryArc, event.story_arc_id)
+        if arc is not None and arc.novel_id == novel_id:
+            found.append(
+                AffectedMaterial(
+                    kind="story_arc",
+                    id=arc.id,
+                    label=arc.title,
+                    reason="事件关联了这条故事线",
+                )
+            )
+    if event.foreshadowing_id:
+        hook = session.get(Foreshadowing, event.foreshadowing_id)
+        if hook is not None and hook.novel_id == novel_id:
+            found.append(
+                AffectedMaterial(
+                    kind="foreshadowing",
+                    id=hook.id,
+                    label=hook.description[:80],
+                    reason="事件关联了这条伏笔",
+                )
+            )
     names = _strings(event.participants)
     if names:
         for entity in session.scalars(

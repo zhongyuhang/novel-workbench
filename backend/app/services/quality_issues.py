@@ -472,7 +472,10 @@ def _load_materials(
             }
             for item in chapters
         ],
-        "events": [_event_payload(row) for row in _events(session, novel_id)],
+        "events": [
+            _event_payload(row, _entity_names(session, novel_id))
+            for row in _events(session, novel_id)
+        ],
         "states": [
             _state_payload(row, _entity_names(session, novel_id))
             for row in _states(session, novel_id)
@@ -860,14 +863,22 @@ def _entity_names(session: Session, novel_id: str) -> dict[str, str]:
     return {row.id: row.name for row in rows}
 
 
-def _event_payload(row: StoryEvent) -> dict[str, object]:
+def _event_payload(row: StoryEvent, names: dict[str, str] | None = None) -> dict[str, object]:
+    participants = _string_list(row.participants)
+    linked = row.participant_entity_ids if isinstance(row.participant_entity_ids, list) else []
+    if names:
+        for entity_id in linked:
+            if isinstance(entity_id, str):
+                name = names.get(entity_id)
+                if name and name not in participants:
+                    participants.append(name)
     return {
         "id": row.id,
         "chapter_id": row.chapter_id,
         "description": row.description,
         "evidence_quote": row.evidence_quote,
         "event_time_text": row.event_time_text,
-        "participants": _string_list(row.participants),
+        "participants": participants,
         "source_revision": row.source_revision,
     }
 

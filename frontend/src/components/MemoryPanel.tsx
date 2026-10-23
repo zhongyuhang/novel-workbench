@@ -1069,11 +1069,15 @@ export function MemoryPanel({
         ))}
       </ul>
       <h3>故事事件</h3>
+      <p className="hint">这里按记录先后排列。按发生时间阅读和规划，用侧栏「编年史」。</p>
       {view.events.length === 0 ? <p className="hint">没有符合筛选的事件。</p> : null}
       <ul className="memory-list">
         {view.events.map((event) => (
           <li key={event.id}>
-            <p>{event.description}</p>
+            <p>
+              {event.title ? `${event.title}：` : ""}
+              {event.description}
+            </p>
             <p className="hint">
               {CERTAINTY_LABELS[event.certainty]} · 「{event.chapter_title}」修订{" "}
               {event.source_revision ?? "未知"}
@@ -1267,6 +1271,9 @@ function entityTouchesChapter(entity: StoryEntity, relations: EntityRelation[], 
 function eventMentions(event: StoryEventRecord, entities: StoryEntity[]): boolean {
   if (entities.length === 0) {
     return false;
+  }
+  if (event.participant_entity_ids.some((id) => entities.some((entity) => entity.id === id))) {
+    return true;
   }
   const blob = `${event.description}\n${event.participants.join("\n")}`;
   return entities.some((entity) =>
