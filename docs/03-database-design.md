@@ -18,6 +18,7 @@
 - `genre` nullable（自由文本，不限定题材枚举）
 - `synopsis` nullable
 - `style_guide` nullable
+- `core_conflict` nullable。创意候选确认后才写入；空着不进入上下文
 - `status` (`draft`, `active`, `archived`)
 - `created_at`, `updated_at`, `deleted_at`
 
@@ -344,6 +345,34 @@
 
 章节修订变化后，仍为 `pending` 或 `deferred` 且 `source_revision` 对不上的提案改为 `stale`，不写入正式设定。迁移 `0013_manuscript_material_sync` 接在 `0012_model_config_center` 之后，只加列和放宽检查约束。`payload.applied` 记录接受时写下的行。`entity_update` 从接受之时起另写 `payload.field_changes`：只列出这次真正改过的字段，以及该字段接受前、接受后的值。撤回只回滚这些字段。某个字段如果之后又被改过，整次撤回拒绝，正式设定保持原样。没有 `field_changes` 的旧提案不能自动撤回，避免用整份 `before` 盖掉后来的手工修改。`before` 仍会留下，但不再当作回滚快照。
 
+### ideation_sessions
+- `id` PK
+- `novel_id` FK
+- `kind`（`guided`、`world`、`character`）
+- `status`（`collecting`、`generated`）
+- `step_index`
+- `answers` JSON
+- `model_config_id` nullable FK，删除配置时置空
+- `provider_mode`（`mock`、`openai_compatible`）
+- `model_name`
+- `prompt_version`
+- `created_at`、`updated_at`
+
+### ideation_candidates
+- `id` PK
+- `session_id` FK -> ideation_sessions
+- `novel_id` FK
+- `candidate_kind`（`work_direction`、`world_setting`、`character_card`、`character_relation`、`character_arc`）
+- `title`
+- `payload` JSON
+- `status`（`pending`、`accepted`、`rejected`、`deferred`）
+- `sort_order`
+- `review_note` nullable
+- `applied` JSON nullable
+- `created_at`、`reviewed_at` nullable
+
+迁移 `0014_guided_ideation` 接在 `0013_manuscript_material_sync` 之后。旧作品的核心冲突为空。这两张表初始为空。`pending` 和 `deferred` 都不是正式设定。
+
 ## 3. 关系原则
 
 - 一个 novel 有多个 volume、chapter、entity、event、story_arcs，最多一份 `story_plans`。
@@ -354,7 +383,7 @@
 - 场景卡片的地点和人物必须引用同一作品里的实体。
 - entity 的静态档案与 entity_states 的动态历史分开。
 - 人物关系的两端必须是同一作品的实体。故事时间、来源章节和证据都可以空。
-- AI 提案必须引用源章节和源 revision。
+- AI 提案必须引用源章节和源 revision。引导式创意的候选属于作品，不要求已经有章节。
 - 删除章节时，优先软删除并保留历史证据；清理孤儿数据应由单独、可测试的操作执行。
 
 ## 4. 并发与保存

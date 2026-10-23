@@ -67,12 +67,17 @@ vi.mock("../components/QualityPanel.tsx", () => ({
   QualityPanel: () => <aside>质量面板</aside>,
 }));
 
+vi.mock("../components/IdeationPanel.tsx", () => ({
+  IdeationPanel: () => <aside>创意面板</aside>,
+}));
+
 const novel: Novel = {
   id: "novel-1",
   title: "城门",
   genre: null,
   synopsis: null,
   style_guide: null,
+  core_conflict: null,
   status: "draft",
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
@@ -140,5 +145,10 @@ describe("WorkspacePage planning view", () => {
 
     await user.click(screen.getByRole("tab", { name: "正文" }));
     expect(await screen.findByText("原句还在")).toBeTruthy();
+
+    const ideation = screen.getByRole("tab", { name: "创意" });
+    await user.click(ideation);
+    expect(ideation.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("创意面板")).toBeTruthy();
   });
 });

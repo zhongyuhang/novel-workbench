@@ -47,6 +47,7 @@ type MemoryPanelProps = {
   activeTitle: string | null;
   editorDirty: boolean;
   chapters?: BibleChapter[];
+  materialVersion?: number;
 };
 
 const ENTITY_TYPES: Array<{ value: EntityType; label: string }> = [
@@ -128,6 +129,7 @@ export function MemoryPanel({
   activeTitle,
   editorDirty,
   chapters = [],
+  materialVersion = 0,
 }: MemoryPanelProps) {
   const [entities, setEntities] = useState<StoryEntity[]>([]);
   const [proposals, setProposals] = useState<MemoryProposal[]>([]);
@@ -197,7 +199,7 @@ export function MemoryPanel({
       active = false;
       controller.abort();
     };
-  }, [novelId, activeRevision]);
+  }, [novelId, activeRevision, materialVersion]);
 
   const realModels = (configs ?? []).filter(
     (item) => item.is_enabled && item.provider_type === "openai_compatible",

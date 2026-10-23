@@ -3,6 +3,7 @@
 from app.db.base import Base
 from app.models.ai import AiTask, ModelConfig
 from app.models.catalog import Chapter, ChapterVersion, Novel, Volume
+from app.models.ideation import IdeationCandidate, IdeationSession
 from app.models.memory import (
     ChapterSummary,
     EntityRelation,
@@ -24,6 +25,8 @@ __all__ = [
     "EntityRelation",
     "EntityState",
     "Foreshadowing",
+    "IdeationCandidate",
+    "IdeationSession",
     "QualityIssue",
     "QualityRepairCandidate",
     "MemoryChangeProposal",

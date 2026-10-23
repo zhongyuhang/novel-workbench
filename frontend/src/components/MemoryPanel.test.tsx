@@ -379,4 +379,43 @@ describe("MemoryPanel", () => {
     expect(markIntentionalProposal).not.toHaveBeenCalled();
     expect(materialImpact).not.toHaveBeenCalled();
   });
+
+  it("reloads formal settings after a confirmed design candidate", async () => {
+    const nightBan: StoryEntity = {
+      id: "entity-rule",
+      novel_id: "novel-1",
+      entity_type: "rule",
+      name: "夜禁",
+      aliases: [],
+      profile: { summary: "入夜后城门不再打开。" },
+      status: "active",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+      states: [],
+    };
+    const view = render(
+      <MemoryPanel
+        novelId="novel-1"
+        activeChapterId={null}
+        activeRevision={null}
+        activeTitle={null}
+        editorDirty={false}
+        materialVersion={0}
+      />,
+    );
+    expect(await screen.findByText("没有符合筛选的正式设定。")).toBeTruthy();
+    vi.mocked(listEntities).mockResolvedValue([nightBan]);
+    view.rerender(
+      <MemoryPanel
+        novelId="novel-1"
+        activeChapterId={null}
+        activeRevision={null}
+        activeTitle={null}
+        editorDirty={false}
+        materialVersion={1}
+      />,
+    );
+    expect((await screen.findAllByText("夜禁")).length).toBeGreaterThan(0);
+    expect(screen.getByText("入夜后城门不再打开。")).toBeTruthy();
+  });
 });

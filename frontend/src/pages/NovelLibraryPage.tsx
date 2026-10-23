@@ -22,6 +22,7 @@ const EMPTY_DRAFT: NovelDraft = {
   genre: "",
   synopsis: "",
   style_guide: "",
+  core_conflict: "",
   status: "draft",
 };
 
@@ -266,6 +267,7 @@ export function NovelLibraryPage() {
                       genre: novel.genre ?? "",
                       synopsis: novel.synopsis ?? "",
                       style_guide: novel.style_guide ?? "",
+                      core_conflict: novel.core_conflict ?? "",
                       status: novel.status,
                     }}
                     submitLabel="保存修改"
@@ -357,6 +359,17 @@ function NovelForm({
         />
       </label>
       <label>
+        核心冲突
+        <textarea
+          rows={3}
+          maxLength={20000}
+          value={draft.core_conflict}
+          onChange={(event) => {
+            setDraft({ ...draft, core_conflict: event.target.value });
+          }}
+        />
+      </label>
+      <label>
         文风备注
         <textarea
           rows={3}
@@ -403,6 +416,7 @@ function toPayload(draft: NovelDraft) {
     genre: draft.genre.trim() || null,
     synopsis: draft.synopsis.trim() || null,
     style_guide: draft.style_guide.trim() || null,
+    core_conflict: draft.core_conflict.trim() || null,
     status: draft.status,
   };
 }

@@ -177,6 +177,21 @@
 
 上下文编译器只把 `counts_as_fact=true` 的作品大纲、故事线摘要、当前章节所在卷的卷大纲、当前章节大纲和场景卡片当作高优先级材料。`draft` 可以列出来，但不会纳入。章节正文修订变化时，该章已确认的章节大纲和场景卡片，以及该章所在卷的已确认卷大纲，改为 `stale`，正文不变；作品级大纲不因此自动过期。卷内章节新增、复制、删除或移动时，该卷已确认卷大纲同样改为 `stale`。只改卷名不会。
 
+### 引导式创意
+
+作品侧的创意、世界观和人物设计。都要认证。生成和回答问题不改章节正文，也不增加 `chapters.revision`。
+
+- `GET /api/v1/novels/{novel_id}/ideation/sessions`
+- `POST /api/v1/novels/{novel_id}/ideation/sessions`：`kind` 为 `guided`、`world` 或 `character`。可选 `model_config_id`。不传则用默认模型；还没有默认时用最近一份已启用的外部模型。`use_mock=true` 不访问网络，也不能绑定外部模型。会话从此固定这一份配置。
+- `GET /api/v1/ideation/sessions/{session_id}`
+- `POST /api/v1/ideation/sessions/{session_id}/answers`：一次回答当前问题。不调用模型。
+- `POST /api/v1/ideation/sessions/{session_id}/generate`：必答题没答完返回 `422`。成功时 `manuscript_changed=false`、`formal_material_changed=false`。
+- `POST /api/v1/ideation-candidates/{candidate_id}/accept`：确认。请求体可以带修改后的 `payload`。这是写入作品元信息、正式实体、关系或草稿故事线的唯一入口。
+- `POST /api/v1/ideation-candidates/{candidate_id}/reject`：忽略，不写正式资料。
+- `POST /api/v1/ideation-candidates/{candidate_id}/defer`：延后，不写正式资料。已延后的候选仍可确认或忽略。
+
+作品方向里的非空题材、调性、简介和核心冲突写入作品。调性写入文风备注，留空则不改。方向写入全书大纲的一句话，状态为草稿。世界设定和人物卡确认后新建正式实体。关系的两端必须已经存在，否则返回 `422` 且不写关系。人物弧线确认后是 `character` 草稿，`counts_as_fact` 为 false。重名设定返回 `409 DUPLICATE_ENTITY`，候选保持原状态。已经确认或忽略的候选再操作返回 `409 TASK_STATE`。
+
 ### Model settings
 - `GET /api/v1/settings/models/presets`：服务商预设。只含默认地址和提示
 - `GET /api/v1/settings/models`
