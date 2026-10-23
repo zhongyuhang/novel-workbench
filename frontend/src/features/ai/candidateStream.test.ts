@@ -41,4 +41,23 @@ describe("candidate stream", () => {
     expect(late.text).toBe("");
     expect(late.errorMessage).toContain("超时");
   });
+
+  it("keeps a timed-out fragment as a candidate that can be accepted", () => {
+    let state = reduceCandidate(idleCandidate, { event: "token", data: { text: "已写" } });
+    state = reduceCandidate(state, { event: "token", data: { text: "出一段" } });
+    state = reduceCandidate(state, {
+      event: "task.completed",
+      data: {
+        output_text: "已写出一段",
+        partial: true,
+        error_code: "MODEL_TIMEOUT",
+        error_message: "模型超时，已保留已生成的片段。正文还没改，可以采纳这段候选。",
+      },
+    });
+
+    expect(state.status).toBe("completed");
+    expect(state.partial).toBe(true);
+    expect(state.text).toBe("已写出一段");
+    expect(state.errorMessage).toContain("可以采纳");
+  });
 });

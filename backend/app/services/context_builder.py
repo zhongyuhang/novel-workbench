@@ -34,6 +34,8 @@ from app.schemas.context import CompiledContext, ContextItem
 from app.services.planning import planning_counts_as_fact
 
 COMPILER_VERSION = "e7.v1"
+EMPTY_MEMORY_WARNING = "尚未生成章节摘要。本次上下文只用了相邻章节和当前指令，长篇记忆还没写上。"
+EARLIER_SUMMARY_WARNING = "已有章节摘要，但没有能纳入本次的现行前文摘要。本次仍主要依靠相邻章节。"
 _ARC_LABELS = {
     "main": "主线",
     "subplot": "支线",
@@ -161,6 +163,7 @@ def compile_context(
         pinned_exclude=list(pinned_exclude or []),
     )
     warnings.extend(_constraint_conflicts(constraints))
+    warnings.extend(_memory_gap_warnings(session, novel_id=novel.id, chapter_id=chapter_id))
     compiled = CompiledContext(
         task_type=task_type,
         novel_id=novel.id,
@@ -1319,6 +1322,31 @@ def _latest_states(session: Session, entity_ids: list[str]) -> dict[str, EntityS
         if state.entity_id not in found:
             found[state.entity_id] = state
     return found
+
+
+def _memory_gap_warnings(
+    session: Session,
+    *,
+    novel_id: str,
+    chapter_id: str | None,
+) -> list[str]:
+    """Say when compile has no rolling summary to inject.
+
+    A current summary of the chapter being written is not earlier memory.
+    Empty novels still compile; the warning is the signal that memory is absent.
+    """
+
+    rows = _summaries(session, novel_id)
+    if not rows:
+        return [EMPTY_MEMORY_WARNING]
+    for summary, chapter in rows:
+        if summary.status != "current" or summary.source_revision != chapter.revision:
+            continue
+        if chapter_id is not None and chapter.id == chapter_id:
+            continue
+        if summary.summary.strip():
+            return []
+    return [EARLIER_SUMMARY_WARNING]
 
 
 def _summaries(session: Session, novel_id: str) -> list[tuple[ChapterSummary, Chapter]]:

@@ -459,7 +459,7 @@ export function AiPanel({
   return (
     <aside className="workspace-pane ai-pane" aria-labelledby="ai-heading">
       <h2 id="ai-heading">写作辅助</h2>
-      <p className="hint">生成结果只是候选。采纳前不会改写正文，也不会写入记忆。</p>
+      <p className="hint">生成结果只是候选。采纳前不会改写正文。采纳后会写入正文，并在后台更新这一章的摘要。</p>
       <div className="verb-chips" role="group" aria-label="写作动作">
         {VERBS.map((item) => (
           <button
@@ -787,6 +787,11 @@ export function AiPanel({
       {candidate.status === "failed" ? (
         <p className="banner banner-error" role="alert">
           {candidate.errorMessage}
+        </p>
+      ) : null}
+      {candidate.status === "completed" && candidate.partial ? (
+        <p className="banner" role="status">
+          {candidate.errorMessage || "模型超时，下面是已生成的片段，可以采纳。"}
         </p>
       ) : null}
       {candidate.status === "cancelled" ? (

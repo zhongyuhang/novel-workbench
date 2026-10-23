@@ -14,7 +14,14 @@ from app.ai.gateway import endpoint_from_config
 from app.ai.prompts import PROMPT_VERSION
 from app.ai.provider import GenerationRequest, ModelEndpoint, ModelProvider, ProviderError
 from app.ai.registry import get_provider
-from app.ai.tasks import IllegalTaskTransition, TaskStatus, transition
+from app.ai.tasks import (
+    PARTIAL_STOP_CODES,
+    IllegalTaskTransition,
+    TaskStatus,
+    is_partial_candidate,
+    partial_candidate_message,
+    transition,
+)
 from app.core.errors import AppError
 from app.core.secrets import SecretStorageError
 from app.models.ai import AiTask, ModelConfig
@@ -161,17 +168,18 @@ def _execute(
                 {"task_id": task_id, "index": len(pieces) - 1, "text": event.data},
             )
     except ProviderError as exc:
-        _fail_if_open(session_factory, broker, task_id, exc.code, exc.safe_message)
+        _stop_or_fail(session_factory, broker, task_id, pieces, exc.code, exc.safe_message)
         return
     except Exception as exc:
         logger.warning(
             "ai provider crashed",
             extra={"task_id": task_id, "error_type": type(exc).__name__},
         )
-        _fail_if_open(
+        _stop_or_fail(
             session_factory,
             broker,
             task_id,
+            pieces,
             "MODEL_UNAVAILABLE",
             "模型请求失败。正文没有被修改。",
         )
@@ -190,27 +198,16 @@ def _execute(
             "模型没有返回可用文本。正文没有被修改。",
         )
         return
-    session = session_factory()
-    try:
-        updated = _mark(
-            session,
-            task_id,
-            TaskStatus.RUNNING,
-            TaskStatus.COMPLETED,
-            output_text=text,
-            output_tokens=len(pieces),
-            finished_at=_now(),
-            error_code=None,
-            error_message_safe=None,
-        )
-        if not updated:
-            session.rollback()
-            return
-        session.commit()
-        task = _require(session, task_id)
-        _publish_status(broker, task, "task.completed")
-    finally:
-        session.close()
+    if _complete_running(
+        session_factory,
+        broker,
+        task_id,
+        text=text,
+        output_tokens=len(pieces),
+        error_code=None,
+        error_message_safe=None,
+    ):
+        _remember_continue(session_factory, task_id)
 
 
 def _endpoint(session: Session, task: AiTask, snapshot: dict[str, object]) -> ModelEndpoint:
@@ -335,6 +332,98 @@ def _cancel_open(
         session.close()
 
 
+def _stop_or_fail(
+    session_factory: sessionmaker[Session],
+    broker: TaskBroker,
+    task_id: str,
+    pieces: list[str],
+    code: str,
+    message: str,
+) -> None:
+    """Keep a non-empty buffer when a hard stop cuts the stream off."""
+
+    text = "".join(pieces).strip()
+    promoted = (
+        text != ""
+        and code in PARTIAL_STOP_CODES
+        and _complete_running(
+            session_factory,
+            broker,
+            task_id,
+            text=text,
+            output_tokens=len(pieces),
+            error_code=code,
+            error_message_safe=partial_candidate_message(code),
+        )
+    )
+    if promoted:
+        _remember_continue(session_factory, task_id)
+        return
+    _fail_if_open(session_factory, broker, task_id, code, message)
+
+
+def _complete_running(
+    session_factory: sessionmaker[Session],
+    broker: TaskBroker,
+    task_id: str,
+    *,
+    text: str,
+    output_tokens: int,
+    error_code: str | None,
+    error_message_safe: str | None,
+) -> bool:
+    session = session_factory()
+    try:
+        updated = _mark(
+            session,
+            task_id,
+            TaskStatus.RUNNING,
+            TaskStatus.COMPLETED,
+            output_text=text,
+            output_tokens=output_tokens,
+            finished_at=_now(),
+            error_code=error_code,
+            error_message_safe=error_message_safe,
+        )
+        if not updated:
+            session.rollback()
+            return False
+        session.commit()
+        task = _require(session, task_id)
+        _publish_status(broker, task, "task.completed")
+        return True
+    finally:
+        session.close()
+
+
+def _remember_continue(session_factory: sessionmaker[Session], task_id: str) -> None:
+    """Refresh rolling memory from the saved chapter after a continue candidate exists.
+
+    The new candidate is not in the chapter until accept. Accept schedules another
+    deposit of the text that was actually stored.
+    """
+
+    from app.services.memory import run_chapter_memory_deposit
+
+    session = session_factory()
+    try:
+        task = session.get(AiTask, task_id)
+        if task is None or task.status != TaskStatus.COMPLETED.value:
+            return
+        if task.task_type != "continue" or task.chapter_id is None:
+            return
+        chapter_id = task.chapter_id
+    finally:
+        session.close()
+    try:
+        run_chapter_memory_deposit(session_factory, chapter_id)
+    except Exception as exc:
+        logger.warning(
+            "continue memory deposit failed",
+            extra={"task_id": task_id, "error_type": type(exc).__name__},
+        )
+
+
 def _fail_if_open(
     session_factory: sessionmaker[Session],
     broker: TaskBroker,
@@ -377,6 +466,13 @@ def _publish_status(broker: TaskBroker, task: AiTask, event: str) -> None:
     }
     if event == "task.completed":
         data["output_text"] = task.output_text or ""
+        partial = is_partial_candidate(task.status, task.error_code, task.output_text)
+        data["partial"] = partial
+        if partial:
+            data["error_code"] = task.error_code or "MODEL_TIMEOUT"
+            data["error_message"] = task.error_message_safe or partial_candidate_message(
+                task.error_code or "MODEL_TIMEOUT"
+            )
     if event == "task.failed":
         data["error_code"] = task.error_code or "MODEL_UNAVAILABLE"
         data["error_message"] = task.error_message_safe or "生成没有完成。正文没有被修改。"

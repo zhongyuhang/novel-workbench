@@ -83,6 +83,14 @@ class MockProvider:
                 "MODEL_TIMEOUT",
                 "模型请求超时。生成没有写进正文。请稍后重试，或检查超时设置。",
             )
+        if behavior == "timeout_after_tokens":
+            tokens = _tokens(request.endpoint)
+            for token in tokens:
+                yield StreamEvent(event="token", data=token)
+            raise ProviderError(
+                "MODEL_TIMEOUT",
+                "模型请求超时。请稍后重试，或检查超时设置。",
+            )
         if behavior == "fail":
             raise ProviderError(
                 "MODEL_UNAVAILABLE",

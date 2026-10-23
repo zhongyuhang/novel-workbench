@@ -1,18 +1,23 @@
 """Memory use cases.
 
-Chapter analysis inserts proposals only. Accept is the only path that writes formal
-memory, and it does not change the manuscript.
+Chapter analysis inserts proposals only. A person accepting a proposal writes formal
+memory, and that path does not change the manuscript.
+
+Continue writing also deposits rolling memory in the background: a local extract
+refreshes the chapter summary and applies entity, event, and foreshadow drafts
+from the existing extractors. That deposit does not call a model.
 """
 
 import hashlib
 import json
 import logging
+import threading
 import uuid
 from datetime import UTC, datetime
 from typing import Any, cast
 
 from sqlalchemy import or_, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.ai.gateway import enabled_default, endpoint_from_config, latest_enabled
 from app.ai.prompts import ANALYZE_PROMPT_VERSION, build_analyze_prompt
@@ -67,6 +72,12 @@ from app.services.memory_extract import (
 )
 
 logger = logging.getLogger("app.memory")
+
+_DEPOSIT_LOCK = threading.Lock()
+_AUTO_DEPOSIT_TYPES = frozenset(
+    {"chapter_summary", "entity_create", "story_event", "foreshadowing"}
+)
+_DEPOSIT_MODEL_NAME = "本地续写沉淀"
 
 _ENTITY_TYPES = {"character", "location", "organization", "item", "rule", "other"}
 _ENTITY_STATUSES = {"active", "inactive", "unknown"}
@@ -619,6 +630,203 @@ def mark_chapter_memory_stale(session: Session, chapter_id: str, revision: int) 
             )
             .values(status="stale", revision=VolumeOutline.revision + 1, updated_at=now)
         )
+
+
+def deposit_chapter_memory(session: Session, chapter_id: str) -> int:
+    """Write rolling memory for one saved chapter. Returns how many rows were applied.
+
+    Safe to call more than once for the same revision. It does not call a model
+    and does not change the manuscript.
+    """
+
+    with _DEPOSIT_LOCK:
+        return _deposit_chapter_memory(session, chapter_id)
+
+
+def run_chapter_memory_deposit(
+    session_factory: sessionmaker[Session],
+    chapter_id: str,
+) -> None:
+    session = session_factory()
+    try:
+        deposit_chapter_memory(session, chapter_id)
+    except Exception as exc:
+        logger.warning(
+            "chapter memory deposit failed",
+            extra={"error_type": type(exc).__name__},
+        )
+        session.rollback()
+    finally:
+        session.close()
+
+
+def schedule_chapter_memory_deposit(runtime: object, chapter_id: str) -> None:
+    """Queue a deposit on the AI runtime executor so accept can return immediately."""
+
+    from app.ai.runtime import AiRuntime
+
+    if not isinstance(runtime, AiRuntime):
+        return
+    runtime.executor.submit(run_chapter_memory_deposit, runtime.session_factory, chapter_id)
+
+
+def _deposit_chapter_memory(session: Session, chapter_id: str) -> int:
+    chapter = session.get(Chapter, chapter_id)
+    if chapter is None or chapter.deleted_at is not None:
+        session.rollback()
+        return 0
+    text = _chapter_text(chapter)
+    if text.strip() == "":
+        session.rollback()
+        return 0
+    drafts = [
+        draft
+        for draft in (*extract_from_chapter(text), *extract_light(text))
+        if draft.proposal_type in _AUTO_DEPOSIT_TYPES
+    ]
+    now = _now()
+    written = 0
+    summary = next((item for item in drafts if item.proposal_type == "chapter_summary"), None)
+    if summary is not None:
+        try:
+            with session.begin_nested():
+                if _refresh_summary(session, chapter, summary, now):
+                    written += 1
+        except Exception as exc:
+            logger.info(
+                "summary deposit skipped",
+                extra={"error_type": type(exc).__name__},
+            )
+    for draft in drafts:
+        if draft.proposal_type == "chapter_summary":
+            continue
+        if _formal_already_present(session, chapter, draft):
+            continue
+        try:
+            with session.begin_nested():
+                _deposit_one(session, chapter, draft, now)
+            written += 1
+        except Exception as exc:
+            logger.info(
+                "memory deposit skipped",
+                extra={
+                    "error_type": type(exc).__name__,
+                    "proposal_type": draft.proposal_type,
+                },
+            )
+    if written == 0:
+        session.rollback()
+        return 0
+    session.commit()
+    return written
+
+
+def _refresh_summary(
+    session: Session,
+    chapter: Chapter,
+    draft: ProposalDraft,
+    now: datetime,
+) -> bool:
+    new_text = _optional_text(draft.payload.get("summary")) or ""
+    if new_text == "":
+        return False
+    current = list(
+        session.scalars(
+            select(ChapterSummary).where(
+                ChapterSummary.chapter_id == chapter.id,
+                ChapterSummary.status == "current",
+            )
+        )
+    )
+    if (
+        len(current) == 1
+        and current[0].source_revision == chapter.revision
+        and current[0].summary == new_text
+    ):
+        return False
+    session.execute(
+        update(ChapterSummary)
+        .where(
+            ChapterSummary.chapter_id == chapter.id,
+            ChapterSummary.status == "current",
+        )
+        .values(status="stale", updated_at=now)
+    )
+    _deposit_one(session, chapter, draft, now)
+    return True
+
+
+def _formal_already_present(session: Session, chapter: Chapter, draft: ProposalDraft) -> bool:
+    if draft.proposal_type == "entity_create":
+        name = _normalize_name(_optional_text(draft.payload.get("name")) or "")
+        if name == "":
+            return True
+        rows = session.scalars(
+            select(StoryEntity).where(
+                StoryEntity.novel_id == chapter.novel_id,
+                StoryEntity.deleted_at.is_(None),
+            )
+        )
+        return any(_normalize_name(row.name) == name for row in rows)
+    if draft.proposal_type == "story_event":
+        description = _optional_text(draft.payload.get("description")) or ""
+        if description == "":
+            return True
+        found = session.scalars(
+            select(StoryEvent.id).where(
+                StoryEvent.novel_id == chapter.novel_id,
+                StoryEvent.chapter_id == chapter.id,
+                StoryEvent.description == description,
+                StoryEvent.deleted_at.is_(None),
+            )
+        ).first()
+        return found is not None
+    if draft.proposal_type == "foreshadowing":
+        description = _optional_text(draft.payload.get("description")) or ""
+        if description == "":
+            return True
+        found = session.scalars(
+            select(Foreshadowing.id).where(
+                Foreshadowing.novel_id == chapter.novel_id,
+                Foreshadowing.introduced_chapter_id == chapter.id,
+                Foreshadowing.description == description,
+            )
+        ).first()
+        return found is not None
+    return False
+
+
+def _deposit_one(
+    session: Session,
+    chapter: Chapter,
+    draft: ProposalDraft,
+    now: datetime,
+) -> None:
+    body = _copy_payload(draft.payload)
+    body["evidence_in_source"] = draft.evidence_in_source
+    body["model_name"] = _DEPOSIT_MODEL_NAME
+    body["auto_deposit"] = True
+    certainty = draft.certainty if draft.certainty in _CERTAINTIES else "inferred"
+    proposal = MemoryChangeProposal(
+        id=_new_id(),
+        novel_id=chapter.novel_id,
+        source_chapter_id=chapter.id,
+        source_revision=chapter.revision,
+        proposal_type=draft.proposal_type,
+        payload=body,
+        evidence_quote=draft.evidence_quote or "",
+        certainty=certainty,
+        status="accepted",
+        review_note="续写后自动写入长篇记忆。",
+        created_at=now,
+        reviewed_at=now,
+    )
+    session.add(proposal)
+    session.flush()
+    applied = _apply(session, proposal, body)
+    body["applied"] = applied
+    body["review_action"] = "auto_deposit"
+    proposal.payload = body
 
 
 def generate_analysis_text(*, endpoint: ModelEndpoint, prompt: str) -> str:

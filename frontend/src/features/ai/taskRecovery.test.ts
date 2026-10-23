@@ -67,4 +67,19 @@ describe("task recovery", () => {
     expect(recovered.text).toBe("");
     expect(recovered.errorMessage).toContain("限流");
   });
+
+  it("restores a partial timeout candidate so it can still be accepted", () => {
+    const recovered = stateFromTask(idleCandidate, {
+      status: "completed",
+      output_text: "超时前的正文",
+      error_message_safe: "模型超时，已保留已生成的片段。正文还没改，可以采纳这段候选。",
+      provider_mode: "openai_compatible",
+      partial: true,
+    });
+
+    expect(recovered.status).toBe("completed");
+    expect(recovered.partial).toBe(true);
+    expect(recovered.text).toBe("超时前的正文");
+    expect(recovered.errorMessage).toContain("可以采纳");
+  });
 });

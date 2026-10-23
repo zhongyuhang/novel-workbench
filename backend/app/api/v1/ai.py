@@ -86,8 +86,9 @@ def accept_task(
     task_id: str,
     payload: AiTaskAccept,
     session: Annotated[Session, Depends(get_db)],
+    runtime: Annotated[AiRuntime, Depends(get_ai_runtime)],
 ) -> AiTaskAcceptResponse:
-    task, chapter = ai_service.accept_ai_task(session, task_id, payload)
+    task, chapter = ai_service.accept_ai_task(session, task_id, payload, runtime)
     return AiTaskAcceptResponse(task=task, chapter=chapter)
 
 
