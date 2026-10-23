@@ -14,11 +14,24 @@ ProposalType = Literal[
     "entity_state",
     "story_event",
     "chapter_summary",
+    "entity_relation",
+    "foreshadowing",
+    "setting_supplement",
+    "potential_conflict",
 ]
-ProposalStatus = Literal["pending", "accepted", "rejected", "reverted", "stale"]
+ProposalStatus = Literal[
+    "pending",
+    "accepted",
+    "rejected",
+    "reverted",
+    "stale",
+    "deferred",
+    "intentional",
+]
+AnalysisScope = Literal["full", "light"]
 Certainty = Literal["confirmed", "inferred", "uncertain"]
 SummaryStatus = Literal["current", "stale", "rejected"]
-ProviderMode = Literal["openai_compatible", "mock"]
+ProviderMode = Literal["openai_compatible", "mock", "rule"]
 
 
 def _clean_name(value: str) -> str:
@@ -166,6 +179,7 @@ class AnalyzeRequest(BaseModel):
     revision: int = Field(ge=1)
     model_config_id: str | None = None
     use_mock: bool = False
+    scope: AnalysisScope = "full"
 
 
 class ProposalResponse(BaseModel):
@@ -207,6 +221,7 @@ class AnalyzeResponse(BaseModel):
 
 class ReviewRequest(BaseModel):
     review_note: str | None = Field(default=None, max_length=2000)
+    edits: dict[str, Any] | None = None
 
     @field_validator("review_note")
     @classmethod
@@ -215,6 +230,15 @@ class ReviewRequest(BaseModel):
             return None
         cleaned = value.strip()
         return cleaned or None
+
+    @field_validator("edits")
+    @classmethod
+    def clean_edits(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        if len(json.dumps(value, ensure_ascii=False)) > 8000:
+            raise ValueError("修改内容过长")
+        return value
 
 
 class ChapterSummaryResponse(BaseModel):
@@ -313,6 +337,26 @@ class StoryEventResponse(BaseModel):
     evidence_quote: str
     certainty: Certainty
     created_at: datetime
+
+
+ImpactKind = Literal["entity", "relation", "event", "foreshadowing", "story_arc"]
+
+
+class AffectedMaterial(BaseModel):
+    kind: str
+    id: str
+    label: str
+    reason: str
+
+
+class MaterialImpactResponse(BaseModel):
+    novel_id: str
+    target_kind: ImpactKind
+    target_id: str
+    target_label: str
+    affected: list[AffectedMaterial]
+    manuscript_changed: Literal[False] = False
+    formal_memory_changed: Literal[False] = False
 
 
 def _blank_to_none(value: str | None) -> str | None:

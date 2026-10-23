@@ -45,6 +45,8 @@ MVP 合并前：后端测试全部通过；前端类型检查和构建通过；�
 
 质量规则样例在 `backend/tests/fixtures/eval/quality_samples.json`。正例要有证据，反例不得报成冲突，无法比较的时间要标成证据不足。`pytest tests/test_quality_rules.py tests/test_quality_issues.py` 覆盖落库、差异预览、修订冲突不覆盖，以及已修复问题再次出现后回到待处理。
 
+正文与资料同步由 `backend/tests/test_manuscript_sync.py` 覆盖。轻量检查不访问模型上游。完整分析用 mock 传输指定 `model_config_id`，省略时用测试成功后的默认模型。确认才写正式关系、伏笔和设定补充；忽略、延后不写。潜在冲突确认后只增加质量问题。影响分析只读。规则用例覆盖出生死亡、身份、死亡后的状态、世界规则、关系类型、伏笔的几个时间，以及暗线长时间未推进。前端 `MemoryPanel.test.tsx` 覆盖轻量检查和延后。
+
 T-019 由 `backend/tests/test_e6_portable.py` 覆盖：往返后正文、大纲、设定、关系、事件、伏笔、摘要和版本仍属于新作品；第二次导入再得到一本新作品；格式版本 2 返回 `UNSUPPORTED_PACKAGE`；无效行与写入中途失败都不增加作品。前端 `LibraryMaintenance.test.tsx` 覆盖最近一次备份时间和导入预览。整库备份演练仍是 T-017。
 
 E5 可靠性在 `backend/tests/test_e5_reliability.py`。它覆盖：并发保存和修订冲突不丢较新正文；手动保存、AI 采纳和质量修复采纳在快照失败时一起回滚；重复采纳和并发采纳只写一次正文；SSE 提前关闭后仍能读到候选；取消后的迟到 token 不改候选和正文；恢复旧版本不删除中间版本；版本详情和行级差异不改修订。迁移用例确认从 `0009_quality_issues` 升级后旧快照仍在，新外键可空，降级后列消失。前端 `saveResult.test.ts`、`textDiff.test.ts`、`taskRecovery.test.ts` 以及编辑器和 AI 面板测试覆盖迟到保存响应、冲突比较、断线回查和取消失败后的任务状态。

@@ -16,6 +16,7 @@ from app.schemas.memory import (
     EntityStateResponse,
     EntityStateUpdate,
     EntityUpdate,
+    MaterialImpactResponse,
     ProposalResponse,
     ProposalStatus,
     RelationResponse,
@@ -25,6 +26,7 @@ from app.schemas.memory import (
     ReviewRequest,
     StoryEventResponse,
 )
+from app.services import impact as impact_service
 from app.services import memory as memory_service
 
 router = APIRouter(tags=["memory"], dependencies=[Depends(require_session)])
@@ -166,7 +168,8 @@ def accept_memory_proposal(
     payload: ReviewRequest | None = None,
 ) -> ProposalResponse:
     note = payload.review_note if payload is not None else None
-    return memory_service.accept_proposal(session, proposal_id, note)
+    edits = payload.edits if payload is not None else None
+    return memory_service.accept_proposal(session, proposal_id, note, edits)
 
 
 @router.post("/memory-proposals/{proposal_id}/reject", response_model=ProposalResponse)
@@ -177,6 +180,39 @@ def reject_memory_proposal(
 ) -> ProposalResponse:
     note = payload.review_note if payload is not None else None
     return memory_service.reject_proposal(session, proposal_id, note)
+
+
+@router.post("/memory-proposals/{proposal_id}/defer", response_model=ProposalResponse)
+def defer_memory_proposal(
+    proposal_id: str,
+    session: Annotated[Session, Depends(get_db)],
+    payload: ReviewRequest | None = None,
+) -> ProposalResponse:
+    note = payload.review_note if payload is not None else None
+    return memory_service.defer_proposal(session, proposal_id, note)
+
+
+@router.post("/memory-proposals/{proposal_id}/intentional", response_model=ProposalResponse)
+def intentional_memory_proposal(
+    proposal_id: str,
+    session: Annotated[Session, Depends(get_db)],
+    payload: ReviewRequest | None = None,
+) -> ProposalResponse:
+    note = payload.review_note if payload is not None else None
+    return memory_service.mark_intentional_proposal(session, proposal_id, note)
+
+
+@router.get(
+    "/novels/{novel_id}/material-impact",
+    response_model=MaterialImpactResponse,
+)
+def material_impact(
+    novel_id: str,
+    session: Annotated[Session, Depends(get_db)],
+    kind: Annotated[str, Query()],
+    target_id: Annotated[str, Query()],
+) -> MaterialImpactResponse:
+    return impact_service.material_impact(session, novel_id, kind, target_id)
 
 
 @router.post("/memory-proposals/{proposal_id}/revert", response_model=ProposalResponse)

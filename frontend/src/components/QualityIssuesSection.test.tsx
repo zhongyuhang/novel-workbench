@@ -30,6 +30,7 @@ const issue: QualityIssue = {
   severity: "medium",
   confidence: 0.74,
   status: "pending",
+  finding_class: "suspected",
   manuscript_snippet: "阿宁是右撇子。",
   target_revision: 2,
   location_note: null,

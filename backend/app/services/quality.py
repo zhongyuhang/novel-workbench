@@ -58,6 +58,9 @@ def create_foreshadowing(
         status=payload.status,
         payoff_chapter_id=payload.payoff_chapter_id,
         evidence_quote=payload.evidence_quote,
+        event_time_text=payload.event_time_text,
+        character_discovered_text=payload.character_discovered_text,
+        reader_revealed_text=payload.reader_revealed_text,
         created_at=now,
         updated_at=now,
     )
@@ -90,6 +93,12 @@ def update_foreshadowing(
         row.payoff_chapter_id = payload.payoff_chapter_id
     if "evidence_quote" in fields:
         row.evidence_quote = payload.evidence_quote
+    if "event_time_text" in fields:
+        row.event_time_text = payload.event_time_text
+    if "character_discovered_text" in fields:
+        row.character_discovered_text = payload.character_discovered_text
+    if "reader_revealed_text" in fields:
+        row.reader_revealed_text = payload.reader_revealed_text
     if fields:
         row.updated_at = _now()
         session.commit()
@@ -166,6 +175,9 @@ def _response(row: Foreshadowing) -> ForeshadowingResponse:
         status=_status(row.status),
         payoff_chapter_id=row.payoff_chapter_id,
         evidence_quote=row.evidence_quote,
+        event_time_text=row.event_time_text,
+        character_discovered_text=row.character_discovered_text,
+        reader_revealed_text=row.reader_revealed_text,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )

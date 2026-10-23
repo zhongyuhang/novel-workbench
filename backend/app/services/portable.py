@@ -409,6 +409,7 @@ def _write_plan(session: Session, plan: PackagePlan) -> Novel:
                 arc_type=_s(row, "arc_type"),
                 title=_s(row, "title"),
                 summary=_opt_str(row, "summary"),
+                thread_visibility=_opt_str(row, "thread_visibility"),
                 sort_order=_i(row, "sort_order"),
                 status=_s(row, "status"),
                 revision=_i(row, "revision"),
@@ -566,6 +567,9 @@ def _write_plan(session: Session, plan: PackagePlan) -> Novel:
                 status=_s(row, "status"),
                 payoff_chapter_id=_opt_str(row, "payoff_chapter_id"),
                 evidence_quote=_opt_str(row, "evidence_quote"),
+                event_time_text=_opt_str(row, "event_time_text"),
+                character_discovered_text=_opt_str(row, "character_discovered_text"),
+                reader_revealed_text=_opt_str(row, "reader_revealed_text"),
                 created_at=_dt(row, "created_at"),
                 updated_at=_dt(row, "updated_at"),
             )
@@ -603,6 +607,7 @@ def _write_plan(session: Session, plan: PackagePlan) -> Novel:
                 analysis_version=_opt_str(row, "analysis_version"),
                 provider_mode=_s(row, "provider_mode"),
                 suggested_action=_s(row, "suggested_action"),
+                finding_class=_s(row, "finding_class"),
                 fingerprint=_s(row, "fingerprint"),
                 fixed_revision=_opt_int(row, "fixed_revision"),
                 recheck_count=_i(row, "recheck_count"),
@@ -1091,6 +1096,7 @@ def _parse_story_arc(raw: object) -> dict[str, object]:
         "arc_type": _enum(body.get("arc_type"), _ARC_TYPES),
         "title": _text(body.get("title"), max_len=200, required=True),
         "summary": _text(body.get("summary"), max_len=MAX_TEXT, required=False),
+        "thread_visibility": _optional_enum(body.get("thread_visibility"), {"surface", "hidden"}),
         "sort_order": _number(body.get("sort_order"), minimum=0),
         "status": _enum(body.get("status"), _PLAN_STATUS),
         "revision": _number(body.get("revision"), minimum=1),
@@ -1274,14 +1280,24 @@ def _parse_proposal(raw: object) -> dict[str, object]:
         "source_revision": _number(body.get("source_revision"), minimum=1),
         "proposal_type": _enum(
             body.get("proposal_type"),
-            {"entity_create", "entity_update", "entity_state", "story_event", "chapter_summary"},
+            {
+                "entity_create",
+                "entity_update",
+                "entity_state",
+                "story_event",
+                "chapter_summary",
+                "entity_relation",
+                "foreshadowing",
+                "setting_supplement",
+                "potential_conflict",
+            },
         ),
         "payload": _json_size(body.get("payload"), max_chars=500_000),
         "evidence_quote": _text(body.get("evidence_quote"), max_len=MAX_TEXT, required=True),
         "certainty": _enum(body.get("certainty"), {"confirmed", "inferred", "uncertain"}),
         "status": _enum(
             body.get("status"),
-            {"pending", "accepted", "rejected", "reverted", "stale"},
+            {"pending", "accepted", "rejected", "reverted", "stale", "deferred", "intentional"},
         ),
         "review_note": _text(body.get("review_note"), max_len=MAX_TEXT, required=False),
         "created_at": _when(body.get("created_at"), required=True),
@@ -1302,6 +1318,13 @@ def _parse_foreshadowing(raw: object) -> dict[str, object]:
         ),
         "payoff_chapter_id": _id(body.get("payoff_chapter_id"), required=False),
         "evidence_quote": _text(body.get("evidence_quote"), max_len=MAX_TEXT, required=False),
+        "event_time_text": _text(body.get("event_time_text"), max_len=200, required=False),
+        "character_discovered_text": _text(
+            body.get("character_discovered_text"), max_len=200, required=False
+        ),
+        "reader_revealed_text": _text(
+            body.get("reader_revealed_text"), max_len=200, required=False
+        ),
         "created_at": _when(body.get("created_at"), required=True),
         "updated_at": _when(body.get("updated_at"), required=True),
     }
@@ -1339,7 +1362,11 @@ def _parse_issue(raw: object) -> dict[str, object]:
         "confidence": _number(body.get("confidence"), minimum=0, maximum=100),
         "status": _enum(
             body.get("status"),
-            {"pending", "confirmed", "ignored", "fixed", "expired"},
+            {"pending", "confirmed", "ignored", "fixed", "expired", "deferred", "intentional"},
+        ),
+        "finding_class": _enum(
+            body.get("finding_class", "suspected"),
+            {"deterministic", "suspected", "creative_risk"},
         ),
         "manuscript_snippet": _text(
             body.get("manuscript_snippet"), max_len=MAX_TEXT, required=True
@@ -1994,6 +2021,7 @@ def _story_arc_dict(row: StoryArc) -> dict[str, object]:
         "arc_type": row.arc_type,
         "title": row.title,
         "summary": row.summary,
+        "thread_visibility": row.thread_visibility,
         "sort_order": row.sort_order,
         "status": row.status,
         "revision": row.revision,
@@ -2165,6 +2193,9 @@ def _foreshadowing_dict(row: Foreshadowing) -> dict[str, object]:
         "status": row.status,
         "payoff_chapter_id": row.payoff_chapter_id,
         "evidence_quote": row.evidence_quote,
+        "event_time_text": row.event_time_text,
+        "character_discovered_text": row.character_discovered_text,
+        "reader_revealed_text": row.reader_revealed_text,
         "created_at": _dump_dt(row.created_at),
         "updated_at": _dump_dt(row.updated_at),
     }
@@ -2189,6 +2220,7 @@ def _issue_dict(row: QualityIssue) -> dict[str, object]:
         "severity": row.severity,
         "confidence": row.confidence,
         "status": row.status,
+        "finding_class": row.finding_class,
         "manuscript_snippet": row.manuscript_snippet,
         "target_revision": row.target_revision,
         "location_note": row.location_note,

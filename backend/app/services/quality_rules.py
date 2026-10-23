@@ -1,8 +1,9 @@
 """Offline quality rules.
 
 These functions only read the materials they are given. They never write a
-chapter, a setting, or a database row. Every finding is a suspected issue.
-Subjective claims such as "the character is unreasonable" are not emitted.
+chapter, a setting, or a database row. Each finding is a deterministic error,
+a suspected contradiction, or a creative risk. Subjective claims such as
+"the character is unreasonable" are not emitted.
 """
 
 from __future__ import annotations
@@ -89,6 +90,7 @@ class QualityFinding:
     suggested_action: str
     fingerprint_key: str
     reading_index: int
+    finding_class: str
 
 
 @dataclass(frozen=True)
@@ -160,6 +162,9 @@ class ForeshadowMaterial:
     introduced_chapter_id: str
     payoff_chapter_id: str | None
     evidence_quote: str | None
+    event_time_text: str | None = None
+    character_discovered_text: str | None = None
+    reader_revealed_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -167,6 +172,18 @@ class EntityMaterial:
     id: str
     name: str
     aliases: tuple[str, ...]
+    entity_type: str = "other"
+    birth_time_text: str | None = None
+    death_time_text: str | None = None
+
+
+@dataclass(frozen=True)
+class ArcMaterial:
+    id: str
+    title: str
+    status: str
+    thread_visibility: str | None
+    summary: str | None = None
 
 
 @dataclass(frozen=True)
@@ -180,6 +197,7 @@ class QualityMaterials:
     foreshadowing: tuple[ForeshadowMaterial, ...]
     entities: tuple[EntityMaterial, ...]
     focus_chapter_id: str | None = None
+    arcs: tuple[ArcMaterial, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -200,6 +218,12 @@ def run_rules(materials: QualityMaterials) -> list[QualityFinding]:
     _event_order(found, materials.events, by_id, focus)
     _relations(found, materials.relations, chapters, focus)
     _foreshadowing(found, materials.foreshadowing, chapters, by_id, focus)
+    _life_times(found, materials.entities, materials.events, by_id, focus)
+    _identity(found, materials.states, by_id, focus)
+    _state_after_death(found, materials.states, by_id, focus)
+    _world_rules(found, materials.entities, chapters, focus)
+    _relation_types(found, materials.relations, chapters, by_id, focus)
+    _hidden_arcs(found, materials.arcs, chapters, focus)
     _outlines(found, materials.outlines, by_id, focus)
     _scenes(found, materials.scenes, by_id, focus)
     _surface(found, chapters, materials.entities, focus)
@@ -222,6 +246,7 @@ def materials_from_mapping(payload: dict[str, object]) -> QualityMaterials:
         foreshadowing=_foreshadow_in(payload.get("foreshadowing")),
         entities=_entities(payload.get("entities")),
         focus_chapter_id=_optional_str(payload.get("focus_chapter_id")),
+        arcs=_arcs_in(payload.get("arcs")),
     )
 
 
@@ -336,6 +361,8 @@ def _state_time(
     grouped: dict[tuple[str, str], list[tuple[StateMaterial, str]]] = {}
     for state in states:
         for key, value in state.values:
+            if key in {"identity", "身份", "经历"}:
+                continue
             label = _STATE_KEYS.get(key)
             if label is None or value.strip() == "":
                 continue
@@ -544,6 +571,7 @@ def _foreshadowing(
         if introduced is None:
             continue
         payoff = by_id.get(row.payoff_chapter_id) if row.payoff_chapter_id else None
+        _foreshadow_dimensions(found, row, introduced, payoff, chapters, focus)
         if row.status in {"open", "planned"} and payoff is not None:
             passed = any(item.reading_index > payoff.reading_index for item in chapters)
             if passed and (focus is None or focus in {payoff.id, introduced.id, latest.id}):
@@ -612,6 +640,7 @@ def _foreshadowing(
                 action="这只是长期未回收的提醒，不是断定剧情有错。",
                 key=f"foreshadow.long_open|{row.id}",
                 insufficient=False,
+                finding_class="creative_risk",
             )
         quote = (row.evidence_quote or "").strip()
         if row.status == "resolved" and quote and quote not in corpus:
@@ -636,6 +665,628 @@ def _foreshadowing(
                 key=f"foreshadow.resolved_quote_missing|{row.id}",
                 insufficient=False,
             )
+
+
+_DEATH_VALUES = {"死亡", "已死", "死了", "dead"}
+_DEATH_KEYS = {"injury", "伤势", "identity", "身份", "life", "生命", "status", "状态"}
+_ALIVE_KEYS = {"location", "位置", "possession", "持有物", "injury", "伤势"}
+_IDENTITY_KEYS = {"identity", "身份", "经历"}
+_BIRTH_KEYS = ("birth_time", "出生", "出生时间")
+_DEATH_KEYS_PROFILE = ("death_time", "死亡", "死亡时间")
+
+
+def _foreshadow_dimensions(
+    found: list[QualityFinding],
+    row: ForeshadowMaterial,
+    introduced: ChapterMaterial,
+    payoff: ChapterMaterial | None,
+    chapters: tuple[ChapterMaterial, ...],
+    focus: str | None,
+) -> None:
+    if (
+        payoff is not None
+        and payoff.reading_index < introduced.reading_index
+        and (focus is None or focus in {payoff.id, introduced.id})
+    ):
+        _add(
+            found,
+            issue_type="foreshadowing",
+            rule_id="foreshadow.payoff_before_plant",
+            severity="high",
+            confidence=0.9,
+            chapter=payoff,
+            snippet=(row.evidence_quote or "") if (row.evidence_quote or "") in payoff.text else "",
+            location_note=(
+                f"回收章节《{payoff.title}》排在埋设章节《{introduced.title}》之前。"
+                "埋设位置和回收状态是分开记录的。"
+            ),
+            evidence_status="sufficient",
+            evidence=(
+                Evidence(
+                    "foreshadowing",
+                    row.description,
+                    row.evidence_quote,
+                    introduced.id,
+                    None,
+                    row.id,
+                ),
+            ),
+            refs=(RelatedRef("foreshadowing", row.id, row.description),),
+            action="回收章节早于正文埋设位置。请作者核对是章节顺序错了，还是回收章节填错了。",
+            key=f"foreshadow.payoff_before_plant|{row.id}",
+            insufficient=False,
+            finding_class="deterministic",
+        )
+    revealed = (row.reader_revealed_text or "").strip()
+    if revealed:
+        earlier = [
+            item
+            for item in chapters
+            if item.title
+            and item.title in revealed
+            and item.reading_index < introduced.reading_index
+        ]
+        if earlier and (focus is None or focus in {earlier[0].id, introduced.id}):
+            _add(
+                found,
+                issue_type="foreshadowing",
+                rule_id="foreshadow.reader_before_plant",
+                severity="medium",
+                confidence=0.62,
+                chapter=earlier[0],
+                snippet="",
+                location_note=(
+                    f"向读者揭示的位置写的是「{revealed}」，"
+                    f"正文埋设在更后面的《{introduced.title}》。这两项没有合并成一个日期。"
+                ),
+                evidence_status="sufficient",
+                evidence=(
+                    Evidence(
+                        "foreshadowing",
+                        "向读者揭示",
+                        revealed,
+                        earlier[0].id,
+                        None,
+                        row.id,
+                    ),
+                    Evidence(
+                        "foreshadowing",
+                        "正文埋设",
+                        row.evidence_quote,
+                        introduced.id,
+                        None,
+                        row.id,
+                    ),
+                ),
+                refs=(RelatedRef("foreshadowing", row.id, row.description),),
+                action="读者获知时间早于正文埋设。可能是倒叙，请作者确认是不是有意这样安排。",
+                key=f"foreshadow.reader_before_plant|{row.id}",
+                insufficient=False,
+                finding_class="suspected",
+            )
+    discovered = _parse_point(row.character_discovered_text or "")
+    happened = _parse_point(row.event_time_text or "")
+    if (
+        discovered is not None
+        and happened is not None
+        and discovered.scale == happened.scale
+        and discovered.value < happened.value
+        and (focus is None or focus == introduced.id)
+    ):
+        _add(
+            found,
+            issue_type="foreshadowing",
+            rule_id="foreshadow.discover_before_event",
+            severity="medium",
+            confidence=0.7,
+            chapter=introduced,
+            snippet=(row.evidence_quote or "")
+            if (row.evidence_quote or "") in introduced.text
+            else "",
+            location_note=(
+                f"角色发现时间是「{row.character_discovered_text}」，"
+                f"事件实际发生时间是「{row.event_time_text}」。"
+            ),
+            evidence_status="sufficient",
+            evidence=(
+                Evidence(
+                    "foreshadowing",
+                    "角色发现时间",
+                    row.character_discovered_text,
+                    introduced.id,
+                    None,
+                    row.id,
+                ),
+                Evidence(
+                    "foreshadowing",
+                    "事件实际发生时间",
+                    row.event_time_text,
+                    introduced.id,
+                    None,
+                    row.id,
+                ),
+            ),
+            refs=(RelatedRef("foreshadowing", row.id, row.description),),
+            action="角色发现早于事件实际发生。若是预言或误认，请标成有意安排，而不是改成同一个时间。",
+            key=f"foreshadow.discover_before_event|{row.id}",
+            insufficient=False,
+            finding_class="suspected",
+        )
+
+
+def _life_times(
+    found: list[QualityFinding],
+    entities: tuple[EntityMaterial, ...],
+    events: tuple[EventMaterial, ...],
+    by_id: dict[str, ChapterMaterial],
+    focus: str | None,
+) -> None:
+    for entity in entities:
+        names = {entity.name, *entity.aliases}
+        names.discard("")
+        for event in events:
+            if not _mentions(event, names):
+                continue
+            chapter = by_id.get(event.chapter_id)
+            if chapter is None:
+                continue
+            if focus is not None and chapter.id != focus and event.chapter_id != focus:
+                continue
+            when = _parse_point(event.event_time_text or "")
+            birth = _parse_point(entity.birth_time_text or "")
+            death = _parse_point(entity.death_time_text or "")
+            born_later = (
+                when is not None
+                and birth is not None
+                and when.scale == birth.scale
+                and when.value < birth.value
+            )
+            if born_later:
+                _life_finding(
+                    found,
+                    chapter,
+                    entity,
+                    event,
+                    rule_id="time.event_before_birth",
+                    note=(
+                        f"{entity.name}的出生时间是「{entity.birth_time_text}」，"
+                        f"事件「{event.description}」的时间是「{event.event_time_text}」。"
+                    ),
+                    action="事件时间早于已确认的出生时间。",
+                    finding_class="deterministic",
+                    insufficient=False,
+                )
+                continue
+            died_earlier = (
+                when is not None
+                and death is not None
+                and when.scale == death.scale
+                and when.value > death.value
+            )
+            if died_earlier:
+                _life_finding(
+                    found,
+                    chapter,
+                    entity,
+                    event,
+                    rule_id="time.event_after_death",
+                    note=(
+                        f"{entity.name}的死亡时间是「{entity.death_time_text}」，"
+                        f"事件「{event.description}」的时间是「{event.event_time_text}」。"
+                    ),
+                    action="事件时间晚于已确认的死亡时间。",
+                    finding_class="deterministic",
+                    insufficient=False,
+                )
+                continue
+            birth_text = (entity.birth_time_text or "").strip()
+            death_text = (entity.death_time_text or "").strip()
+            has_bound = bool(birth_text or death_text)
+            if has_bound and (event.event_time_text or "").strip() and when is None:
+                _life_finding(
+                    found,
+                    chapter,
+                    entity,
+                    event,
+                    rule_id="time.life_undetermined",
+                    note=(f"{entity.name}写了出生或死亡时间，事件也写了时间，但格式对不上。"),
+                    action="出生、死亡和事件时间无法比较。",
+                    finding_class="suspected",
+                    insufficient=True,
+                )
+
+
+def _life_finding(
+    found: list[QualityFinding],
+    chapter: ChapterMaterial,
+    entity: EntityMaterial,
+    event: EventMaterial,
+    *,
+    rule_id: str,
+    note: str,
+    action: str,
+    finding_class: str,
+    insufficient: bool,
+) -> None:
+    _add(
+        found,
+        issue_type="time_continuity",
+        rule_id=rule_id,
+        severity="low" if insufficient else "high",
+        confidence=0.4 if insufficient else 0.9,
+        chapter=chapter,
+        snippet=event.evidence_quote or event.description,
+        location_note=note,
+        evidence_status="insufficient" if insufficient else "sufficient",
+        evidence=(
+            Evidence(
+                "story_event",
+                event.description,
+                event.evidence_quote or event.description,
+                event.chapter_id,
+                event.source_revision,
+                event.id,
+            ),
+            Evidence(
+                "entity",
+                entity.name,
+                entity.birth_time_text or entity.death_time_text,
+                None,
+                None,
+                entity.id,
+            ),
+        ),
+        refs=(
+            RelatedRef("entity", entity.id, entity.name),
+            RelatedRef("story_event", event.id, event.description),
+        ),
+        action=action,
+        key=f"{rule_id}|{entity.id}|{event.id}",
+        insufficient=insufficient,
+        finding_class=finding_class,
+    )
+
+
+def _identity(
+    found: list[QualityFinding],
+    states: tuple[StateMaterial, ...],
+    by_id: dict[str, ChapterMaterial],
+    focus: str | None,
+) -> None:
+    grouped: dict[tuple[str, str], list[tuple[StateMaterial, str]]] = {}
+    for state in states:
+        for key, value in state.values:
+            if key not in _IDENTITY_KEYS or value.strip() == "":
+                continue
+            grouped.setdefault((state.entity_id, key), []).append((state, value.strip()))
+    for (_entity_id, key), rows in grouped.items():
+        label = "经历" if key == "经历" else "身份"
+        for index, (left, left_value) in enumerate(rows):
+            for right, right_value in rows[index + 1 :]:
+                if left_value == right_value:
+                    continue
+                if focus is not None and focus not in {left.chapter_id, right.chapter_id}:
+                    continue
+                kind = _interval_kind(
+                    left.valid_from_text,
+                    left.valid_until_text,
+                    right.valid_from_text,
+                    right.valid_until_text,
+                )
+                if kind in {"incomplete", "separate"}:
+                    continue
+                later = _later_state(left, right, by_id)
+                chapter = by_id.get(later.chapter_id)
+                if chapter is None:
+                    continue
+                insufficient = kind == "undetermined"
+                _add(
+                    found,
+                    issue_type="character_continuity",
+                    rule_id="character.identity_conflict",
+                    severity="low" if insufficient else "high",
+                    confidence=0.4 if insufficient else 0.86,
+                    chapter=chapter,
+                    snippet=later.evidence_quote or "",
+                    location_note=(
+                        f"{later.entity_name}的{label}在重叠时段里分别是"
+                        f"「{left_value}」和「{right_value}」。"
+                    ),
+                    evidence_status="insufficient" if insufficient else "sufficient",
+                    evidence=(
+                        _state_evidence(left, label, left_value),
+                        _state_evidence(right, label, right_value),
+                    ),
+                    refs=(
+                        RelatedRef("entity_state", left.id, f"{left.entity_name}的{label}"),
+                        RelatedRef("entity_state", right.id, f"{right.entity_name}的{label}"),
+                    ),
+                    action=(
+                        "两段身份或经历的时间对不上，还不能判定冲突。"
+                        if insufficient
+                        else "同一时段里的身份或经历互相冲突。"
+                    ),
+                    key="|".join(sorted((left.id, right.id)) + [key, kind]),
+                    insufficient=insufficient,
+                    finding_class="suspected" if insufficient else "deterministic",
+                )
+
+
+def _state_after_death(
+    found: list[QualityFinding],
+    states: tuple[StateMaterial, ...],
+    by_id: dict[str, ChapterMaterial],
+    focus: str | None,
+) -> None:
+    deaths: list[StateMaterial] = []
+    living: list[tuple[StateMaterial, str, str]] = []
+    for state in states:
+        for key, value in state.values:
+            cleaned = value.strip()
+            if key in _DEATH_KEYS and cleaned in _DEATH_VALUES:
+                deaths.append(state)
+            if key in _ALIVE_KEYS and cleaned and cleaned not in _DEATH_VALUES:
+                living.append((state, key, cleaned))
+    for death in deaths:
+        death_chapter = by_id.get(death.chapter_id)
+        if death_chapter is None:
+            continue
+        for later, key, value in living:
+            if later.entity_id != death.entity_id or later.id == death.id:
+                continue
+            later_chapter = by_id.get(later.chapter_id)
+            if later_chapter is None or later_chapter.reading_index <= death_chapter.reading_index:
+                continue
+            if focus is not None and focus not in {death.chapter_id, later.chapter_id}:
+                continue
+            blob = f"{later.evidence_quote or ''}{value}"
+            if "复活" in blob or "重生" in blob:
+                continue
+            death_point = _parse_point(death.valid_from_text or "")
+            later_point = _parse_point(later.valid_from_text or "")
+            if (
+                death_point is not None
+                and later_point is not None
+                and death_point.scale == later_point.scale
+                and later_point.value <= death_point.value
+            ):
+                continue
+            timed = (
+                death_point is not None
+                and later_point is not None
+                and death_point.scale == later_point.scale
+                and later_point.value > death_point.value
+            )
+            label = _STATE_KEYS.get(key, key)
+            _add(
+                found,
+                issue_type="character_continuity",
+                rule_id="character.state_after_death",
+                severity="high" if timed else "medium",
+                confidence=0.88 if timed else 0.55,
+                chapter=later_chapter,
+                snippet=later.evidence_quote or "",
+                location_note=(f"{later.entity_name}已记录为死亡，之后的{label}又是「{value}」。"),
+                evidence_status="sufficient" if timed or later.evidence_quote else "insufficient",
+                evidence=(
+                    _state_evidence(death, "生死", "死亡"),
+                    _state_evidence(later, label, value),
+                ),
+                refs=(
+                    RelatedRef("entity_state", death.id, f"{death.entity_name}死亡"),
+                    RelatedRef("entity_state", later.id, f"{later.entity_name}的{label}"),
+                ),
+                action=(
+                    "死亡之后又出现了新的状态，且故事时间能比较。"
+                    if timed
+                    else "死亡之后又出现了新的状态。时间不够，先当作疑似问题。"
+                ),
+                key=f"character.state_after_death|{death.id}|{later.id}|{key}",
+                insufficient=not timed and not later.evidence_quote,
+                finding_class="deterministic" if timed else "suspected",
+            )
+
+
+def _world_rules(
+    found: list[QualityFinding],
+    entities: tuple[EntityMaterial, ...],
+    chapters: tuple[ChapterMaterial, ...],
+    focus: str | None,
+) -> None:
+    for entity in entities:
+        if entity.entity_type != "rule" or entity.name.strip() == "":
+            continue
+        name = entity.name.strip()
+        for chapter in _scoped(chapters, focus):
+            negated = next(
+                (
+                    phrase
+                    for phrase in (f"违反了{name}", f"{name}并不成立")
+                    if phrase in chapter.text
+                ),
+                None,
+            )
+            if negated is not None:
+                sentence = _sentence_with(chapter.text, negated)
+                _add(
+                    found,
+                    issue_type="fact_continuity",
+                    rule_id="world.rule_negated",
+                    severity="high",
+                    confidence=0.84,
+                    chapter=chapter,
+                    snippet=sentence,
+                    location_note=None,
+                    evidence_status="sufficient",
+                    evidence=(
+                        Evidence(
+                            "manuscript",
+                            "当前正文片段",
+                            sentence,
+                            chapter.id,
+                            chapter.revision,
+                            None,
+                        ),
+                        Evidence("entity", name, None, None, None, entity.id),
+                    ),
+                    refs=(RelatedRef("entity", entity.id, name),),
+                    action=f"正文直接否定了世界规则「{name}」。",
+                    key=f"world.rule_negated|{entity.id}|{chapter.id}|{negated}",
+                    insufficient=False,
+                    finding_class="deterministic",
+                )
+                continue
+            if name in chapter.text and ("例外" in chapter.text or "也许可以打破" in chapter.text):
+                sentence = _sentence_with(chapter.text, name)
+                _add(
+                    found,
+                    issue_type="fact_continuity",
+                    rule_id="world.rule_risk",
+                    severity="low",
+                    confidence=0.4,
+                    chapter=chapter,
+                    snippet=sentence,
+                    location_note=f"正文提到规则「{name}」，并出现了例外或打破的说法。",
+                    evidence_status="sufficient",
+                    evidence=(
+                        Evidence(
+                            "manuscript",
+                            "当前正文片段",
+                            sentence,
+                            chapter.id,
+                            chapter.revision,
+                            None,
+                        ),
+                        Evidence("entity", name, None, None, None, entity.id),
+                    ),
+                    refs=(RelatedRef("entity", entity.id, name),),
+                    action="这是创作风险提醒。正文没有用确定的否定句推翻这条规则。",
+                    key=f"world.rule_risk|{entity.id}|{chapter.id}",
+                    insufficient=False,
+                    finding_class="creative_risk",
+                )
+
+
+def _relation_types(
+    found: list[QualityFinding],
+    relations: tuple[RelationMaterial, ...],
+    chapters: tuple[ChapterMaterial, ...],
+    by_id: dict[str, ChapterMaterial],
+    focus: str | None,
+) -> None:
+    grouped: dict[tuple[str, str], list[RelationMaterial]] = {}
+    for relation in relations:
+        if relation.from_name.strip() == "" or relation.to_name.strip() == "":
+            continue
+        if relation.relation_type.strip() == "":
+            continue
+        grouped.setdefault((relation.from_name, relation.to_name), []).append(relation)
+    for (left_name, right_name), rows in grouped.items():
+        kinds = {item.relation_type.strip() for item in rows}
+        if len(kinds) < 2:
+            continue
+        ordered = sorted(rows, key=lambda item: item.id)
+        first, second = ordered[0], ordered[1]
+        chapter = by_id.get(second.source_chapter_id or "")
+        if chapter is None:
+            chapter = by_id.get(first.source_chapter_id or "")
+        if chapter is None and chapters:
+            chapter = chapters[-1]
+        if chapter is None or (focus is not None and chapter.id != focus):
+            continue
+        left_quote = (first.evidence_quote or "").strip()
+        right_quote = (second.evidence_quote or "").strip()
+        evidenced = bool(left_quote and right_quote)
+        _add(
+            found,
+            issue_type="character_continuity",
+            rule_id="relation.type_conflict",
+            severity="high" if evidenced else "medium",
+            confidence=0.86 if evidenced else 0.5,
+            chapter=chapter,
+            snippet="",
+            location_note=(
+                f"{left_name}与{right_name}同时有「{first.relation_type}」和「{second.relation_type}」。"
+            ),
+            evidence_status="sufficient" if evidenced else "insufficient",
+            evidence=(
+                Evidence(
+                    "relation",
+                    f"{left_name}→{right_name} {first.relation_type}",
+                    first.evidence_quote,
+                    first.source_chapter_id,
+                    first.source_revision,
+                    first.id,
+                ),
+                Evidence(
+                    "relation",
+                    f"{left_name}→{right_name} {second.relation_type}",
+                    second.evidence_quote,
+                    second.source_chapter_id,
+                    second.source_revision,
+                    second.id,
+                ),
+            ),
+            refs=(
+                RelatedRef("relation", first.id, first.relation_type),
+                RelatedRef("relation", second.id, second.relation_type),
+            ),
+            action="同一方向的两条有效关系类型不一样。请作者决定保留哪一条，或标成有意安排。",
+            key="|".join(sorted(item.id for item in ordered) + ["relation.type_conflict"]),
+            insufficient=not evidenced,
+            finding_class="deterministic" if evidenced else "suspected",
+        )
+
+
+def _hidden_arcs(
+    found: list[QualityFinding],
+    arcs: tuple[ArcMaterial, ...],
+    chapters: tuple[ChapterMaterial, ...],
+    focus: str | None,
+) -> None:
+    if len(chapters) < 4:
+        return
+    latest = max(chapters, key=lambda item: (item.reading_index, item.id))
+    for arc in arcs:
+        title = arc.title.strip()
+        if arc.status != "confirmed" or arc.thread_visibility != "hidden" or len(title) < 2:
+            continue
+        if title in latest.text:
+            continue
+        early = [
+            item
+            for item in chapters
+            if item.reading_index <= latest.reading_index - 3 and title in item.text
+        ]
+        if not early or (focus is not None and focus not in {early[0].id, latest.id}):
+            continue
+        _add(
+            found,
+            issue_type="foreshadowing",
+            rule_id="arc.hidden_quiet",
+            severity="low",
+            confidence=0.45,
+            chapter=latest,
+            snippet=_sentence_with(early[0].text, title),
+            location_note=(
+                f"暗线「{title}」在《{early[0].title}》出现过，到《{latest.title}》仍没有再出现。"
+            ),
+            evidence_status="sufficient",
+            evidence=(Evidence("story_arc", title, arc.summary, early[0].id, None, arc.id),),
+            refs=(RelatedRef("story_arc", arc.id, title),),
+            action="这是暗线长时间没有推进的创作风险，不是已经证实的情节错误。",
+            key=f"arc.hidden_quiet|{arc.id}",
+            insufficient=False,
+            finding_class="creative_risk",
+        )
+
+
+def _mentions(event: EventMaterial, names: set[str]) -> bool:
+    if any(name in event.participants for name in names):
+        return True
+    if event.participants:
+        return False
+    return any(name and name in event.description for name in names)
 
 
 def _outlines(
@@ -955,6 +1606,7 @@ def _model_item(
         suggested_action=_action(text or "请作者对照材料判断。", insufficient=insufficient),
         fingerprint_key=f"model.suspected|{chapter.id}|{issue_type}|{snippet_text[:180]}",
         reading_index=chapter.reading_index,
+        finding_class="suspected",
     )
 
 
@@ -974,6 +1626,7 @@ def _add(
     action: str,
     key: str,
     insufficient: bool,
+    finding_class: str = "suspected",
 ) -> None:
     if any(item.fingerprint_key == key for item in found):
         return
@@ -996,6 +1649,9 @@ def _add(
             suggested_action=_action(action, insufficient=insufficient),
             fingerprint_key=key,
             reading_index=chapter.reading_index,
+            finding_class=finding_class
+            if finding_class in {"deterministic", "suspected", "creative_risk"}
+            else "suspected",
         )
     )
 
@@ -1329,6 +1985,9 @@ def _foreshadow_in(value: object) -> tuple[ForeshadowMaterial, ...]:
                 introduced_chapter_id=introduced,
                 payoff_chapter_id=_optional_str(item.get("payoff_chapter_id")),
                 evidence_quote=_optional_str(item.get("evidence_quote")),
+                event_time_text=_optional_str(item.get("event_time_text")),
+                character_discovered_text=_optional_str(item.get("character_discovered_text")),
+                reader_revealed_text=_optional_str(item.get("reader_revealed_text")),
             )
         )
     return tuple(rows)
@@ -1353,9 +2012,43 @@ def _entities(value: object) -> tuple[EntityMaterial, ...]:
                 )
                 if isinstance(aliases, list)
                 else (),
+                entity_type=_optional_str(item.get("entity_type")) or "other",
+                birth_time_text=_profile_time(item.get("profile"), _BIRTH_KEYS),
+                death_time_text=_profile_time(item.get("profile"), _DEATH_KEYS_PROFILE),
             )
         )
     return tuple(rows)
+
+
+def _arcs_in(value: object) -> tuple[ArcMaterial, ...]:
+    rows: list[ArcMaterial] = []
+    for item in _rows(value):
+        if not isinstance(item, dict):
+            continue
+        arc_id = _optional_str(item.get("id"))
+        title = _optional_str(item.get("title"))
+        if arc_id is None or title is None:
+            continue
+        rows.append(
+            ArcMaterial(
+                id=arc_id,
+                title=title,
+                status=_optional_str(item.get("status")) or "draft",
+                thread_visibility=_optional_str(item.get("thread_visibility")),
+                summary=_optional_str(item.get("summary")),
+            )
+        )
+    return tuple(rows)
+
+
+def _profile_time(value: object, keys: tuple[str, ...]) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    for key in keys:
+        text = _optional_str(value.get(key))
+        if text is not None:
+            return text
+    return None
 
 
 def _rows(value: object) -> list[object]:

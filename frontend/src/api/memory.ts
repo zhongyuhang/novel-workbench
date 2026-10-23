@@ -7,8 +7,20 @@ export type ProposalType =
   | "entity_update"
   | "entity_state"
   | "story_event"
-  | "chapter_summary";
-export type ProposalStatus = "pending" | "accepted" | "rejected" | "reverted" | "stale";
+  | "chapter_summary"
+  | "entity_relation"
+  | "foreshadowing"
+  | "setting_supplement"
+  | "potential_conflict";
+export type ProposalStatus =
+  | "pending"
+  | "accepted"
+  | "rejected"
+  | "reverted"
+  | "stale"
+  | "deferred"
+  | "intentional";
+export type AnalysisScope = "full" | "light";
 export type Certainty = "confirmed" | "inferred" | "uncertain";
 export type SummaryStatus = "current" | "stale" | "rejected";
 
@@ -114,7 +126,8 @@ export type AnalyzeResult = {
   novel_id: string;
   source_revision: number;
   status: "completed";
-  provider_mode: "mock" | "openai_compatible";
+  provider_mode: "mock" | "openai_compatible" | "rule";
+  model_config_id?: string | null;
   model_name: string;
   prompt_version: string;
   proposal_count: number;
@@ -213,7 +226,12 @@ export function createEntityState(entityId: string, payload: EntityStateWrite): 
 
 export function analyzeChapter(
   chapterId: string,
-  payload: { revision: number; use_mock: boolean; model_config_id?: string },
+  payload: {
+    revision: number;
+    use_mock: boolean;
+    model_config_id?: string;
+    scope?: AnalysisScope;
+  },
 ): Promise<AnalyzeResult> {
   return apiRequest<AnalyzeResult>(`/api/v1/chapters/${chapterId}/analyze`, {
     method: "POST",
@@ -221,11 +239,54 @@ export function analyzeChapter(
   });
 }
 
-export function acceptProposal(proposalId: string): Promise<MemoryProposal> {
+export function acceptProposal(
+  proposalId: string,
+  edits?: Record<string, unknown>,
+): Promise<MemoryProposal> {
   return apiRequest<MemoryProposal>(`/api/v1/memory-proposals/${proposalId}/accept`, {
+    method: "POST",
+    body: JSON.stringify(edits ? { edits } : {}),
+  });
+}
+
+export function deferProposal(proposalId: string): Promise<MemoryProposal> {
+  return apiRequest<MemoryProposal>(`/api/v1/memory-proposals/${proposalId}/defer`, {
     method: "POST",
     body: JSON.stringify({}),
   });
+}
+
+export function markIntentionalProposal(proposalId: string): Promise<MemoryProposal> {
+  return apiRequest<MemoryProposal>(`/api/v1/memory-proposals/${proposalId}/intentional`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export type AffectedMaterial = {
+  kind: string;
+  id: string;
+  label: string;
+  reason: string;
+};
+
+export type MaterialImpact = {
+  novel_id: string;
+  target_kind: string;
+  target_id: string;
+  target_label: string;
+  affected: AffectedMaterial[];
+  manuscript_changed: false;
+  formal_memory_changed: false;
+};
+
+export function materialImpact(
+  novelId: string,
+  kind: string,
+  targetId: string,
+): Promise<MaterialImpact> {
+  const params = new URLSearchParams({ kind, target_id: targetId });
+  return apiRequest<MaterialImpact>(`/api/v1/novels/${novelId}/material-impact?${params.toString()}`);
 }
 
 export function rejectProposal(proposalId: string): Promise<MemoryProposal> {

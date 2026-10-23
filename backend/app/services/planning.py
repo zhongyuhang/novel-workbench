@@ -52,6 +52,7 @@ from app.schemas.planning import (
     StoryPlanResponse,
     StoryPlanView,
     StoryPlanWrite,
+    ThreadVisibility,
     VolumeOutlineResponse,
     VolumeOutlineView,
     VolumeOutlineWrite,
@@ -356,6 +357,7 @@ def create_story_arc(
         arc_type=payload.arc_type,
         title=payload.title,
         summary=payload.summary,
+        thread_visibility=payload.thread_visibility,
         sort_order=_next_arc_sort(session, novel_id),
         status=payload.status or "draft",
         revision=1,
@@ -700,6 +702,9 @@ def _assign_arc_fields(row: StoryArc, payload: StoryArcPatch) -> bool:
     if "summary" in fields and payload.summary != row.summary:
         row.summary = payload.summary
         changed = True
+    if "thread_visibility" in fields and payload.thread_visibility != row.thread_visibility:
+        row.thread_visibility = payload.thread_visibility
+        changed = True
     explicit_status = "status" in fields and payload.status is not None
     if explicit_status and payload.status != row.status:
         row.status = payload.status or row.status
@@ -1017,6 +1022,7 @@ def _arc_response(row: StoryArc) -> StoryArcResponse:
         arc_type=_arc_type(row.arc_type),
         title=row.title,
         summary=row.summary,
+        thread_visibility=_thread_visibility(row.thread_visibility),
         sort_order=row.sort_order,
         status=_status(row.status),
         revision=row.revision,
@@ -1047,6 +1053,12 @@ def _arc_type(value: str) -> StoryArcType:
     if value in _ARC_TYPES:
         return cast(StoryArcType, value)
     return "other"
+
+
+def _thread_visibility(value: str | None) -> ThreadVisibility | None:
+    if value in {"surface", "hidden"}:
+        return cast(ThreadVisibility, value)
+    return None
 
 
 def _story_response(row: StoryPlan) -> StoryPlanResponse:

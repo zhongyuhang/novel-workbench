@@ -7,11 +7,14 @@ import {
   analyzeChapter,
   createEntityState,
   createRelation,
+  deferProposal,
   listChapterSummaries,
   listEntities,
   listEvents,
   listProposals,
   listRelations,
+  markIntentionalProposal,
+  materialImpact,
   rejectProposal,
   type EntityRelation,
   type MemoryProposal,
@@ -32,6 +35,9 @@ vi.mock("../api/memory.ts", () => ({
   analyzeChapter: vi.fn(),
   acceptProposal: vi.fn(),
   rejectProposal: vi.fn(),
+  deferProposal: vi.fn(),
+  markIntentionalProposal: vi.fn(),
+  materialImpact: vi.fn(),
   revertProposal: vi.fn(),
   createEntity: vi.fn(),
   updateEntity: vi.fn(),
@@ -121,7 +127,7 @@ describe("MemoryPanel", () => {
       />,
     );
 
-    await user.click(await screen.findByRole("button", { name: "拒绝" }));
+    await user.click(await screen.findByRole("button", { name: "忽略" }));
 
     expect(rejectProposal).toHaveBeenCalledWith("proposal-1");
     expect(acceptProposal).not.toHaveBeenCalled();
@@ -155,7 +161,11 @@ describe("MemoryPanel", () => {
 
     await user.click(await screen.findByRole("button", { name: "分析当前章节" }));
 
-    expect(analyzeChapter).toHaveBeenCalledWith("chapter-1", { revision: 3, use_mock: true });
+    expect(analyzeChapter).toHaveBeenCalledWith("chapter-1", {
+      revision: 3,
+      use_mock: true,
+      scope: "full",
+    });
     expect(await screen.findByText(/正式设定和正文都没有自动改动/)).toBeTruthy();
     expect(acceptProposal).not.toHaveBeenCalled();
   });
@@ -310,5 +320,63 @@ describe("MemoryPanel", () => {
       status: "active",
     });
     expect(createEntityState).not.toHaveBeenCalled();
+  });
+
+  it("runs a light check without treating it as a full model analysis", async () => {
+    vi.mocked(analyzeChapter).mockResolvedValue({
+      chapter_id: "chapter-1",
+      novel_id: "novel-1",
+      source_revision: 3,
+      status: "completed",
+      provider_mode: "rule",
+      model_name: "轻量检查",
+      prompt_version: "analyze_chapter_v1",
+      proposal_count: 0,
+      proposals: [],
+      message: "轻量检查没有调用模型，也没有新的候选。正式设定没有改动。",
+      formal_memory_changed: false,
+      manuscript_changed: false,
+    });
+    const user = userEvent.setup();
+    render(
+      <MemoryPanel
+        novelId="novel-1"
+        activeChapterId="chapter-1"
+        activeRevision={3}
+        activeTitle="开篇"
+        editorDirty={false}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "轻量检查" }));
+
+    expect(analyzeChapter).toHaveBeenCalledWith("chapter-1", {
+      revision: 3,
+      use_mock: false,
+      scope: "light",
+    });
+    expect(await screen.findByText(/轻量检查没有调用模型/)).toBeTruthy();
+    expect(acceptProposal).not.toHaveBeenCalled();
+  });
+
+  it("defers a proposal without accepting it", async () => {
+    vi.mocked(deferProposal).mockResolvedValue({ ...proposal, status: "deferred" });
+    const user = userEvent.setup();
+    render(
+      <MemoryPanel
+        novelId="novel-1"
+        activeChapterId="chapter-1"
+        activeRevision={3}
+        activeTitle="开篇"
+        editorDirty={false}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "延后" }));
+
+    expect(deferProposal).toHaveBeenCalledWith("proposal-1");
+    expect(acceptProposal).not.toHaveBeenCalled();
+    expect(markIntentionalProposal).not.toHaveBeenCalled();
+    expect(materialImpact).not.toHaveBeenCalled();
   });
 });

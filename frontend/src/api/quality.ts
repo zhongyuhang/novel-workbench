@@ -13,6 +13,9 @@ export type Foreshadowing = {
   status: ForeshadowingStatus;
   payoff_chapter_id: string | null;
   evidence_quote: string | null;
+  event_time_text: string | null;
+  character_discovered_text: string | null;
+  reader_revealed_text: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -23,6 +26,9 @@ export type ForeshadowingWrite = {
   status: ForeshadowingStatus;
   payoff_chapter_id: string | null;
   evidence_quote: string | null;
+  event_time_text?: string | null;
+  character_discovered_text?: string | null;
+  reader_revealed_text?: string | null;
 };
 
 export type ForeshadowingPatch = Partial<ForeshadowingWrite>;
@@ -122,7 +128,15 @@ export type IssueType =
   | "foreshadowing"
   | "outline_execution"
   | "text_surface";
-export type IssueStatus = "pending" | "confirmed" | "ignored" | "fixed" | "expired";
+export type IssueStatus =
+  | "pending"
+  | "confirmed"
+  | "ignored"
+  | "fixed"
+  | "expired"
+  | "deferred"
+  | "intentional";
+export type FindingClass = "deterministic" | "suspected" | "creative_risk";
 export type EvidenceStatus = "sufficient" | "insufficient";
 export type QualityProviderMode = "rule" | "mock" | "openai_compatible";
 export type RepairStatus = "proposed" | "accepted" | "rejected" | "conflict";
@@ -171,6 +185,7 @@ export type QualityIssue = {
   severity: Severity;
   confidence: number;
   status: IssueStatus;
+  finding_class: FindingClass;
   manuscript_snippet: string;
   target_revision: number | null;
   location_note: string | null;
@@ -254,7 +269,7 @@ export function runQualityCheck(
 
 export function updateQualityIssue(
   issueId: string,
-  status: "pending" | "confirmed" | "ignored",
+  status: "pending" | "confirmed" | "ignored" | "deferred" | "intentional",
 ): Promise<QualityIssue> {
   return apiRequest<QualityIssue>(`/api/v1/quality-issues/${issueId}`, {
     method: "PATCH",

@@ -66,6 +66,9 @@ export function QualityPanel({
   const introducedId = introducedChoice ?? activeChapterId ?? "";
   const [draftStatus, setDraftStatus] = useState<ForeshadowingStatus>("open");
   const [quote, setQuote] = useState("");
+  const [eventTime, setEventTime] = useState("");
+  const [discovered, setDiscovered] = useState("");
+  const [revealed, setRevealed] = useState("");
   const [goal, setGoal] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -144,9 +147,15 @@ export function QualityPanel({
         status: draftStatus,
         payoff_chapter_id: null,
         evidence_quote: quote.trim() || null,
+        event_time_text: eventTime.trim() || null,
+        character_discovered_text: discovered.trim() || null,
+        reader_revealed_text: revealed.trim() || null,
       });
       setDescription("");
       setQuote("");
+      setEventTime("");
+      setDiscovered("");
+      setRevealed("");
       setMessage("已记下伏笔。这不会改写正文。");
       setItems(await listForeshadowing(novelId, statusFilter || undefined));
     } catch (cause: unknown) {
@@ -370,6 +379,39 @@ export function QualityPanel({
             </select>
           </label>
           <label>
+            事件实际发生时间
+            <input
+              aria-label="事件实际发生时间"
+              value={eventTime}
+              maxLength={200}
+              onChange={(event) => {
+                setEventTime(event.target.value);
+              }}
+            />
+          </label>
+          <label>
+            角色发现时间
+            <input
+              aria-label="角色发现时间"
+              value={discovered}
+              maxLength={200}
+              onChange={(event) => {
+                setDiscovered(event.target.value);
+              }}
+            />
+          </label>
+          <label>
+            向读者揭示时间
+            <input
+              aria-label="向读者揭示时间"
+              value={revealed}
+              maxLength={200}
+              onChange={(event) => {
+                setRevealed(event.target.value);
+              }}
+            />
+          </label>
+          <label>
             证据原文
             <input
               aria-label="伏笔证据"
@@ -427,12 +469,18 @@ function ForeshadowingCard({
     status: ForeshadowingStatus;
     payoff_chapter_id: string | null;
     evidence_quote: string | null;
+    event_time_text: string | null;
+    character_discovered_text: string | null;
+    reader_revealed_text: string | null;
   }) => Promise<void>;
 }) {
   const [description, setDescription] = useState(item.description);
   const [status, setStatus] = useState<ForeshadowingStatus>(item.status);
   const [payoffId, setPayoffId] = useState(item.payoff_chapter_id ?? "");
   const [quote, setQuote] = useState(item.evidence_quote ?? "");
+  const [eventTime, setEventTime] = useState(item.event_time_text ?? "");
+  const [discovered, setDiscovered] = useState(item.character_discovered_text ?? "");
+  const [revealed, setRevealed] = useState(item.reader_revealed_text ?? "");
   const introduced = chapters.find((chapter) => chapter.id === item.introduced_chapter_id);
 
   return (
@@ -486,6 +534,39 @@ function ForeshadowingCard({
         </select>
       </label>
       <label>
+        事件实际发生时间
+        <input
+          aria-label={`事件时间 ${item.id}`}
+          value={eventTime}
+          maxLength={200}
+          onChange={(event) => {
+            setEventTime(event.target.value);
+          }}
+        />
+      </label>
+      <label>
+        角色发现时间
+        <input
+          aria-label={`发现时间 ${item.id}`}
+          value={discovered}
+          maxLength={200}
+          onChange={(event) => {
+            setDiscovered(event.target.value);
+          }}
+        />
+      </label>
+      <label>
+        向读者揭示时间
+        <input
+          aria-label={`揭示时间 ${item.id}`}
+          value={revealed}
+          maxLength={200}
+          onChange={(event) => {
+            setRevealed(event.target.value);
+          }}
+        />
+      </label>
+      <label>
         证据原文
         <input
           aria-label={`伏笔证据 ${item.id}`}
@@ -506,6 +587,9 @@ function ForeshadowingCard({
             status,
             payoff_chapter_id: payoffId || null,
             evidence_quote: quote.trim() || null,
+            event_time_text: eventTime.trim() || null,
+            character_discovered_text: discovered.trim() || null,
+            reader_revealed_text: revealed.trim() || null,
           });
         }}
       >

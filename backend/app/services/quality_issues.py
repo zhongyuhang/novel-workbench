@@ -30,11 +30,12 @@ from app.core.errors import (
 from app.models.ai import ModelConfig
 from app.models.catalog import Chapter
 from app.models.memory import EntityRelation, EntityState, StoryEntity, StoryEvent
-from app.models.planning import ChapterOutline, SceneCard
+from app.models.planning import ChapterOutline, SceneCard, StoryArc
 from app.models.quality import Foreshadowing, QualityIssue, QualityRepairCandidate
 from app.repositories import catalog as catalog_repo
 from app.schemas.catalog import ChapterResponse
 from app.schemas.quality import (
+    FindingClass,
     IssueStatus,
     IssueType,
     QualityCheckRequest,
@@ -70,7 +71,7 @@ from app.services.quality_rules import (
 
 logger = logging.getLogger("app.quality.issues")
 
-_OPEN_STATUSES = ("pending", "confirmed")
+_OPEN_STATUSES = ("pending", "confirmed", "deferred")
 _ISSUE_TYPES = {
     "fact_continuity",
     "time_continuity",
@@ -80,7 +81,15 @@ _ISSUE_TYPES = {
     "text_surface",
 }
 _SEVERITIES = {"low", "medium", "high"}
-_ISSUE_STATUSES = {"pending", "confirmed", "ignored", "fixed", "expired"}
+_ISSUE_STATUSES = {
+    "pending",
+    "confirmed",
+    "ignored",
+    "fixed",
+    "expired",
+    "deferred",
+    "intentional",
+}
 _PROVIDER_MODES = {"rule", "mock", "openai_compatible"}
 _APPLY_MODES = {"replace_selection", "append"}
 _REPAIR_STATUSES = {"proposed", "accepted", "rejected", "conflict"}
@@ -122,8 +131,8 @@ def update_quality_issue_status(
     row = session.get(QualityIssue, issue_id)
     if row is None:
         raise NotFound("质量问题不存在。")
-    if status not in {"pending", "confirmed", "ignored"}:
-        raise InvalidReference("只能把问题标成待处理、已确认或已忽略。")
+    if status not in {"pending", "confirmed", "ignored", "deferred", "intentional"}:
+        raise InvalidReference("只能把问题标成待处理、已确认、已忽略、延后或有意安排。")
     row.status = status
     row.updated_at = _now()
     session.commit()
@@ -395,6 +404,7 @@ def _new_issue(
         severity=finding.severity,
         confidence=_percent(finding.confidence),
         status="pending",
+        finding_class=finding.finding_class,
         manuscript_snippet=finding.manuscript_snippet,
         target_revision=finding.target_revision,
         location_note=finding.location_note,
@@ -417,6 +427,7 @@ def _new_issue(
 def _refresh_issue(row: QualityIssue, finding: QualityFinding, now: datetime) -> None:
     row.chapter_id = finding.chapter_id
     row.issue_type = finding.issue_type
+    row.finding_class = finding.finding_class
     row.severity = finding.severity
     row.confidence = _percent(finding.confidence)
     row.manuscript_snippet = finding.manuscript_snippet
@@ -471,6 +482,7 @@ def _load_materials(
         "scenes": _scene_payloads(session, novel_id),
         "foreshadowing": _foreshadow_payloads(session, novel_id),
         "entities": _entity_payloads(session, novel_id),
+        "arcs": _arc_payloads(session, novel_id),
         "focus_chapter_id": focus_chapter_id,
     }
     return materials_from_mapping(payload)
@@ -718,6 +730,7 @@ def _issue_response(
         severity=_severity(row.severity),
         confidence=round(row.confidence / 100, 2),
         status=_issue_status(row.status),
+        finding_class=_finding_class(row.finding_class),
         manuscript_snippet=row.manuscript_snippet,
         target_revision=row.target_revision,
         location_note=row.location_note,
@@ -947,6 +960,9 @@ def _foreshadow_payloads(session: Session, novel_id: str) -> list[dict[str, obje
             "introduced_chapter_id": row.introduced_chapter_id,
             "payoff_chapter_id": row.payoff_chapter_id,
             "evidence_quote": row.evidence_quote,
+            "event_time_text": row.event_time_text,
+            "character_discovered_text": row.character_discovered_text,
+            "reader_revealed_text": row.reader_revealed_text,
         }
         for row in rows
     ]
@@ -966,6 +982,8 @@ def _entity_payloads(session: Session, novel_id: str) -> list[dict[str, object]]
                 "id": row.id,
                 "name": row.name,
                 "aliases": _string_list(row.aliases),
+                "entity_type": row.entity_type,
+                "profile": row.profile if isinstance(row.profile, dict) else {},
             }
         )
     return result
@@ -1080,6 +1098,26 @@ def _issue_type(value: str) -> IssueType:
     if value in _ISSUE_TYPES:
         return cast(IssueType, value)
     return "fact_continuity"
+
+
+def _finding_class(value: str) -> FindingClass:
+    if value in {"deterministic", "suspected", "creative_risk"}:
+        return cast(FindingClass, value)
+    return "suspected"
+
+
+def _arc_payloads(session: Session, novel_id: str) -> list[dict[str, object]]:
+    rows = session.scalars(select(StoryArc).where(StoryArc.novel_id == novel_id)).all()
+    return [
+        {
+            "id": row.id,
+            "title": row.title,
+            "summary": row.summary,
+            "status": row.status,
+            "thread_visibility": row.thread_visibility,
+        }
+        for row in rows
+    ]
 
 
 def _issue_status(value: str) -> IssueStatus:

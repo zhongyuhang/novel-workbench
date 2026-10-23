@@ -899,6 +899,8 @@ function StoryArcEditor({
   onMessage: (value: string) => void;
   onChange: (rows: StoryArc[]) => void;
 }) {
+  const [visibility, setVisibility] = useState<"" | "surface" | "hidden">("");
+
   async function addArc() {
     if (title.trim() === "") {
       onError("故事线需要一个标题。");
@@ -912,6 +914,7 @@ function StoryArcEditor({
         title: title.trim(),
         summary: blank(summary),
         status: "draft",
+        ...(visibility === "" ? {} : { thread_visibility: visibility }),
       });
       onChange(await listStoryArcs(novelId));
       onTitle("");
@@ -924,7 +927,13 @@ function StoryArcEditor({
     }
   }
 
-  async function saveArc(arc: StoryArc, nextTitle: string, nextSummary: string, status: EditablePlanningStatus) {
+  async function saveArc(
+    arc: StoryArc,
+    nextTitle: string,
+    nextSummary: string,
+    status: EditablePlanningStatus,
+    nextVisibility: "" | "surface" | "hidden",
+  ) {
     onBusy(true);
     onError("");
     try {
@@ -934,6 +943,7 @@ function StoryArcEditor({
         arc_type: arc.arc_type,
         status,
         expected_revision: arc.revision,
+        thread_visibility: nextVisibility === "" ? null : nextVisibility,
       });
       onChange(await listStoryArcs(novelId));
       onMessage("故事线已保存。");
@@ -1046,6 +1056,21 @@ function StoryArcEditor({
         </select>
       </label>
       <label>
+        明线或暗线
+        <select
+          aria-label="新故事线明暗"
+          value={visibility}
+          onChange={(event) => {
+            const next = event.target.value;
+            setVisibility(next === "surface" || next === "hidden" ? next : "");
+          }}
+        >
+          <option value="">未区分</option>
+          <option value="surface">明线</option>
+          <option value="hidden">暗线</option>
+        </select>
+      </label>
+      <label>
         摘要
         <textarea
           aria-label="新故事线摘要"
@@ -1082,6 +1107,7 @@ function ArcRow({
     title: string,
     summary: string,
     status: EditablePlanningStatus,
+    visibility: "" | "surface" | "hidden",
   ) => Promise<void>;
   onConfirm: (arc: StoryArc) => Promise<void>;
   onDelete: (arc: StoryArc) => Promise<void>;
@@ -1090,17 +1116,37 @@ function ArcRow({
   const [title, setTitle] = useState(arc.title);
   const [summary, setSummary] = useState(arc.summary ?? "");
   const [status, setStatus] = useState<EditablePlanningStatus>(editableStatus(arc.status));
+  const [visibility, setVisibility] = useState<"" | "surface" | "hidden">(
+    arc.thread_visibility === "surface" || arc.thread_visibility === "hidden"
+      ? arc.thread_visibility
+      : "",
+  );
 
   return (
     <form
       className="scene-card"
       onSubmit={(event) => {
         event.preventDefault();
-        void onSave(arc, title, summary, status);
+        void onSave(arc, title, summary, status, visibility);
       }}
     >
       <StatusBadge status={arc.status} countsAsFact={arc.counts_as_fact} />
       <p className="hint">{STORY_ARC_TYPE_LABEL[arc.arc_type]}</p>
+      <label>
+        明线或暗线
+        <select
+          aria-label={`故事线明暗 ${arc.title}`}
+          value={visibility}
+          onChange={(event) => {
+            const next = event.target.value;
+            setVisibility(next === "surface" || next === "hidden" ? next : "");
+          }}
+        >
+          <option value="">未区分</option>
+          <option value="surface">明线</option>
+          <option value="hidden">暗线</option>
+        </select>
+      </label>
       <label>
         标题
         <input

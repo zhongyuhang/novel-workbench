@@ -53,6 +53,9 @@ class Foreshadowing(Base):
         ForeignKey("chapters.id", name="fk_foreshadowing_payoff_chapter_id_chapters"),
     )
     evidence_quote: Mapped[str | None] = mapped_column(Text)
+    event_time_text: Mapped[str | None] = mapped_column(String(200))
+    character_discovered_text: Mapped[str | None] = mapped_column(String(200))
+    reader_revealed_text: Mapped[str | None] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -99,8 +102,13 @@ class QualityIssue(Base):
             name="ck_quality_issues_confidence",
         ),
         CheckConstraint(
-            "status IN ('pending', 'confirmed', 'ignored', 'fixed', 'expired')",
+            "status IN ('pending', 'confirmed', 'ignored', 'fixed', 'expired', "
+            "'deferred', 'intentional')",
             name="ck_quality_issues_status",
+        ),
+        CheckConstraint(
+            "finding_class IN ('deterministic', 'suspected', 'creative_risk')",
+            name="ck_quality_issues_finding_class",
         ),
         CheckConstraint(
             "evidence_status IN ('sufficient', 'insufficient')",
@@ -130,6 +138,7 @@ class QualityIssue(Base):
     severity: Mapped[str] = mapped_column(String(16), nullable=False)
     confidence: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
+    finding_class: Mapped[str] = mapped_column(String(32), nullable=False)
     manuscript_snippet: Mapped[str] = mapped_column(Text, nullable=False)
     target_revision: Mapped[int | None] = mapped_column(Integer)
     location_note: Mapped[str | None] = mapped_column(Text)

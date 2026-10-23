@@ -26,7 +26,7 @@ import { useChapterAutosave } from "../editor/useChapterAutosave.ts";
 type ChapterEditorProps = {
   chapter: Chapter;
   autosaveDelayMs?: number;
-  onSaved: (chapter: Chapter) => void;
+  onSaved: (chapter: Chapter, kind: SaveKind | "sync") => void;
   onUnsavedChange: (unsaved: boolean) => void;
   onSelectionChange?: (text: string) => void;
   adoptedChapter?: Chapter | null;
@@ -92,7 +92,7 @@ export function ChapterEditor({
     delayMs: autosaveDelayMs,
     getDraft: () => draftRef.current,
     onSaved: (saved, kind: SaveKind) => {
-      onSaved(saved);
+      onSaved(saved, kind);
       if (kind === "manual") {
         setVersionReload((current) => current + 1);
       }
@@ -233,12 +233,12 @@ export function ChapterEditor({
       return;
     }
     adoptedKey.current = key;
-    void applyRemote(adoptedChapter, "已采纳候选，并留下版本快照。").then(() => {
+    void applyRemote(adoptedChapter, "已采纳候选，并留下版本快照。", "sync").then(() => {
       setVersionReload((current) => current + 1);
     });
   }, [adoptedChapter, chapter.id, editor]);
 
-  async function applyRemote(next: Chapter, notice: string) {
+  async function applyRemote(next: Chapter, notice: string, kind: SaveKind | "sync") {
     if (!editor) {
       return;
     }
@@ -249,7 +249,7 @@ export function ChapterEditor({
     setStatus(next.status);
     autosave.noteBaseline(normalized);
     autosave.adoptServer({ ...next, content: normalized }, notice);
-    onSaved(next);
+    onSaved(next, kind);
     setActionError("");
   }
 
@@ -262,7 +262,7 @@ export function ChapterEditor({
     }
     try {
       const fresh = await getChapter(chapter.id);
-      await applyRemote(fresh, "已载入服务器上的正文。");
+      await applyRemote(fresh, "已载入服务器上的正文。", "sync");
     } catch (error: unknown) {
       setActionError(error instanceof ApiError ? error.message : "无法载入服务器正文。");
     }
@@ -286,7 +286,11 @@ export function ChapterEditor({
         content_format: "tiptap_json",
         save_kind: "manual",
       });
-      await applyRemote(saved, "已用本地草稿手动保存，并留下版本快照。自动保存本身不产生快照。");
+      await applyRemote(
+        saved,
+        "已用本地草稿手动保存，并留下版本快照。自动保存本身不产生快照。",
+        "manual",
+      );
       setServerCopy(null);
       setVersionReload((current) => current + 1);
     } catch (error: unknown) {
@@ -360,7 +364,7 @@ export function ChapterEditor({
         revision: autosave.revision,
         version_id: version.id,
       });
-      await applyRemote(restored, "已恢复为新修订。旧版本仍保留。");
+      await applyRemote(restored, "已恢复为新修订。旧版本仍保留。", "manual");
       setVersionReload((current) => current + 1);
     } catch (error: unknown) {
       if (error instanceof ApiError && error.status === 409) {

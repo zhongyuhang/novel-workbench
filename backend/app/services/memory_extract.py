@@ -13,6 +13,10 @@ PROPOSAL_TYPES = {
     "entity_state",
     "story_event",
     "chapter_summary",
+    "entity_relation",
+    "foreshadowing",
+    "setting_supplement",
+    "potential_conflict",
 }
 CERTAINTIES = {"confirmed", "inferred", "uncertain"}
 ENTITY_TYPES = {"character", "location", "organization", "item", "rule", "other"}
@@ -124,6 +128,103 @@ def extract_from_chapter(chapter_text: str) -> list[ProposalDraft]:
         },
     )
     return [*drafts[:11], summary]
+
+
+def extract_light(chapter_text: str) -> list[ProposalDraft]:
+    """Small local pass. It never calls a model and never writes formal memory."""
+
+    text = chapter_text.strip()
+    if text == "":
+        return []
+    drafts: list[ProposalDraft] = []
+    for sentence in _sentences(text):
+        if len(drafts) >= 6:
+            break
+        relation = _RELATION.search(sentence)
+        if relation is not None:
+            left, right, kind = (part.strip() for part in relation.groups())
+            if left not in _STOPWORDS and right not in _STOPWORDS and sentence in text:
+                drafts.append(
+                    ProposalDraft(
+                        proposal_type="entity_relation",
+                        certainty="confirmed",
+                        evidence_quote=sentence[:500],
+                        evidence_in_source=True,
+                        payload={
+                            "from_name": left,
+                            "to_name": right,
+                            "relation_type": kind,
+                            "evidence_in_source": True,
+                        },
+                    )
+                )
+                continue
+        if "伏笔" in sentence or "线索" in sentence:
+            drafts.append(
+                _quoted(
+                    "foreshadowing",
+                    sentence,
+                    text,
+                    {
+                        "description": sentence[:500],
+                        "status": "open",
+                        "event_time_text": None,
+                        "character_discovered_text": None,
+                        "reader_revealed_text": None,
+                    },
+                )
+            )
+            continue
+        setting = _SETTING.search(sentence)
+        if setting is not None:
+            supplement = setting.group(1).strip()
+            if supplement:
+                drafts.append(
+                    _quoted(
+                        "setting_supplement",
+                        sentence,
+                        text,
+                        {"supplement": supplement[:500]},
+                    )
+                )
+                continue
+        if any(marker in sentence for marker in ("违反了", "并不成立", "已经死了")):
+            drafts.append(
+                _quoted(
+                    "potential_conflict",
+                    sentence,
+                    text,
+                    {
+                        "description": sentence[:500],
+                        "finding_class": "suspected",
+                        "issue_type": "fact_continuity",
+                    },
+                )
+            )
+    return drafts
+
+
+_RELATION = re.compile(r"([\u4e00-\u9fff]{2,6})是([\u4e00-\u9fff]{2,6})的([\u4e00-\u9fff]{1,8})")
+_SETTING = re.compile(r"设定：([^。！？!?\n]{2,80})")
+
+
+def _quoted(
+    proposal_type: str,
+    sentence: str,
+    text: str,
+    payload: dict[str, object],
+) -> ProposalDraft:
+    quote = sentence[:500]
+    in_source = quote in text
+    body = dict(payload)
+    body["evidence_in_source"] = in_source
+    return ProposalDraft(
+        proposal_type=proposal_type,
+        certainty="confirmed" if in_source else "uncertain",
+        evidence_quote=quote if in_source else "",
+        evidence_in_source=in_source,
+        payload=body,
+    )
 
 
 def parse_analysis_output(raw: str, chapter_text: str) -> list[ProposalDraft]:
@@ -310,10 +411,78 @@ def _normalize_payload(proposal_type: str, body: dict[object, object]) -> dict[s
             "participants": _texts(body.get("participants")),
             "event_time_text": _text(body.get("event_time_text")),
         }
-    summary = _text(body.get("summary"))
-    if summary is None:
-        return None
-    return {"summary": summary[:4000], "key_facts": _texts(body.get("key_facts"))}
+    if proposal_type == "chapter_summary":
+        summary = _text(body.get("summary"))
+        if summary is None:
+            return None
+        return {"summary": summary[:4000], "key_facts": _texts(body.get("key_facts"))}
+    if proposal_type == "entity_relation":
+        relation_type = _text(body.get("relation_type"))
+        if relation_type is None:
+            return None
+        from_id = _text(body.get("from_entity_id"))
+        to_id = _text(body.get("to_entity_id"))
+        from_name = _text(body.get("from_name"))
+        to_name = _text(body.get("to_name"))
+        if (from_id is None or to_id is None) and (from_name is None or to_name is None):
+            return None
+        return {
+            "from_entity_id": from_id,
+            "to_entity_id": to_id,
+            "from_name": from_name,
+            "to_name": to_name,
+            "relation_type": relation_type[:80],
+            "story_time_text": _text(body.get("story_time_text")),
+            "storyline": _text(body.get("storyline")),
+        }
+    if proposal_type == "foreshadowing":
+        description = _text(body.get("description"))
+        if description is None:
+            return None
+        status = body.get("status")
+        return {
+            "description": description[:2000],
+            "status": status
+            if status in {"open", "planned", "resolved", "abandoned", "uncertain"}
+            else "open",
+            "payoff_chapter_id": _text(body.get("payoff_chapter_id")),
+            "event_time_text": _text(body.get("event_time_text")),
+            "character_discovered_text": _text(body.get("character_discovered_text")),
+            "reader_revealed_text": _text(body.get("reader_revealed_text")),
+        }
+    if proposal_type == "setting_supplement":
+        supplement = _text(body.get("supplement"))
+        if supplement is None:
+            return None
+        return {
+            "supplement": supplement[:2000],
+            "target_entity_id": _text(body.get("target_entity_id")),
+            "target_name": _text(body.get("target_name")),
+        }
+    if proposal_type == "potential_conflict":
+        description = _text(body.get("description"))
+        if description is None:
+            return None
+        finding_class = body.get("finding_class")
+        issue_type = body.get("issue_type")
+        return {
+            "description": description[:2000],
+            "finding_class": finding_class
+            if finding_class in {"deterministic", "suspected", "creative_risk"}
+            else "suspected",
+            "issue_type": issue_type
+            if issue_type
+            in {
+                "fact_continuity",
+                "time_continuity",
+                "character_continuity",
+                "foreshadowing",
+                "outline_execution",
+                "text_surface",
+            }
+            else "fact_continuity",
+        }
+    return None
 
 
 def _text(value: object) -> str | None:

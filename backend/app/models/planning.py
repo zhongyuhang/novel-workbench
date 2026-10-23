@@ -100,6 +100,10 @@ class StoryArc(Base):
             "arc_type IN ('main', 'subplot', 'character', 'other')",
             name="ck_story_arcs_arc_type",
         ),
+        CheckConstraint(
+            "thread_visibility IS NULL OR thread_visibility IN ('surface', 'hidden')",
+            name="ck_story_arcs_thread_visibility",
+        ),
         Index("ix_story_arcs_novel_id", "novel_id"),
         Index("ix_story_arcs_novel_id_sort_order", "novel_id", "sort_order"),
     )
@@ -113,6 +117,7 @@ class StoryArc(Base):
     arc_type: Mapped[str] = mapped_column(String(32), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     summary: Mapped[str | None] = mapped_column(Text)
+    thread_visibility: Mapped[str | None] = mapped_column(String(16))
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
