@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getChapter, getNovel, listChapters, listVolumes } from "../api/catalog.ts";
+import { deleteChapter, getChapter, getNovel, listChapters, listVolumes } from "../api/catalog.ts";
 import { getHealth } from "../api/client.ts";
 import { getChapterOutline, getStoryPlan, listChapterOutlines, listScenes } from "../api/planning.ts";
 import type { Chapter, ChapterSummary, Novel } from "../api/types.ts";
@@ -125,6 +125,7 @@ describe("WorkspacePage planning view", () => {
       outline: null,
     });
     vi.mocked(listScenes).mockResolvedValue([]);
+    localStorage.removeItem("novel-workbench-focus");
   });
 
   it("keeps the catalog and adds an outline view", async () => {
@@ -133,7 +134,7 @@ describe("WorkspacePage planning view", () => {
 
     expect(await screen.findByRole("tab", { name: "目录" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "新建卷" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /第一章/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "第一章，4 字" })).toBeTruthy();
     expect(await screen.findByText("原句还在")).toBeTruthy();
 
     await user.click(screen.getByRole("tab", { name: "大纲" }));
@@ -159,5 +160,44 @@ describe("WorkspacePage planning view", () => {
     await user.click(chronicle);
     expect(chronicle.getAttribute("aria-selected")).toBe("true");
     expect(screen.getByText("编年史面板")).toBeTruthy();
+  });
+
+  it("keeps chapter actions in the row menu and confirms delete", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<WorkspacePage novelId={novel.id} chapterId={chapter.id} />);
+
+    expect(await screen.findByRole("button", { name: "第一章的操作" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "删除" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "分析记忆" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "上移" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "第一章的操作" }));
+    expect(screen.getByRole("menuitem", { name: "分析记忆" })).toBeTruthy();
+    const items = screen.getAllByRole("menuitem");
+    expect(items.at(-1)?.textContent).toBe("删除");
+
+    await user.click(screen.getByRole("menuitem", { name: "删除" }));
+    expect(confirm).toHaveBeenCalled();
+    expect(deleteChapter).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it("enters focus mode, remembers it, and leaves with Escape", async () => {
+    const user = userEvent.setup();
+    render(<WorkspacePage novelId={novel.id} chapterId={chapter.id} />);
+
+    await user.click(await screen.findByRole("button", { name: "专注" }));
+
+    expect(document.querySelector(".workspace")?.classList.contains("is-focus")).toBe(true);
+    expect(screen.queryByRole("link", { name: "返回作品库" })).toBeNull();
+    expect(screen.getByRole("button", { name: "退出专注" })).toBeTruthy();
+    expect(localStorage.getItem("novel-workbench-focus")).toBe("1");
+
+    await user.keyboard("{Escape}");
+
+    expect(document.querySelector(".workspace")?.classList.contains("is-focus")).toBe(false);
+    expect(screen.getByRole("button", { name: "专注" })).toBeTruthy();
+    expect(localStorage.getItem("novel-workbench-focus")).toBe("0");
   });
 });
