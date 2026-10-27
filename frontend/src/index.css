@@ -1694,13 +1694,14 @@ a {
   pointer-events: none;
   background-color: var(--canvas);
   background-image:
-    radial-gradient(36% 32% at 14% 16%, rgba(84, 56, 220, 0.75), transparent 70%),
-    radial-gradient(34% 36% at 92% 8%, rgba(239, 71, 111, 0.58), transparent 68%),
-    radial-gradient(40% 34% at 76% 90%, rgba(6, 214, 160, 0.36), transparent 70%),
-    radial-gradient(32% 30% at 16% 86%, rgba(63, 136, 197, 0.5), transparent 70%);
+    radial-gradient(42% 38% at 12% 14%, rgba(84, 56, 220, 0.9), transparent 68%),
+    radial-gradient(40% 42% at 92% 8%, rgba(239, 71, 111, 0.72), transparent 66%),
+    radial-gradient(46% 40% at 78% 92%, rgba(6, 214, 160, 0.55), transparent 68%),
+    radial-gradient(36% 34% at 10% 88%, rgba(63, 136, 197, 0.7), transparent 68%),
+    radial-gradient(30% 28% at 48% 42%, rgba(255, 209, 102, 0.28), transparent 70%);
   background-repeat: no-repeat;
-  background-size: 140% 140%, 132% 132%, 150% 150%, 124% 124%;
-  background-position: 6% 10%, 96% 4%, 70% 92%, 18% 78%;
+  background-size: 150% 150%, 140% 140%, 160% 160%, 130% 130%, 120% 120%;
+  background-position: 8% 12%, 94% 6%, 72% 90%, 14% 82%, 50% 42%;
   animation: island-drift 20s ease-in-out infinite;
 }
 
@@ -1709,7 +1710,7 @@ a {
 }
 
 :root[data-theme="dark"] .workspace-top {
-  background-color: color-mix(in srgb, var(--canvas) 90%, transparent);
+  background-color: color-mix(in srgb, var(--canvas) 82%, transparent);
   background-image: linear-gradient(
     100deg,
     rgba(84, 56, 220, 0.22),
@@ -1731,7 +1732,7 @@ a {
 
 :root[data-theme="dark"] .toc-pane,
 :root[data-theme="dark"] .side-pane {
-  background: color-mix(in srgb, var(--sidebar) 86%, transparent);
+  background: color-mix(in srgb, var(--sidebar) 72%, transparent);
 }
 
 :root[data-theme="dark"] .editor-pane {
@@ -1773,11 +1774,11 @@ a {
 @keyframes island-drift {
   0%,
   100% {
-    background-position: 6% 10%, 96% 4%, 70% 92%, 18% 78%;
+    background-position: 8% 12%, 94% 6%, 72% 90%, 14% 82%, 50% 42%;
   }
 
   50% {
-    background-position: 32% 24%, 68% 20%, 42% 68%, 44% 86%;
+    background-position: 34% 26%, 60% 22%, 40% 62%, 46% 74%, 58% 34%;
   }
 }
 
@@ -1890,6 +1891,6 @@ a {
   }
 
   :root[data-theme="dark"] body::before {
-    background-position: 6% 10%, 96% 4%, 70% 92%, 18% 78%;
+    background-position: 8% 12%, 94% 6%, 72% 90%, 14% 82%, 50% 42%;
   }
 }
