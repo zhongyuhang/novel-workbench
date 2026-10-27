@@ -9,7 +9,7 @@ import {
 const OPTIONS: Array<{ value: ThemePreference; label: string }> = [
   { value: "system", label: "系统" },
   { value: "light", label: "浅色" },
-  { value: "dark", label: "深色" },
+  { value: "dark", label: "赛博" },
 ];
 
 export function ThemeSwitcher() {

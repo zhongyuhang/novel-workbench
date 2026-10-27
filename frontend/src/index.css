@@ -34,7 +34,7 @@
   --font-reading: "Iowan Old Style", Palatino, "Palatino Linotype", "Songti SC", "Noto Serif SC",
     "Noto Serif CJK SC", "Source Han Serif SC", serif;
   --ease: 160ms ease-out;
-  --ease-pane: 220ms ease-out;
+  --ease-pane: 200ms ease-out;
   --ink: var(--text-primary);
   --muted: var(--text-muted);
   --line: var(--border);
@@ -47,32 +47,39 @@
   color: var(--text-primary);
 }
 
+/* Night City dark. Tokens adapted from Nocturne (near-black, yellow CTA, status cyan/magenta).
+   Light mode stays warm paper. Yellow is for primary actions; status uses --info / --ok / --danger. */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --canvas: #0f172a;
-  --surface: #1e293b;
-  --surface-raised: #334155;
-  --sidebar: #1e293b;
-  --border: #334155;
-  --text-primary: #f8fafc;
-  --text-secondary: #cbd5e1;
-  --text-muted: #94a3b8;
-  --accent: #7aa2f7;
-  --accent-hover: #93b4f9;
-  --accent-text: #7aa2f7;
-  --accent-ink: #0f172a;
-  --accent-soft: color-mix(in srgb, var(--accent) 18%, var(--surface));
-  --accent-warm: #fbbf24;
-  --danger: #f87171;
-  --danger-fill: #f87171;
-  --danger-ink: #0f172a;
-  --danger-soft: color-mix(in srgb, #f87171 16%, var(--surface));
-  --ok: #6ee7b7;
-  --ok-soft: color-mix(in srgb, #34d399 16%, var(--surface));
-  --hover: color-mix(in srgb, #f8fafc 6%, var(--surface));
-  --shadow-sm: 0 1px 2px rgba(2, 6, 23, 0.35);
-  --shadow: 0 14px 36px rgba(2, 6, 23, 0.38);
+  --canvas: #07070b;
+  --surface: #10101a;
+  --surface-raised: #2a2a3d;
+  --sidebar: #10101a;
+  --border: #3d3d52;
+  --text-primary: #f4f4f8;
+  --text-secondary: #c4c4d4;
+  --text-muted: #9a9ab2;
+  --accent: #fcee0a;
+  --accent-hover: #fff34a;
+  --accent-text: #e2d36a;
+  --accent-ink: #1c1804;
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  --accent-warm: #fcee0a;
+  --info: #00f0ff;
+  --info-soft: color-mix(in srgb, var(--info) 12%, var(--surface));
+  --danger: #ff003c;
+  --danger-fill: #ff003c;
+  --danger-ink: #14060c;
+  --danger-soft: color-mix(in srgb, var(--danger) 16%, var(--surface));
+  --ok: #00ff9d;
+  --ok-soft: color-mix(in srgb, var(--ok) 14%, var(--surface));
+  --hover: color-mix(in srgb, var(--text-primary) 6%, var(--surface));
+  --shadow-sm: none;
+  --shadow: none;
   --focus-ring: var(--accent);
+  --radius-sm: 2px;
+  --radius: 2px;
+  --radius-lg: 4px;
 }
 
 * {
@@ -998,8 +1005,10 @@ a {
   box-shadow: none;
   color: var(--text-primary);
   font-family: var(--font-reading);
-  font-size: 1.125rem;
+  font-size: 18px;
   line-height: 1.7;
+  letter-spacing: 0;
+  text-shadow: none;
 }
 
 .tiptap p,
@@ -1561,7 +1570,149 @@ a {
 }
 
 :root[data-theme="dark"] .side-pane .stale-box {
-  background: var(--accent-soft);
+  background: var(--info-soft);
+}
+
+:root[data-theme="dark"] .wordmark::before {
+  content: "";
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-right: 0.5rem;
+  background: var(--accent);
+  clip-path: polygon(0 0, 100% 0, 100% 65%, 65% 100%, 0 100%);
+  vertical-align: 1px;
+}
+
+:root[data-theme="dark"] .toc-pane {
+  border-right: 1px solid var(--border);
+}
+
+:root[data-theme="dark"] .side-pane {
+  border-left: 1px solid var(--border);
+}
+
+:root[data-theme="dark"] .library,
+:root[data-theme="dark"] .notes,
+:root[data-theme="dark"] .maintenance,
+:root[data-theme="dark"] .settings-page .stack-form,
+:root[data-theme="dark"] .settings-page section,
+:root[data-theme="dark"] .confirm-dialog {
+  border-radius: 0;
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+}
+
+:root[data-theme="dark"] button.primary:not([role="tab"]) {
+  border-radius: 0;
+  clip-path: polygon(
+    0 0,
+    calc(100% - 12px) 0,
+    100% 12px,
+    100% 100%,
+    12px 100%,
+    0 calc(100% - 12px)
+  );
+}
+
+:root[data-theme="dark"] button.primary:not([role="tab"]):focus-visible {
+  clip-path: none;
+}
+
+:root[data-theme="dark"] .theme-switch,
+:root[data-theme="dark"] .view-tabs,
+:root[data-theme="dark"] .side-tabs,
+:root[data-theme="dark"] .verb-chips,
+:root[data-theme="dark"] .context-chips,
+:root[data-theme="dark"] .more-settings,
+:root[data-theme="dark"] [role="radiogroup"].memory-actions,
+:root[data-theme="dark"] .health,
+:root[data-theme="dark"] .menu-panel,
+:root[data-theme="dark"] .editor-toolbar,
+:root[data-theme="dark"] .confirm-dialog,
+:root[data-theme="dark"] .mock-badge,
+:root[data-theme="dark"] .stale-badge,
+:root[data-theme="dark"] .ok-badge,
+:root[data-theme="dark"] .plan-status,
+:root[data-theme="dark"] .toc-badge {
+  border-radius: 2px;
+}
+
+:root[data-theme="dark"] .theme-switch .ghost,
+:root[data-theme="dark"] .view-tabs .primary,
+:root[data-theme="dark"] .view-tabs .ghost,
+:root[data-theme="dark"] .side-tabs .primary,
+:root[data-theme="dark"] .side-tabs .ghost,
+:root[data-theme="dark"] .verb-chips button,
+:root[data-theme="dark"] .context-chips button,
+:root[data-theme="dark"] [role="radiogroup"] label {
+  border-radius: 2px;
+}
+
+:root[data-theme="dark"] .focus-edge {
+  border-radius: 0 2px 2px 0;
+}
+
+:root[data-theme="dark"] .workspace.is-toc-closed .toc-pane,
+:root[data-theme="dark"] .workspace.is-focus .toc-pane {
+  border-right: 0;
+}
+
+:root[data-theme="dark"] .workspace.is-side-closed .side-pane,
+:root[data-theme="dark"] .workspace.is-focus .side-pane {
+  border-left: 0;
+}
+
+:root[data-theme="dark"] .menu-panel,
+:root[data-theme="dark"] .confirm-dialog,
+:root[data-theme="dark"] .editor-toolbar {
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .confirm-dialog::backdrop {
+  background: color-mix(in srgb, #07070b 72%, transparent);
+}
+
+:root[data-theme="dark"] .novel-list li,
+:root[data-theme="dark"] .settings-list li {
+  background: var(--canvas);
+}
+
+:root[data-theme="dark"] .banner:not(.banner-error) {
+  background: var(--info-soft);
+}
+
+:root[data-theme="dark"] .health-ok::before {
+  background: var(--ok);
+}
+
+:root[data-theme="dark"] .mock-badge,
+:root[data-theme="dark"] .stale-badge {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+:root[data-theme="dark"] .health,
+:root[data-theme="dark"] .editor-sync,
+:root[data-theme="dark"] .toc-badge,
+:root[data-theme="dark"] .mock-badge,
+:root[data-theme="dark"] .stale-badge,
+:root[data-theme="dark"] .ok-badge,
+:root[data-theme="dark"] .plan-status,
+:root[data-theme="dark"] .milestone {
+  font-family: ui-monospace, "SFMono-Regular", "IBM Plex Mono", "PingFang SC", "Noto Sans SC", monospace;
+}
+
+:root[data-theme="dark"] ::selection {
+  background: color-mix(in srgb, var(--accent) 28%, #1a1a28);
+  color: var(--text-primary);
+}
+
+:root[data-theme="dark"] .editor-pane .candidate-box {
+  font-family: var(--font-reading);
+  font-size: 17px;
+  line-height: 1.7;
+  text-shadow: none;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1600,6 +1751,13 @@ a {
   .side-pane,
   .editor-pane {
     overflow: visible;
+  }
+
+  :root[data-theme="dark"] .toc-pane,
+  :root[data-theme="dark"] .side-pane {
+    border-right: 0;
+    border-left: 0;
+    border-bottom: 1px solid var(--border);
   }
 
   .workspace.is-toc-closed .toc-pane,
