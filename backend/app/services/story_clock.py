@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFound
-from app.models.memory import EntityState, StoryEntity, StoryTimeAnchor
+from app.models.memory import EntityState, StoryEntity, StoryEvent, StoryTimeAnchor
 from app.repositories import catalog as catalog_repo
 from app.schemas.story_clock import (
     StoryTimeAnchorCreate,
@@ -233,11 +233,10 @@ def resolve_stored_clock(
     return from_day, to_day, precision
 
 
-def apply_event_clock(event: object) -> None:
+def apply_event_clock(event: StoryEvent) -> None:
     """Fill an event's story-day columns from ``event_time_text``."""
 
-    text = getattr(event, "event_time_text", None)
-    parsed = parse_story_clock(text if isinstance(text, str) else None)
+    parsed = parse_story_clock(event.event_time_text)
     event.valid_from_day = parsed.valid_from_day
     event.valid_to_day = parsed.valid_to_day
     event.time_precision = parsed.precision
