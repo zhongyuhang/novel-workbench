@@ -42,7 +42,7 @@ def test_upgrade_empty_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         }
     engine.dispose()
 
-    assert version == "0015_chronicle"
+    assert version == "0016_story_clock"
     assert {
         "alembic_version",
         "novels",
@@ -127,7 +127,7 @@ def test_upgrade_from_previous_revision(tmp_path: Path, monkeypatch: pytest.Monk
             ).scalars()
         )
     engine.dispose()
-    assert version == "0015_chronicle"
+    assert version == "0016_story_clock"
     assert "chapters" in tables
     assert "chapter_versions" in tables
     assert "model_configs" in tables
@@ -194,7 +194,7 @@ def test_upgrade_from_catalog_keeps_chapters_and_adds_versions(
         table_sql = connection.execute(
             text("SELECT sql FROM sqlite_master WHERE name = 'chapter_versions'")
         ).scalar_one()
-        assert version == "0015_chronicle"
+        assert version == "0016_story_clock"
         assert "升级前正文" in str(stored)
         assert version_count == 0
         unique_name = next(row[1] for row in index_rows if row[2] == 1 and row[3] == "u")
@@ -267,7 +267,7 @@ def test_upgrade_from_chapter_versions_adds_ai_tables(
         foreign_keys = connection.execute(text("PRAGMA foreign_key_list(ai_tasks)")).all()
     engine.dispose()
 
-    assert version == "0015_chronicle"
+    assert version == "0016_story_clock"
     assert title == "版本后"
     assert "ck_ai_tasks_status" in ai_sql
     assert "ck_ai_tasks_resolution" in ai_sql
@@ -315,7 +315,7 @@ def test_upgrade_from_ai_tables_adds_memory_and_keeps_novels(
             text("SELECT sql FROM sqlite_master WHERE name = 'foreshadowing'")
         ).scalar_one()
         foreign_keys = connection.execute(text("PRAGMA foreign_key_list(entity_states)")).all()
-    assert version == "0015_chronicle"
+    assert version == "0016_story_clock"
     assert title == "记忆前"
     assert "ck_foreshadowing_status" in foreshadow_sql
     assert "abandoned" in foreshadow_sql
@@ -408,7 +408,7 @@ def test_upgrade_from_quality_adds_planning_and_keeps_chapters(
         scene_sql = connection.execute(
             text("SELECT sql FROM sqlite_master WHERE name = 'scene_cards'")
         ).scalar_one()
-    assert version == "0015_chronicle"
+    assert version == "0016_story_clock"
     assert stored[1] == 3
     assert "升级前正文" in str(stored[0])
     assert plan_count == 0
@@ -528,7 +528,7 @@ def test_upgrade_from_planning_adds_bible_and_keeps_entities(
         revision = connection.execute(
             text("SELECT revision FROM chapters WHERE id = 'chapter-1'")
         ).scalar_one()
-    assert version == "0015_chronicle"
+    assert version == "0016_story_clock"
     assert name == "林晚"
     assert validity == (None, None)
     assert relation_count == 0
@@ -614,7 +614,7 @@ def test_upgrade_from_story_bible_adds_quality_issues(
         stored = connection.execute(
             text("SELECT revision, content FROM chapters WHERE id = 'chapter-1'")
         ).one()
-    assert version == "0015_chronicle"
+    assert version == "0016_story_clock"
     assert issue_count == 0
     assert repair_count == 0
     assert stored[0] == 3
@@ -710,7 +710,7 @@ def test_upgrade_from_quality_issues_adds_version_provenance(
             )
         ).one()
         links = connection.execute(text("PRAGMA foreign_key_list(chapter_versions)")).all()
-    assert version == "0015_chronicle"
+    assert version == "0016_story_clock"
     assert row == (4, "manual", None, None)
     assert any(item[2] == "ai_tasks" and item[3] == "ai_task_id" for item in links)
     assert any(
@@ -812,7 +812,7 @@ def test_upgrade_from_version_provenance_adds_empty_planning_tables(
         volume_title = connection.execute(
             text("SELECT title FROM volumes WHERE id = 'volume-1'")
         ).scalar_one()
-    assert version == "0015_chronicle"
+    assert version == "0016_story_clock"
     assert arc_count == 0
     assert volume_count == 0
     assert "uq_volume_outlines_volume_id" in outline_sql
@@ -880,7 +880,7 @@ def test_upgrade_from_manuscript_sync_adds_ideation(
         ).scalars()
         indexes = set(index_rows)
         links = connection.execute(text("PRAGMA foreign_key_list(ideation_candidates)")).all()
-    assert version == "0015_chronicle"
+    assert version == "0016_story_clock"
     assert stored == ("引导前", "旧题材", None)
     assert sessions == 0
     assert candidates == 0
@@ -982,7 +982,7 @@ def test_upgrade_from_ideation_adds_chronicle(
         chapter = connection.execute(
             text("SELECT title, revision FROM chapters WHERE id = 'chapter-chronicle'")
         ).one()
-    assert version == "0015_chronicle"
+    assert version == "0016_story_clock"
     assert stored[0] == "旧事件"
     assert stored[1] == "第1天"
     assert stored[2] is None

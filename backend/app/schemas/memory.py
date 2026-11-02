@@ -2,7 +2,7 @@
 
 import json
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -56,6 +56,10 @@ def _clean_aliases(value: list[str]) -> list[str]:
         raise ValueError("别名过多")
     return cleaned
 
+
+
+StateDimension = Literal["location", "alive", "injury", "possession", "identity", "custom"]
+TimePrecision = Literal["day", "month", "season", "unknown"]
 
 class EntityCreate(BaseModel):
     entity_type: EntityType
@@ -118,8 +122,12 @@ class EntityStateResponse(BaseModel):
     state_data: dict[str, Any]
     evidence_quote: str | None
     source_type: Literal["manual", "ai_proposal", "import"]
+    dimension: StateDimension = "custom"
     valid_from_text: str | None
     valid_until_text: str | None
+    valid_from_day: int | None = None
+    valid_to_day: int | None = None
+    time_precision: TimePrecision = "unknown"
     created_at: datetime
 
 
@@ -127,8 +135,12 @@ class EntityStateCreate(BaseModel):
     chapter_id: str = Field(min_length=1)
     state_data: dict[str, Any] = Field(default_factory=dict)
     evidence_quote: str | None = Field(default=None, max_length=4000)
+    dimension: StateDimension = "custom"
     valid_from_text: str | None = Field(default=None, max_length=200)
     valid_until_text: str | None = Field(default=None, max_length=200)
+    valid_from_day: int | None = Field(default=None, ge=-1_000_000, le=1_000_000)
+    valid_to_day: int | None = Field(default=None, ge=-1_000_000, le=1_000_000)
+    time_precision: TimePrecision | None = None
 
     @field_validator("state_data")
     @classmethod
@@ -144,8 +156,12 @@ class EntityStateCreate(BaseModel):
 class EntityStateUpdate(BaseModel):
     state_data: dict[str, Any] | None = None
     evidence_quote: str | None = Field(default=None, max_length=4000)
+    dimension: StateDimension | None = None
     valid_from_text: str | None = Field(default=None, max_length=200)
     valid_until_text: str | None = Field(default=None, max_length=200)
+    valid_from_day: int | None = Field(default=None, ge=-1_000_000, le=1_000_000)
+    valid_to_day: int | None = Field(default=None, ge=-1_000_000, le=1_000_000)
+    time_precision: TimePrecision | None = None
 
     @field_validator("state_data")
     @classmethod

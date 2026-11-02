@@ -32,8 +32,9 @@ from app.models.quality import Foreshadowing
 from app.repositories import catalog as catalog_repo
 from app.schemas.context import CompiledContext, ContextItem
 from app.services.planning import planning_counts_as_fact
+from app.services.story_clock import DIMENSION_LABELS, normalize_dimension, pick_states, state_summary
 
-COMPILER_VERSION = "e7.v1"
+COMPILER_VERSION = "e8.v1"
 EMPTY_MEMORY_WARNING = "尚未生成章节摘要。本次上下文只用了相邻章节和当前指令，长篇记忆还没写上。"
 EARLIER_SUMMARY_WARNING = "已有章节摘要，但没有能纳入本次的现行前文摘要。本次仍主要依靠相邻章节。"
 _ARC_LABELS = {
@@ -549,12 +550,17 @@ def _collect(
             continue
         matched_names.extend(_names(entity))
         matched_ids.add(entity.id)
-        state = states.get(entity.id)
-        state_order = positions.get(state.chapter_id) if state is not None else None
+        state_rows = states.get(entity.id, [])
+        known_orders = [
+            order
+            for order in (positions.get(state.chapter_id) for state in state_rows)
+            if order is not None
+        ]
+        state_order = max(known_orders) if known_orders else None
         candidates.append(
             _entity_candidate(
                 entity,
-                state,
+                state_rows,
                 titles,
                 matched=matched,
                 chapter_order=state_order,
@@ -850,7 +856,7 @@ def _scene_candidate(scene: SceneCard, names: dict[str, str]) -> _Candidate:
 
 def _entity_candidate(
     entity: StoryEntity,
-    state: EntityState | None,
+    states: list[EntityState],
     titles: dict[str, Chapter],
     *,
     matched: str,
@@ -870,12 +876,22 @@ def _entity_candidate(
         lines.append(summary.strip())
     warnings: list[str] = []
     source_revision: int | None = None
-    if state is not None:
+    if states:
+        current_bits = [
+            f"{DIMENSION_LABELS[normalize_dimension(state.dimension)]} {_state_value(state)}"
+            for state in states
+        ]
+        lines.append("当前：" + "；".join(current_bits))
+    for state in states:
+        dimension = DIMENSION_LABELS[normalize_dimension(state.dimension)]
         chapter = titles.get(state.chapter_id)
         title = chapter.title if chapter is not None else "未知章节"
         source_revision = state.source_revision
         revision = source_revision if source_revision is not None else "未知"
-        lines.append(f"截至本章的状态：来源章节「{title}」修订 {revision}")
+        lines.append(f"截至本章的状态（{dimension}）：来源章节「{title}」修订 {revision}")
+        value = _state_value(state)
+        if value != "已记录":
+            lines.append(value)
         validity = _validity_text(state.valid_from_text, state.valid_until_text)
         if validity:
             lines.append(validity)
@@ -888,6 +904,7 @@ def _entity_candidate(
                 f"状态来源修订 {source_revision} 落后于章节「{chapter.title}」"
                 f"当前修订 {chapter.revision}。"
             )
+
     hit = "实体别名命中" if matched == "alias" else "实体名称命中"
     if not certain:
         hit = f"{hit}，但是不确定推断"
@@ -909,6 +926,12 @@ def _entity_candidate(
         warnings=warnings,
         chapter_order=chapter_order,
     )
+
+
+
+def _state_value(state: EntityState) -> str:
+    text = state_summary(state.state_data)
+    return text or "已记录"
 
 
 def _validity_text(start: str | None, end: str | None) -> str | None:
@@ -1419,37 +1442,18 @@ def _entity_names(session: Session, novel_id: str) -> dict[str, str]:
 
 def _states_as_of(
     session: Session,
-    entity_ids: list[str],
+    entity_ids: set[str] | list[str],
     *,
     positions: dict[str, int],
     current_order: int | None,
-) -> dict[str, EntityState]:
-    """Latest state whose source chapter is already reachable.
-
-    ``created_at`` alone is not the story clock. A state written later for a
-    future chapter must not replace the state that exists at this chapter.
-    """
+) -> dict[str, list[EntityState]]:
+    """One state per dimension whose source chapter is already reachable."""
 
     if not entity_ids:
         return {}
-    stmt = (
-        select(EntityState)
-        .where(EntityState.entity_id.in_(entity_ids))
-        .order_by(EntityState.created_at.desc(), EntityState.id.desc())
-    )
-    found: dict[str, EntityState] = {}
-    for state in session.scalars(stmt):
-        if state.entity_id in found:
-            continue
-        if not _within_causal_window(
-            state.chapter_id,
-            positions,
-            current_order,
-            allow_unplaced=False,
-        ):
-            continue
-        found[state.entity_id] = state
-    return found
+    stmt = select(EntityState).where(EntityState.entity_id.in_(entity_ids))
+    return pick_states(list(session.scalars(stmt)), positions, current_order)
+
 
 
 def _memory_gap_warnings(
