@@ -417,7 +417,11 @@ def _parse_story_clock(text: str | None, *, anchor_day: int | None) -> ParsedSto
         return _point(day)
     matched = _YMD.search(cleaned)
     if matched is not None:
-        placed = _ymd(_cn_number(matched.group(1)), _cn_number(matched.group(2)), _cn_number(matched.group(3)))
+        placed = _ymd(
+            _cn_number(matched.group(1)),
+            _cn_number(matched.group(2)),
+            _cn_number(matched.group(3)),
+        )
         if placed is None:
             return UNKNOWN
         return _point(placed)

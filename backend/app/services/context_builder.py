@@ -32,7 +32,12 @@ from app.models.quality import Foreshadowing
 from app.repositories import catalog as catalog_repo
 from app.schemas.context import CompiledContext, ContextItem
 from app.services.planning import planning_counts_as_fact
-from app.services.story_clock import DIMENSION_LABELS, normalize_dimension, pick_states, state_summary
+from app.services.story_clock import (
+    DIMENSION_LABELS,
+    normalize_dimension,
+    pick_states,
+    state_summary,
+)
 
 COMPILER_VERSION = "e8.v1"
 EMPTY_MEMORY_WARNING = "尚未生成章节摘要。本次上下文只用了相邻章节和当前指令，长篇记忆还没写上。"

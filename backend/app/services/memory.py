@@ -47,12 +47,6 @@ from app.models.memory import (
 from app.models.planning import ChapterOutline, SceneCard, VolumeOutline
 from app.models.quality import Foreshadowing, QualityIssue
 from app.repositories import catalog as catalog_repo
-from app.services.story_clock import (
-    apply_event_clock,
-    normalize_dimension,
-    normalize_precision,
-    resolve_stored_clock,
-)
 from app.schemas.memory import (
     AnalyzeRequest,
     AnalyzeResponse,
@@ -75,6 +69,12 @@ from app.services.memory_extract import (
     extract_from_chapter,
     extract_light,
     parse_analysis_output,
+)
+from app.services.story_clock import (
+    apply_event_clock,
+    normalize_dimension,
+    normalize_precision,
+    resolve_stored_clock,
 )
 
 logger = logging.getLogger("app.memory")
@@ -250,7 +250,13 @@ def update_entity_state(
         state.valid_from_text = payload.valid_from_text
     if "valid_until_text" in fields:
         state.valid_until_text = payload.valid_until_text
-    clock_fields = {"valid_from_text", "valid_until_text", "valid_from_day", "valid_to_day", "time_precision"}
+    clock_fields = {
+        "valid_from_text",
+        "valid_until_text",
+        "valid_from_day",
+        "valid_to_day",
+        "time_precision",
+    }
     if fields & clock_fields:
         from_day, to_day, precision = resolve_stored_clock(
             valid_from_text=state.valid_from_text,
