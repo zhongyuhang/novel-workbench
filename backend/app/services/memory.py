@@ -70,6 +70,12 @@ from app.services.memory_extract import (
     extract_light,
     parse_analysis_output,
 )
+from app.services.story_clock import (
+    apply_event_clock,
+    normalize_dimension,
+    normalize_precision,
+    resolve_stored_clock,
+)
 
 logger = logging.getLogger("app.memory")
 
@@ -193,6 +199,16 @@ def create_entity_state(
     chapter = _require_chapter(session, payload.chapter_id)
     if chapter.novel_id != entity.novel_id:
         raise InvalidReference("来源章节不属于这本作品。")
+    from_day, to_day, precision = resolve_stored_clock(
+        valid_from_text=payload.valid_from_text,
+        valid_until_text=payload.valid_until_text,
+        valid_from_day=payload.valid_from_day,
+        valid_to_day=payload.valid_to_day,
+        time_precision=payload.time_precision,
+        override_from=payload.valid_from_day is not None,
+        override_to=payload.valid_to_day is not None,
+        override_precision=payload.time_precision is not None,
+    )
     state = EntityState(
         id=_new_id(),
         entity_id=entity.id,
@@ -202,8 +218,12 @@ def create_entity_state(
         state_data=_profile(payload.state_data),
         evidence_quote=payload.evidence_quote,
         source_type="manual",
+        dimension=normalize_dimension(payload.dimension),
         valid_from_text=payload.valid_from_text,
         valid_until_text=payload.valid_until_text,
+        valid_from_day=from_day,
+        valid_to_day=to_day,
+        time_precision=precision,
         created_at=_now(),
     )
     session.add(state)
@@ -224,10 +244,33 @@ def update_entity_state(
         state.state_data = _profile(payload.state_data)
     if "evidence_quote" in fields:
         state.evidence_quote = payload.evidence_quote
+    if "dimension" in fields and payload.dimension is not None:
+        state.dimension = payload.dimension
     if "valid_from_text" in fields:
         state.valid_from_text = payload.valid_from_text
     if "valid_until_text" in fields:
         state.valid_until_text = payload.valid_until_text
+    clock_fields = {
+        "valid_from_text",
+        "valid_until_text",
+        "valid_from_day",
+        "valid_to_day",
+        "time_precision",
+    }
+    if fields & clock_fields:
+        from_day, to_day, precision = resolve_stored_clock(
+            valid_from_text=state.valid_from_text,
+            valid_until_text=state.valid_until_text,
+            valid_from_day=payload.valid_from_day,
+            valid_to_day=payload.valid_to_day,
+            time_precision=payload.time_precision,
+            override_from="valid_from_day" in fields,
+            override_to="valid_to_day" in fields,
+            override_precision="time_precision" in fields,
+        )
+        state.valid_from_day = from_day
+        state.valid_to_day = to_day
+        state.time_precision = precision
     session.commit()
     session.refresh(state)
     logger.info("entity state updated")
@@ -998,14 +1041,32 @@ def _apply_entity_state(
         _required_text(payload.get("target_entity_id"), "提案缺少要更新的设定。"),
         proposal.novel_id,
     )
+    from_text = _optional_text(payload.get("valid_from_text"))
+    until_text = _optional_text(payload.get("valid_until_text"))
+    from_day, to_day, precision = resolve_stored_clock(
+        valid_from_text=from_text,
+        valid_until_text=until_text,
+        valid_from_day=None,
+        valid_to_day=None,
+        time_precision=None,
+        override_from=False,
+        override_to=False,
+        override_precision=False,
+    )
+    raw_dimension = payload.get("dimension")
+    dimension = normalize_dimension(raw_dimension if isinstance(raw_dimension, str) else None)
     state = _add_state(
         session,
         entity_id=entity.id,
         proposal=proposal,
         state_data=_profile(payload.get("state_data")),
         now=_now(),
-        valid_from_text=_optional_text(payload.get("valid_from_text")),
-        valid_until_text=_optional_text(payload.get("valid_until_text")),
+        valid_from_text=from_text,
+        valid_until_text=until_text,
+        dimension=dimension,
+        valid_from_day=from_day,
+        valid_to_day=to_day,
+        time_precision=precision,
     )
     return _applied(entity.id, False, state.id, None, None)
 
@@ -1031,6 +1092,7 @@ def _apply_event(
         created_at=_now(),
         deleted_at=None,
     )
+    apply_event_clock(event)
     session.add(event)
     return _applied(None, False, None, event.id, None)
 
@@ -1369,6 +1431,10 @@ def _add_state(
     now: datetime,
     valid_from_text: str | None = None,
     valid_until_text: str | None = None,
+    dimension: str = "custom",
+    valid_from_day: int | None = None,
+    valid_to_day: int | None = None,
+    time_precision: str = "unknown",
 ) -> EntityState:
     state = EntityState(
         id=_new_id(),
@@ -1379,8 +1445,12 @@ def _add_state(
         state_data=state_data,
         evidence_quote=proposal.evidence_quote or None,
         source_type="ai_proposal",
+        dimension=normalize_dimension(dimension),
         valid_from_text=valid_from_text,
         valid_until_text=valid_until_text,
+        valid_from_day=valid_from_day,
+        valid_to_day=valid_to_day,
+        time_precision=normalize_precision(time_precision),
         created_at=now,
     )
     session.add(state)
@@ -1662,8 +1732,12 @@ def _state_response(session: Session, state: EntityState) -> EntityStateResponse
         state_data=_profile(state.state_data),
         evidence_quote=state.evidence_quote,
         source_type=cast("Any", source_type),
+        dimension=normalize_dimension(state.dimension),
         valid_from_text=state.valid_from_text,
         valid_until_text=state.valid_until_text,
+        valid_from_day=state.valid_from_day,
+        valid_to_day=state.valid_to_day,
+        time_precision=normalize_precision(state.time_precision),
         created_at=state.created_at,
     )
 

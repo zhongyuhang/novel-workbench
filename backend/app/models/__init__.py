@@ -12,6 +12,7 @@ from app.models.memory import (
     MemoryChangeProposal,
     StoryEntity,
     StoryEvent,
+    StoryTimeAnchor,
 )
 from app.models.planning import ChapterOutline, SceneCard, StoryArc, StoryPlan, VolumeOutline
 from app.models.quality import Foreshadowing, QualityIssue, QualityRepairCandidate, WritingGoal
@@ -38,6 +39,7 @@ __all__ = [
     "StoryArc",
     "StoryEntity",
     "StoryEvent",
+    "StoryTimeAnchor",
     "StoryPlan",
     "Volume",
     "VolumeOutline",

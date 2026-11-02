@@ -119,12 +119,51 @@ class MemoryChangeProposal(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class StoryTimeAnchor(Base):
+    """Optional story-time landmark for fuzzy day assists.
+
+    Discourse order stays chapter sort_order. Anchors only help parse phrases
+    like 「次日」; they are never the causal clock.
+    """
+
+    __tablename__ = "story_time_anchors"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('era', 'event', 'custom')",
+            name="ck_story_time_anchors_kind",
+        ),
+        CheckConstraint("sort_order >= 0", name="ck_story_time_anchors_sort_order"),
+        Index("ix_story_time_anchors_novel_id", "novel_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    novel_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("novels.id", name="fk_story_time_anchors_novel_id_novels"),
+        nullable=False,
+    )
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    base_day: Mapped[int] = mapped_column(Integer, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class EntityState(Base):
     __tablename__ = "entity_states"
     __table_args__ = (
         CheckConstraint(
             "source_type IN ('manual', 'ai_proposal', 'import')",
             name="ck_entity_states_source_type",
+        ),
+        CheckConstraint(
+            "dimension IN ('location', 'alive', 'injury', 'possession', 'identity', 'custom')",
+            name="ck_entity_states_dimension",
+        ),
+        CheckConstraint(
+            "time_precision IN ('day', 'month', 'season', 'unknown')",
+            name="ck_entity_states_time_precision",
         ),
         Index("ix_entity_states_entity_id", "entity_id"),
         Index("ix_entity_states_chapter_id", "chapter_id"),
@@ -152,8 +191,12 @@ class EntityState(Base):
     state_data: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
     evidence_quote: Mapped[str | None] = mapped_column(Text)
     source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    dimension: Mapped[str] = mapped_column(String(32), nullable=False, default="custom")
     valid_from_text: Mapped[str | None] = mapped_column(String(200))
     valid_until_text: Mapped[str | None] = mapped_column(String(200))
+    valid_from_day: Mapped[int | None] = mapped_column(Integer)
+    valid_to_day: Mapped[int | None] = mapped_column(Integer)
+    time_precision: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
@@ -174,6 +217,10 @@ class StoryEvent(Base):
         CheckConstraint(
             "sort_order IS NULL OR sort_order >= 0",
             name="ck_story_events_sort_order",
+        ),
+        CheckConstraint(
+            "time_precision IN ('day', 'month', 'season', 'unknown')",
+            name="ck_story_events_time_precision",
         ),
         Index("ix_story_events_novel_id", "novel_id"),
         Index("ix_story_events_chapter_id", "chapter_id"),
@@ -201,6 +248,9 @@ class StoryEvent(Base):
     )
     title: Mapped[str | None] = mapped_column(String(200))
     event_time_text: Mapped[str | None] = mapped_column(String(200))
+    valid_from_day: Mapped[int | None] = mapped_column(Integer)
+    valid_to_day: Mapped[int | None] = mapped_column(Integer)
+    time_precision: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")
     sort_order: Mapped[int | None] = mapped_column(Integer)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     participants: Mapped[list[str]] = mapped_column(JSON, nullable=False)
