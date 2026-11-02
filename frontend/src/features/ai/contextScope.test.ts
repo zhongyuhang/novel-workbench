@@ -3,6 +3,7 @@ import { excludeIdsForScope, localPromptPreview, scopeLabel } from "./contextSco
 
 const items = [
   { id: "chapter", kind: "chapter", content: "正文" },
+  { id: "as-of", kind: "as_of", content: "事实截至：第三章。" },
   { id: "hard-rule", kind: "hard_rule", content: "短句" },
   { id: "outline:1", kind: "chapter_outline", content: "大纲" },
   { id: "entity:1", kind: "entity", content: "已确认设定：人物「林晚」" },

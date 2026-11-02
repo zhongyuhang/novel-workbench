@@ -74,8 +74,15 @@ vi.mock("../components/AiPanel.tsx", async () => {
   };
 });
 
+const panelFlags = { memory: false };
+
 vi.mock("../components/MemoryPanel.tsx", () => ({
-  MemoryPanel: () => <aside>设定面板</aside>,
+  MemoryPanel: () => {
+    if (panelFlags.memory) {
+      throw new Error("设定面板崩了");
+    }
+    return <aside>设定面板</aside>;
+  },
 }));
 
 vi.mock("../components/QualityPanel.tsx", () => ({
@@ -141,6 +148,7 @@ describe("WorkspacePage planning view", () => {
     });
     vi.mocked(listScenes).mockResolvedValue([]);
     localStorage.removeItem("novel-workbench-focus");
+    panelFlags.memory = false;
   });
 
   it("keeps the catalog and adds an outline view", async () => {
@@ -264,5 +272,21 @@ describe("WorkspacePage planning view", () => {
     expect(chapterMenu.classList.contains("toc-menu")).toBe(true);
     expect(Number.parseFloat(chapterMenu.style.left)).toBeLessThan(320);
     expect(screen.getAllByRole("menuitem").at(-1)?.textContent).toBe("删除");
+  });
+
+  it("keeps the workspace up when one side panel crashes", async () => {
+    const user = userEvent.setup();
+    panelFlags.memory = true;
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<WorkspacePage novelId={novel.id} chapterId={chapter.id} />);
+
+    expect(await screen.findByText("原句还在")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "设定" })).toBeTruthy();
+
+    await user.click(screen.getByRole("tab", { name: "设定" }));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByText("设定暂时打不开")).toBeTruthy();
+    expect(screen.getByText("原句还在")).toBeTruthy();
+    consoleError.mockRestore();
   });
 });

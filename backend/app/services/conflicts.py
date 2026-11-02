@@ -36,6 +36,7 @@ from app.schemas.quality import (
     Severity,
     SuspectedConflictResponse,
 )
+from app.services.context_builder import chapter_reading_index
 
 logger = logging.getLogger("app.quality.conflicts")
 
@@ -59,6 +60,9 @@ _NEGATION = re.compile(
 _SKIP_VALUES = {"一个", "这个", "那个", "什么", "这样", "那样"}
 _CONFLICT_TYPES = {"attribute_contradiction", "negated_fact"}
 _SEVERITIES = {"low", "medium", "high"}
+# After the causal window, keep the facts that overlap the chapter. Long novels
+# must not send every earlier event to the checker.
+_FACT_LIMIT = 40
 
 
 @dataclass(frozen=True)
@@ -204,7 +208,7 @@ def check_chapter_conflicts(
     if chapter is None:
         raise NotFound("章节不存在。")
     text = document_to_text(chapter.content if isinstance(chapter.content, dict) else {})
-    facts = _confirmed_facts(session, chapter.novel_id)
+    facts = _confirmed_facts(session, chapter, text)
     mode, config, model_name = _resolve_mode(session, payload)
     if mode == "mock":
         conflicts = find_suspected_conflicts(text, facts)
@@ -212,7 +216,7 @@ def check_chapter_conflicts(
     else:
         if config is None:
             raise ModelConfigInvalid("找不到要使用的模型。")
-        conflicts = _conflicts_from_model(config, text, facts)
+        conflicts = _conflicts_from_model(config, text, facts, chapter.title)
         message = "已根据模型输出整理疑似冲突。正文和正式记忆都没有改动。"
     _refuse_staged_writes(session)
     titles = _chapter_titles(session, [item.source_chapter_id for item in conflicts])
@@ -251,10 +255,12 @@ def _conflicts_from_model(
     config: ModelConfig,
     text: str,
     facts: list[ConfirmedFact],
+    chapter_title: str,
 ) -> list[SuspectedConflict]:
     prompt = build_conflict_prompt(
         chapter_text=text,
         facts=[(fact.source_chapter_id, fact.description, fact.source_quote) for fact in facts],
+        chapter_title=chapter_title,
     )
     try:
         raw = generate_conflict_text(endpoint=_endpoint(config), prompt=prompt)
@@ -269,32 +275,80 @@ def _conflicts_from_model(
         ) from exc
 
 
-def _confirmed_facts(session: Session, novel_id: str) -> list[ConfirmedFact]:
-    """Confirmed events only. Entity state rows are intentionally ignored."""
+def _confirmed_facts(
+    session: Session,
+    chapter: Chapter,
+    chapter_text: str,
+) -> list[ConfirmedFact]:
+    """Confirmed events at or before this chapter. Entity states are ignored.
+
+    Reading order is the same ruler the context compiler uses. A later chapter's
+    confirmed quote is not evidence yet. After that cut, a long novel keeps the
+    quotes that overlap this chapter.
+    """
 
     rows = session.scalars(
         select(StoryEvent).where(
-            StoryEvent.novel_id == novel_id,
+            StoryEvent.novel_id == chapter.novel_id,
             StoryEvent.deleted_at.is_(None),
             StoryEvent.certainty == "confirmed",
         )
     ).all()
-    facts: list[ConfirmedFact] = []
+    positions = chapter_reading_index(session, chapter.novel_id)
+    current_order = positions.get(chapter.id)
+    ranked: list[tuple[int, ConfirmedFact]] = []
     for row in rows:
         if row.chapter_id is None:
+            continue
+        order = positions.get(row.chapter_id)
+        if current_order is not None and (order is None or order > current_order):
             continue
         quote = row.evidence_quote.strip()
         if quote == "":
             continue
         description = row.description.strip() or quote
-        facts.append(
-            ConfirmedFact(
-                description=description,
-                source_chapter_id=row.chapter_id,
-                source_quote=quote,
+        ranked.append(
+            (
+                order if order is not None else -1,
+                ConfirmedFact(
+                    description=description,
+                    source_chapter_id=row.chapter_id,
+                    source_quote=quote,
+                ),
             )
         )
-    return facts
+    return _trim_facts(ranked, chapter_text)
+
+
+def _trim_facts(
+    ranked: list[tuple[int, ConfirmedFact]],
+    chapter_text: str,
+) -> list[ConfirmedFact]:
+    """Keep every in-window fact until the novel is long, then prefer overlap."""
+
+    if len(ranked) <= _FACT_LIMIT:
+        ordered = sorted(ranked, key=_fact_sort)
+        return [fact for _order, fact in ordered]
+
+    def relevance(item: tuple[int, ConfirmedFact]) -> tuple[int, int, str]:
+        order, fact = item
+        blob = f"{fact.description}\n{fact.source_quote}"
+        return (_token_overlap(chapter_text, blob), order, fact.source_quote)
+
+    chosen = sorted(ranked, key=relevance, reverse=True)[:_FACT_LIMIT]
+    chosen.sort(key=_fact_sort)
+    return [fact for _order, fact in chosen]
+
+
+def _fact_sort(item: tuple[int, ConfirmedFact]) -> tuple[int, str, str]:
+    order, fact = item
+    return (order, fact.description, fact.source_quote)
+
+
+def _token_overlap(text: str, fact: str) -> int:
+    characters = [char for char in fact if "\u4e00" <= char <= "\u9fff"]
+    grams = {characters[index] + characters[index + 1] for index in range(len(characters) - 1)}
+    return sum(1 for gram in grams if gram in text)
 
 
 def _resolve_mode(
