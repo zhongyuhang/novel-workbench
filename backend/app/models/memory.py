@@ -119,7 +119,6 @@ class MemoryChangeProposal(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-
 class StoryTimeAnchor(Base):
     """Optional story-time landmark for fuzzy day assists.
 

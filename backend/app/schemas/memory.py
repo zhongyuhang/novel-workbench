@@ -57,9 +57,9 @@ def _clean_aliases(value: list[str]) -> list[str]:
     return cleaned
 
 
-
 StateDimension = Literal["location", "alive", "injury", "possession", "identity", "custom"]
 TimePrecision = Literal["day", "month", "season", "unknown"]
+
 
 class EntityCreate(BaseModel):
     entity_type: EntityType

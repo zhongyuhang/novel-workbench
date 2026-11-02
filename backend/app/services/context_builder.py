@@ -933,7 +933,6 @@ def _entity_candidate(
     )
 
 
-
 def _state_value(state: EntityState) -> str:
     text = state_summary(state.state_data)
     return text or "已记录"
@@ -1458,7 +1457,6 @@ def _states_as_of(
         return {}
     stmt = select(EntityState).where(EntityState.entity_id.in_(entity_ids))
     return pick_states(list(session.scalars(stmt)), positions, current_order)
-
 
 
 def _memory_gap_warnings(
