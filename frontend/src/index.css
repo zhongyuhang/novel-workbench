@@ -47,46 +47,43 @@
   color: var(--text-primary);
 }
 
-/* Rainbow Island dark. Deep violet canvas, spectrum accents, gentle chrome motion.
-   Light mode stays warm paper. Primary actions carry the rainbow; status uses mint, blue, and yellow.
-   The manuscript stays a flat solid surface. */
+/* SONORA R-62 / SIGNAL ATLAS dark. Near-black canvas, hot-pink primary, cyan status.
+   Light mode stays warm paper. Chrome uses a short scan; the manuscript stays flat serif.
+   System dark resolves here. No aurora, spectrum rings, or neon on prose. */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --canvas: #1a1230;
-  --surface: #261b3d;
-  --surface-raised: #342652;
-  --sidebar: #221833;
-  --border: #4a3a6a;
-  --text-primary: #f7f2ff;
-  --text-secondary: #d2c6e8;
-  --text-muted: #b5a8d0;
-  --accent: #ef476f;
-  --accent-hover: #ff7a98;
-  --accent-text: #ffc0d0;
-  --accent-ink: #1a1030;
+  --canvas: #07050c;
+  --surface: #0c0814;
+  --surface-raised: #110b1b;
+  --sidebar: #0c0814;
+  --border: rgba(255, 46, 166, 0.2);
+  --text-primary: #f7eff6;
+  --text-secondary: #d8c6e2;
+  --text-muted: #9a8ca6;
+  --accent: #ff2ea6;
+  --accent-hover: #ff67c5;
+  --accent-text: #ffc1e4;
+  --accent-ink: #140810;
   --accent-soft: color-mix(in srgb, var(--accent) 16%, var(--surface));
-  --accent-warm: #ffd166;
-  --info: #9ec9ef;
-  --info-soft: color-mix(in srgb, #3f88c5 22%, var(--surface));
-  --danger: #ff9eb4;
-  --danger-fill: #ef476f;
-  --danger-ink: #1a1030;
-  --danger-soft: color-mix(in srgb, #ef476f 18%, var(--surface));
-  --ok: #06d6a0;
-  --ok-soft: color-mix(in srgb, #06d6a0 18%, var(--surface));
+  --accent-warm: #eaff4a;
+  --info: #15f4ff;
+  --info-soft: color-mix(in srgb, #15f4ff 18%, var(--surface));
+  --danger: #ff8aab;
+  --danger-fill: #ff3b7a;
+  --danger-ink: #140810;
+  --danger-soft: color-mix(in srgb, #ff3b7a 18%, var(--surface));
+  --ok: #15f4ff;
+  --ok-soft: color-mix(in srgb, #15f4ff 16%, var(--surface));
   --hover: color-mix(in srgb, var(--text-primary) 7%, var(--surface));
   --shadow-sm: none;
   --shadow: none;
-  --focus-ring: #ffd166;
-  --radius-sm: 12px;
-  --radius: 14px;
-  --radius-lg: 18px;
-}
-
-@property --aurora-turn {
-  syntax: "<angle>";
-  inherits: false;
-  initial-value: 0deg;
+  --focus-ring: #15f4ff;
+  --radius-sm: 8px;
+  --radius: 10px;
+  --radius-lg: 12px;
+  --font-hud: ui-monospace, "SFMono-Regular", "WenQuanYi Micro Hei Mono", "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Noto Sans SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+  --ease-hud: 460ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 * {
@@ -108,7 +105,7 @@ body {
   color: var(--text-primary);
 }
 
-/* Soft pastel wash on light chrome only. The writing column paints its own solid paper. */
+/* Soft warm wash on light chrome only. The writing column paints its own solid paper. */
 :root[data-theme="light"] body::before {
   content: "";
   position: fixed;
@@ -117,9 +114,9 @@ body {
   pointer-events: none;
   background-color: var(--canvas);
   background-image:
-    radial-gradient(42% 32% at 0% 0%, rgba(239, 71, 111, 0.05), transparent 70%),
-    radial-gradient(38% 34% at 100% 0%, rgba(84, 56, 220, 0.045), transparent 72%),
-    radial-gradient(46% 30% at 78% 100%, rgba(6, 214, 160, 0.04), transparent 70%);
+    radial-gradient(42% 32% at 0% 0%, rgba(176, 122, 90, 0.06), transparent 70%),
+    radial-gradient(38% 34% at 100% 0%, rgba(196, 154, 112, 0.05), transparent 72%),
+    radial-gradient(46% 30% at 78% 100%, rgba(150, 118, 96, 0.045), transparent 70%);
   background-repeat: no-repeat;
 }
 
@@ -1562,11 +1559,32 @@ a {
 }
 
 :root[data-theme="dark"] .theme-switch .ghost[aria-pressed="true"],
-:root[data-theme="dark"] .editor-pane .view-tabs .primary,
+:root[data-theme="dark"] .view-tabs .primary,
+:root[data-theme="dark"] .side-tabs .primary {
+  background-color: color-mix(in srgb, #ff2ea6 18%, var(--surface-raised));
+  background-image: linear-gradient(
+    100deg,
+    rgba(21, 244, 255, 0) 0%,
+    rgba(21, 244, 255, 0.4) 46%,
+    rgba(255, 46, 166, 0.28) 54%,
+    rgba(21, 244, 255, 0) 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 46% 100%;
+  background-position: 160% 0;
+  color: var(--text-primary);
+  box-shadow: inset 3px 0 0 #ff2ea6;
+  animation: hud-wipe var(--ease-hud);
+}
+
 :root[data-theme="dark"] .editor-toolbar button[aria-pressed="true"],
 :root[data-theme="dark"] .verb-chips button[aria-pressed="true"],
-:root[data-theme="dark"] .context-chips button[aria-pressed="true"] {
-  background: var(--surface-raised);
+:root[data-theme="dark"] .context-chips button[aria-pressed="true"],
+:root[data-theme="dark"] .side-pane [role="radiogroup"] label:has(input:checked),
+:root[data-theme="dark"] .toc-current .toc-link {
+  background: color-mix(in srgb, #ff2ea6 18%, var(--surface-raised));
+  color: var(--text-primary);
+  box-shadow: inset 3px 0 0 #ff2ea6;
 }
 
 :root[data-theme="dark"] .toc-pane .view-tabs,
@@ -1578,10 +1596,6 @@ a {
   background: var(--canvas);
 }
 
-:root[data-theme="dark"] .toc-pane .view-tabs .primary,
-:root[data-theme="dark"] .side-tabs .primary,
-:root[data-theme="dark"] .side-pane [role="radiogroup"] label:has(input:checked),
-:root[data-theme="dark"] .toc-current .toc-link,
 :root[data-theme="dark"] .toc-pane .empty,
 :root[data-theme="dark"] .side-pane .empty,
 :root[data-theme="dark"] .side-pane .memory-card,
@@ -1597,32 +1611,36 @@ a {
   background: var(--info-soft);
 }
 
+:root[data-theme="dark"] .wordmark {
+  font-family: var(--font-hud);
+  letter-spacing: 0.08em;
+}
+
 :root[data-theme="dark"] .wordmark::before {
   content: "";
   display: inline-block;
-  width: 0.75rem;
-  height: 0.75rem;
-  margin-right: 0.5rem;
-  border-radius: 999px;
-  background: conic-gradient(
-    from var(--aurora-turn),
-    #ef476f,
-    #ffd166,
-    #06d6a0,
-    #3f88c5,
-    #5438dc,
-    #ef476f
-  );
-  vertical-align: -0.1rem;
-  animation: ring-spin 16s linear infinite;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.55rem;
+  background: #ff2ea6;
+  vertical-align: 0.05rem;
+}
+
+:root[data-theme="dark"] .health {
+  font-family: var(--font-hud);
+  letter-spacing: 0.01em;
 }
 
 :root[data-theme="dark"] .toc-pane {
+  background: var(--sidebar);
   border-right: 1px solid var(--border);
+  box-shadow: inset -18px 0 36px rgba(255, 46, 166, 0.05);
 }
 
 :root[data-theme="dark"] .side-pane {
+  background: var(--sidebar);
   border-left: 1px solid var(--border);
+  box-shadow: inset 18px 0 36px rgba(255, 46, 166, 0.05);
 }
 
 :root[data-theme="dark"] .focus-edge {
@@ -1647,7 +1665,7 @@ a {
 }
 
 :root[data-theme="dark"] .confirm-dialog::backdrop {
-  background: color-mix(in srgb, #1a1230 72%, transparent);
+  background: color-mix(in srgb, #07050c 78%, transparent);
 }
 
 :root[data-theme="dark"] .novel-list li,
@@ -1663,14 +1681,18 @@ a {
   background: var(--ok);
 }
 
-:root[data-theme="dark"] .mock-badge,
-:root[data-theme="dark"] .stale-badge {
+:root[data-theme="dark"] .mock-badge {
   background: var(--info-soft);
   color: var(--info);
 }
 
+:root[data-theme="dark"] .stale-badge {
+  background: color-mix(in srgb, #eaff4a 14%, var(--surface));
+  color: #eaff4a;
+}
+
 :root[data-theme="dark"] ::selection {
-  background: color-mix(in srgb, #5438dc 42%, #342652);
+  background: color-mix(in srgb, #ff2ea6 42%, #110b1b);
   color: var(--text-primary);
 }
 
@@ -1682,61 +1704,48 @@ a {
 }
 
 :root[data-theme="dark"] :focus-visible {
-  outline-color: var(--focus-ring);
+  outline: 2px solid #15f4ff;
+  outline-offset: 3px;
 }
 
-/* Aurora sits behind chrome. Cards and the manuscript paint solid surfaces over it. */
-:root[data-theme="dark"] body::before {
-  content: "";
-  position: fixed;
-  z-index: -1;
-  inset: 0;
-  pointer-events: none;
-  background-color: var(--canvas);
-  background-image:
-    radial-gradient(42% 38% at 12% 14%, rgba(84, 56, 220, 0.9), transparent 68%),
-    radial-gradient(40% 42% at 92% 8%, rgba(239, 71, 111, 0.72), transparent 66%),
-    radial-gradient(46% 40% at 78% 92%, rgba(6, 214, 160, 0.55), transparent 68%),
-    radial-gradient(36% 34% at 10% 88%, rgba(63, 136, 197, 0.7), transparent 68%),
-    radial-gradient(30% 28% at 48% 42%, rgba(255, 209, 102, 0.28), transparent 70%);
-  background-repeat: no-repeat;
-  background-size: 150% 150%, 140% 140%, 160% 160%, 130% 130%, 120% 120%;
-  background-position: 8% 12%, 94% 6%, 72% 90%, 14% 82%, 50% 42%;
-  animation: island-drift 20s ease-in-out infinite;
+:root[data-theme="dark"] input:focus-visible,
+:root[data-theme="dark"] textarea:focus-visible,
+:root[data-theme="dark"] select:focus-visible,
+:root[data-theme="dark"] .tiptap:focus-visible {
+  outline: 2px solid #15f4ff;
+  outline-offset: 3px;
+  border-color: #15f4ff;
 }
 
 :root[data-theme="dark"] .workspace {
-  background: transparent;
+  background: var(--canvas);
 }
 
+:root[data-theme="dark"] .topbar,
 :root[data-theme="dark"] .workspace-top {
-  background-color: color-mix(in srgb, var(--canvas) 82%, transparent);
-  background-image: linear-gradient(
-    100deg,
-    rgba(84, 56, 220, 0.22),
-    rgba(239, 71, 111, 0.12) 46%,
-    rgba(6, 214, 160, 0.1)
-  );
-}
-
-:root[data-theme="dark"] .topbar {
-  background-color: var(--canvas);
-  background-image: linear-gradient(
-    100deg,
-    rgba(84, 56, 220, 0.28),
-    rgba(239, 71, 111, 0.14) 42%,
-    rgba(255, 209, 102, 0.08) 70%,
-    rgba(6, 214, 160, 0.12)
-  );
-}
-
-:root[data-theme="dark"] .toc-pane,
-:root[data-theme="dark"] .side-pane {
-  background: color-mix(in srgb, var(--sidebar) 72%, transparent);
+  padding-top: 12px;
+  padding-bottom: 12px;
+  border-bottom: 0;
+  background-color: #0c0814;
+  background-image:
+    linear-gradient(90deg, #ff2ea6, #15f4ff),
+    linear-gradient(
+      100deg,
+      rgba(21, 244, 255, 0) 0%,
+      rgba(255, 46, 166, 0.22) 46%,
+      rgba(21, 244, 255, 0.32) 50%,
+      rgba(255, 46, 166, 0.18) 54%,
+      rgba(21, 244, 255, 0) 100%
+    ),
+    linear-gradient(180deg, rgba(255, 46, 166, 0.14), rgba(255, 46, 166, 0.04) 58%, rgba(21, 244, 255, 0));
+  background-repeat: no-repeat;
+  background-size: 100% 1px, 38% 100%, 100% 100%;
+  background-position: 0 100%, 160% 0, 0 0;
+  animation: hud-scan var(--ease-hud);
 }
 
 :root[data-theme="dark"] .editor-pane {
-  background-color: var(--canvas);
+  background: var(--surface);
   background-image: none;
   animation: none;
 }
@@ -1747,55 +1756,42 @@ a {
   filter: none;
   animation: none;
   text-shadow: none;
+  letter-spacing: 0;
+  font-family: var(--font-reading);
+  font-size: 18px;
+  line-height: 1.7;
 }
 
 :root[data-theme="dark"] button.primary:not([role="tab"]),
 :root[data-theme="dark"] a.primary:not([role="tab"]) {
-  border: 2px solid transparent;
-  background:
-    linear-gradient(105deg, #ef476f, #ffd166, #2ed9a8, #ef476f) padding-box,
-    conic-gradient(from var(--aurora-turn), #ef476f, #ffd166, #06d6a0, #3f88c5, #5438dc, #ef476f) border-box;
-  background-size: 220% 100%, auto;
-  background-position: 0% 50%, center;
-  color: var(--accent-ink);
-  animation:
-    cta-shimmer 14s ease-in-out infinite,
-    ring-spin 16s linear infinite;
+  border: 0;
+  background: #ff2ea6;
+  color: #140810;
+  animation: none;
 }
 
 :root[data-theme="dark"] button.primary:not([role="tab"]):hover,
 :root[data-theme="dark"] a.primary:not([role="tab"]):hover {
-  background:
-    linear-gradient(105deg, #ff7a98, #ffe08a, #6eebc4, #ff7a98) padding-box,
-    conic-gradient(from var(--aurora-turn), #ef476f, #ffd166, #06d6a0, #3f88c5, #5438dc, #ef476f) border-box;
-  background-size: 220% 100%, auto;
+  background: #ff67c5;
 }
 
-@keyframes island-drift {
-  0%,
-  100% {
-    background-position: 8% 12%, 94% 6%, 72% 90%, 14% 82%, 50% 42%;
+@keyframes hud-scan {
+  from {
+    background-position: 0 100%, -70% 0, 0 0;
   }
 
-  50% {
-    background-position: 34% 26%, 60% 22%, 40% 62%, 46% 74%, 58% 34%;
-  }
-}
-
-@keyframes cta-shimmer {
-  0%,
-  100% {
-    background-position: 0% 50%, center;
-  }
-
-  50% {
-    background-position: 100% 50%, center;
-  }
-}
-
-@keyframes ring-spin {
   to {
-    --aurora-turn: 360deg;
+    background-position: 0 100%, 160% 0, 0 0;
+  }
+}
+
+@keyframes hud-wipe {
+  from {
+    background-position: -70% 0;
+  }
+
+  to {
+    background-position: 160% 0;
   }
 }
 
@@ -1888,9 +1884,5 @@ a {
   *::after {
     animation: none !important;
     transition: none !important;
-  }
-
-  :root[data-theme="dark"] body::before {
-    background-position: 8% 12%, 94% 6%, 72% 90%, 14% 82%, 50% 42%;
   }
 }
