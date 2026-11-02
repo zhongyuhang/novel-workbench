@@ -5,7 +5,14 @@ export type ContextScope = {
   characters: boolean;
 };
 
-const KEPT_KINDS = new Set(["system", "instruction", "constraints", "hard_rule", "chapter"]);
+const KEPT_KINDS = new Set([
+  "system",
+  "instruction",
+  "constraints",
+  "hard_rule",
+  "chapter",
+  "as_of",
+]);
 
 const OUTLINE_KINDS = new Set([
   "story_plan",

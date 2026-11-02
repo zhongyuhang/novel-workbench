@@ -135,6 +135,14 @@ class ContextCompileError(AppError):
     message = "上下文编译失败，已停止生成。没有在缺少上下文的情况下调用模型。"
 
 
+class ContextCausalViolation(AppError):
+    """Compiled context included a fact from a chapter that has not happened yet."""
+
+    status_code = 422
+    code = "CONTEXT_CAUSAL_VIOLATION"
+    message = "上下文混入了尚未发生的章节材料，已停止生成。"
+
+
 class ProviderRequestFailed(AppError):
     """Safe provider failure. The message must not contain secrets or response bodies."""
 

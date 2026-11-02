@@ -17,7 +17,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.content import document_to_text
-from app.core.errors import ContextCompileError
+from app.core.errors import ContextCausalViolation, ContextCompileError
 from app.core.redaction import redact_text
 from app.models.catalog import Chapter, Novel, Volume
 from app.models.memory import (
@@ -85,6 +85,10 @@ class _Candidate:
     exclusion_reason: str | None
     warnings: list[str] = field(default_factory=list)
     conflict_text: str | None = None
+    # Reading-order index of the source chapter. None means the item is not a
+    # chapter-scoped past fact (system text, a plan, or an unplaced note).
+    chapter_order: int | None = None
+    plan_not_happened: bool = False
 
 
 def assemble_context(pieces: list[ContextPiece], budget: int) -> str:
@@ -145,7 +149,7 @@ def compile_context(
     if chapter_id is not None and all(chapter.id != chapter_id for chapter in chapters):
         raise ContextCompileError("章节不存在，或不属于这本作品。已停止生成。")
     limit = budget if budget > 0 else 1
-    candidates = _collect(
+    candidates, current_order = _collect(
         session,
         novel=novel,
         chapters=chapters,
@@ -162,6 +166,7 @@ def compile_context(
         pinned_include=list(pinned_include or []),
         pinned_exclude=list(pinned_exclude or []),
     )
+    _assert_causal_cutoff(candidates, current_order)
     warnings.extend(_constraint_conflicts(constraints))
     warnings.extend(_memory_gap_warnings(session, novel_id=novel.id, chapter_id=chapter_id))
     compiled = CompiledContext(
@@ -348,7 +353,7 @@ def _collect(
     selection_text: str,
     chapter_text: str,
     constraints: dict[str, object] | None,
-) -> list[_Candidate]:
+) -> tuple[list[_Candidate], int | None]:
     selection_only = task_type == "rewrite" and selection_text.strip() != ""
     candidates = [
         _Candidate(
@@ -424,7 +429,9 @@ def _collect(
     )
     volumes = catalog_repo.list_volumes(session, novel.id)
     ordered = _reading_order(volumes, chapters)
+    positions = {chapter.id: index for index, chapter in enumerate(ordered)}
     current = next((item for item in ordered if item.id == chapter_id), None)
+    current_order = positions.get(current.id) if current is not None else None
     titles = {chapter.id: chapter for chapter in chapters}
     previous: Chapter | None = None
     following: Chapter | None = None
@@ -444,6 +451,29 @@ def _collect(
                 priority=1,
                 sequence=1,
                 hit_reason="当前章节",
+                droppable=False,
+                shrinkable=False,
+                included=True,
+                exclusion_reason=None,
+            )
+        )
+        candidates.append(
+            _Candidate(
+                id="as-of",
+                kind="as_of",
+                content=(
+                    f"事实截至：{current.title}。"
+                    "摘要、人物状态、事件、关系和编年史只包含这一章以及更早章节里已经发生的内容。"
+                    "没有写在这里的后续情节还不存在，不能当成已经发生。"
+                    "已确认的大纲和场景卡片是计划，尚未发生。"
+                ),
+                source_type="chapter",
+                source_id=current.id,
+                source_revision=current.revision,
+                certainty="system",
+                priority=0,
+                sequence=3,
+                hit_reason="事实截至当前章节",
                 droppable=False,
                 shrinkable=False,
                 included=True,
@@ -470,6 +500,7 @@ def _collect(
                     shrinkable=True,
                     included=True,
                     exclusion_reason=None,
+                    chapter_order=positions.get(previous.id),
                 )
             )
         if following is not None and following.novel_id == novel.id:
@@ -502,7 +533,12 @@ def _collect(
         else [chapter_text, instruction, selection_text]
     )
     entities = _entities(session, novel.id)
-    states = _latest_states(session, [entity.id for entity in entities])
+    states = _states_as_of(
+        session,
+        [entity.id for entity in entities],
+        positions=positions,
+        current_order=current_order,
+    )
     matched_names: list[str] = []
     matched_ids: set[str] = set()
     for entity in entities:
@@ -513,15 +549,46 @@ def _collect(
             continue
         matched_names.extend(_names(entity))
         matched_ids.add(entity.id)
-        candidates.append(_entity_candidate(entity, states.get(entity.id), titles, matched=matched))
+        state = states.get(entity.id)
+        state_order = positions.get(state.chapter_id) if state is not None else None
+        candidates.append(
+            _entity_candidate(
+                entity,
+                state,
+                titles,
+                matched=matched,
+                chapter_order=state_order,
+            )
+        )
     entity_names = {entity.id: entity.name for entity in entities if entity.novel_id == novel.id}
     for relation in _relations_for_entities(session, novel.id, matched_ids):
-        candidates.append(_relation_candidate(relation, entity_names, titles))
+        if not _within_causal_window(
+            relation.source_chapter_id,
+            positions,
+            current_order,
+            allow_unplaced=True,
+        ):
+            continue
+        relation_order = (
+            positions.get(relation.source_chapter_id) if relation.source_chapter_id else None
+        )
+        candidates.append(
+            _relation_candidate(relation, entity_names, titles, chapter_order=relation_order)
+        )
     event_text = "" if selection_only else chapter_text
-    for event in _related_events(session, novel.id, instruction, selection_text, event_text):
+    for event in _related_events(
+        session,
+        novel.id,
+        instruction,
+        selection_text,
+        event_text,
+        positions=positions,
+        current_order=current_order,
+    ):
         if event.novel_id != novel.id:
             continue
-        candidates.append(_event_candidate(event, titles))
+        event_order = positions.get(event.chapter_id) if event.chapter_id else None
+        candidates.append(_event_candidate(event, titles, chapter_order=event_order))
     neighbor_ids = {chapter.id for chapter in (current, previous, following) if chapter is not None}
     for summary, chapter in _summaries(session, novel.id):
         if chapter.novel_id != novel.id:
@@ -534,6 +601,7 @@ def _collect(
                 ordered=ordered,
                 neighbor_ids=neighbor_ids,
                 selection_only=selection_only,
+                chapter_order=positions.get(chapter.id),
             )
         )
     if current is not None:
@@ -546,9 +614,11 @@ def _collect(
                 instruction=instruction,
                 selection_text=selection_text,
                 names=matched_names,
+                positions=positions,
+                current_order=current_order,
             )
         )
-    return candidates
+    return candidates, current_order
 
 
 def _plan_candidates(
@@ -609,7 +679,9 @@ def _plan_candidates(
 
 def _story_plan_candidate(plan: StoryPlan) -> _Candidate:
     fact = planning_counts_as_fact(plan.status)
-    lines = ["已确认作品大纲：" if fact else "未确认作品大纲（不是事实）："]
+    lines = [
+        "已确认作品大纲（计划，尚未发生）：" if fact else "未确认作品大纲（不是事实，尚未发生）："
+    ]
     if plan.logline and plan.logline.strip():
         lines.append(f"一句话：{plan.logline.strip()}")
     if plan.body and plan.body.strip():
@@ -633,6 +705,7 @@ def _story_plan_candidate(plan: StoryPlan) -> _Candidate:
         shrinkable=False,
         included=fact,
         exclusion_reason=None if fact else _plan_exclusion(plan.status),
+        plan_not_happened=True,
     )
 
 
@@ -640,9 +713,9 @@ def _arc_candidate(arc: StoryArc) -> _Candidate:
     fact = planning_counts_as_fact(arc.status)
     label = _ARC_LABELS.get(arc.arc_type, "其他")
     lines = [
-        f"已确认故事线（{label}）：{arc.title}"
+        f"已确认故事线（计划，尚未发生，{label}）：{arc.title}"
         if fact
-        else f"未确认故事线（不是事实，{label}）：{arc.title}"
+        else f"未确认故事线（不是事实，尚未发生，{label}）：{arc.title}"
     ]
     if arc.summary and arc.summary.strip():
         lines.append(arc.summary.strip())
@@ -663,12 +736,13 @@ def _arc_candidate(arc: StoryArc) -> _Candidate:
         shrinkable=False,
         included=fact,
         exclusion_reason=None if fact else _plan_exclusion(arc.status),
+        plan_not_happened=True,
     )
 
 
 def _volume_outline_candidate(outline: VolumeOutline) -> _Candidate:
     fact = planning_counts_as_fact(outline.status)
-    lines = ["已确认卷大纲：" if fact else "未确认卷大纲（不是事实）："]
+    lines = ["已确认卷大纲（计划，尚未发生）：" if fact else "未确认卷大纲（不是事实，尚未发生）："]
     _add_line(lines, "目标", outline.goal)
     _add_line(lines, "关键事件", outline.key_events)
     _add_line(lines, "起始状态", outline.start_state)
@@ -690,12 +764,15 @@ def _volume_outline_candidate(outline: VolumeOutline) -> _Candidate:
         shrinkable=False,
         included=fact,
         exclusion_reason=None if fact else _plan_exclusion(outline.status),
+        plan_not_happened=True,
     )
 
 
 def _outline_candidate(outline: ChapterOutline) -> _Candidate:
     fact = planning_counts_as_fact(outline.status)
-    lines = ["已确认章节大纲：" if fact else "未确认章节大纲（不是事实）："]
+    lines = [
+        "已确认章节大纲（计划，尚未发生）：" if fact else "未确认章节大纲（不是事实，尚未发生）："
+    ]
     _add_line(lines, "目标", outline.goal)
     _add_line(lines, "必须推进", outline.must_advance)
     _add_line(lines, "必须出现", outline.required_events)
@@ -723,13 +800,16 @@ def _outline_candidate(outline: ChapterOutline) -> _Candidate:
         included=fact,
         exclusion_reason=None if fact else _plan_exclusion(outline.status),
         conflict_text=forbidden if fact and len(forbidden) >= 4 else None,
+        plan_not_happened=True,
     )
 
 
 def _scene_candidate(scene: SceneCard, names: dict[str, str]) -> _Candidate:
     fact = planning_counts_as_fact(scene.status)
     lines = [
-        f"已确认场景卡片（顺序 {scene.sort_order}）：" if fact else "未确认场景卡片（不是事实）："
+        f"已确认场景卡片（计划，尚未发生，顺序 {scene.sort_order}）："
+        if fact
+        else "未确认场景卡片（不是事实，尚未发生）："
     ]
     _add_line(lines, "目标", scene.goal)
     if scene.location_entity_id:
@@ -764,6 +844,7 @@ def _scene_candidate(scene: SceneCard, names: dict[str, str]) -> _Candidate:
         included=fact,
         exclusion_reason=None if fact else _plan_exclusion(scene.status),
         conflict_text=hidden if fact and len(hidden) >= 4 else None,
+        plan_not_happened=True,
     )
 
 
@@ -773,6 +854,7 @@ def _entity_candidate(
     titles: dict[str, Chapter],
     *,
     matched: str,
+    chapter_order: int | None,
 ) -> _Candidate:
     certain = entity.status != "unknown"
     label = _entity_label(entity.entity_type)
@@ -793,7 +875,7 @@ def _entity_candidate(
         title = chapter.title if chapter is not None else "未知章节"
         source_revision = state.source_revision
         revision = source_revision if source_revision is not None else "未知"
-        lines.append(f"人物当前状态：来源章节「{title}」修订 {revision}")
+        lines.append(f"截至本章的状态：来源章节「{title}」修订 {revision}")
         validity = _validity_text(state.valid_from_text, state.valid_until_text)
         if validity:
             lines.append(validity)
@@ -825,6 +907,7 @@ def _entity_candidate(
         included=True,
         exclusion_reason=None,
         warnings=warnings,
+        chapter_order=chapter_order,
     )
 
 
@@ -867,6 +950,8 @@ def _relation_candidate(
     relation: EntityRelation,
     names: dict[str, str],
     titles: dict[str, Chapter],
+    *,
+    chapter_order: int | None,
 ) -> _Candidate:
     left = names.get(relation.from_entity_id, "未解析的设定")
     right = names.get(relation.to_entity_id, "未解析的设定")
@@ -915,10 +1000,16 @@ def _relation_candidate(
         included=True,
         exclusion_reason=None,
         warnings=warnings,
+        chapter_order=chapter_order,
     )
 
 
-def _event_candidate(event: StoryEvent, titles: dict[str, Chapter]) -> _Candidate:
+def _event_candidate(
+    event: StoryEvent,
+    titles: dict[str, Chapter],
+    *,
+    chapter_order: int | None,
+) -> _Candidate:
     certain = event.certainty == "confirmed"
     heading = "已确认事件" if certain else "不确定推断（不是已确认事实）"
     revision = event.source_revision if event.source_revision is not None else "未知"
@@ -961,6 +1052,7 @@ def _event_candidate(event: StoryEvent, titles: dict[str, Chapter]) -> _Candidat
         included=True,
         exclusion_reason=None,
         warnings=warnings,
+        chapter_order=chapter_order,
     )
 
 
@@ -972,10 +1064,13 @@ def _summary_candidates(
     ordered: list[Chapter],
     neighbor_ids: set[str],
     selection_only: bool,
+    chapter_order: int | None,
 ) -> list[_Candidate]:
     if current is not None and chapter.id == current.id and summary.status == "current":
         return []
     distance = _distance(ordered, current.id if current is not None else None, chapter.id)
+    if distance < 0:
+        return []
     stale = summary.status != "current" or summary.source_revision != chapter.revision
     if summary.status == "current" and not stale:
         if selection_only:
@@ -998,6 +1093,7 @@ def _summary_candidates(
                     shrinkable=False,
                     included=False,
                     exclusion_reason="选区改写默认不纳入较远章节摘要",
+                    chapter_order=chapter_order,
                 )
             ]
         return [
@@ -1019,6 +1115,7 @@ def _summary_candidates(
                 shrinkable=False,
                 included=True,
                 exclusion_reason=None,
+                chapter_order=chapter_order,
             )
         ]
     if chapter.id not in neighbor_ids and (current is None or chapter.id != current.id):
@@ -1046,6 +1143,7 @@ def _summary_candidates(
             included=False,
             exclusion_reason=reason,
             warnings=["摘要来源修订已落后于正文，或摘要已被标为过期。"],
+            chapter_order=chapter_order,
         )
     ]
 
@@ -1059,6 +1157,8 @@ def _foreshadowing_candidates(
     instruction: str,
     selection_text: str,
     names: list[str],
+    positions: dict[str, int],
+    current_order: int | None,
 ) -> list[_Candidate]:
     rows = list(
         session.scalars(
@@ -1071,6 +1171,11 @@ def _foreshadowing_candidates(
     found: list[_Candidate] = []
     for row in rows:
         if row.novel_id != novel_id:
+            continue
+        introduced_order = positions.get(row.introduced_chapter_id)
+        if current_order is not None and (
+            introduced_order is None or introduced_order > current_order
+        ):
             continue
         linked = row.introduced_chapter_id in neighbor_ids or row.payoff_chapter_id in neighbor_ids
         blob = f"{row.description}\n{row.evidence_quote or ''}"
@@ -1114,6 +1219,7 @@ def _foreshadowing_candidates(
                 shrinkable=False,
                 included=not abandoned,
                 exclusion_reason="伏笔已放弃" if abandoned else None,
+                chapter_order=introduced_order,
             )
         )
         if len(found) >= 8:
@@ -1140,11 +1246,13 @@ def _pack(
         warnings.append("同一材料同时被固定纳入和排除，本次按排除处理。")
     if "system" in pinned_exclude:
         warnings.append("系统安全约束不能从本次上下文排除。")
+    if "as-of" in pinned_exclude:
+        warnings.append("事实截至不能从本次上下文排除。")
 
     include_ids = set(pinned_include)
     exclude_ids = set(pinned_exclude)
     for candidate in candidates:
-        if candidate.id in exclude_ids and candidate.kind != "system":
+        if candidate.id in exclude_ids and candidate.kind not in {"system", "as_of"}:
             candidate.included = False
             candidate.exclusion_reason = "用户本次排除"
             if candidate.kind == "hard_rule":
@@ -1309,7 +1417,19 @@ def _entity_names(session: Session, novel_id: str) -> dict[str, str]:
     return {entity.id: entity.name for entity in _entities(session, novel_id)}
 
 
-def _latest_states(session: Session, entity_ids: list[str]) -> dict[str, EntityState]:
+def _states_as_of(
+    session: Session,
+    entity_ids: list[str],
+    *,
+    positions: dict[str, int],
+    current_order: int | None,
+) -> dict[str, EntityState]:
+    """Latest state whose source chapter is already reachable.
+
+    ``created_at`` alone is not the story clock. A state written later for a
+    future chapter must not replace the state that exists at this chapter.
+    """
+
     if not entity_ids:
         return {}
     stmt = (
@@ -1319,8 +1439,16 @@ def _latest_states(session: Session, entity_ids: list[str]) -> dict[str, EntityS
     )
     found: dict[str, EntityState] = {}
     for state in session.scalars(stmt):
-        if state.entity_id not in found:
-            found[state.entity_id] = state
+        if state.entity_id in found:
+            continue
+        if not _within_causal_window(
+            state.chapter_id,
+            positions,
+            current_order,
+            allow_unplaced=False,
+        ):
+            continue
+        found[state.entity_id] = state
     return found
 
 
@@ -1339,8 +1467,17 @@ def _memory_gap_warnings(
     rows = _summaries(session, novel_id)
     if not rows:
         return [EMPTY_MEMORY_WARNING]
+    positions = chapter_reading_index(session, novel_id)
+    current_order = positions.get(chapter_id) if chapter_id is not None else None
     for summary, chapter in rows:
         if summary.status != "current" or summary.source_revision != chapter.revision:
+            continue
+        if not _within_causal_window(
+            chapter.id,
+            positions,
+            current_order,
+            allow_unplaced=False,
+        ):
             continue
         if chapter_id is not None and chapter.id == chapter_id:
             continue
@@ -1354,7 +1491,7 @@ def _summaries(session: Session, novel_id: str) -> list[tuple[ChapterSummary, Ch
         select(ChapterSummary, Chapter)
         .join(Chapter, Chapter.id == ChapterSummary.chapter_id)
         .where(Chapter.novel_id == novel_id, Chapter.deleted_at.is_(None))
-        .order_by(ChapterSummary.created_at.asc(), ChapterSummary.id.asc())
+        .order_by(Chapter.sort_order.asc(), Chapter.id.asc(), ChapterSummary.id.asc())
     )
     return list(session.execute(stmt).all())
 
@@ -1365,6 +1502,9 @@ def _related_events(
     instruction: str,
     selection_text: str,
     chapter_text: str,
+    *,
+    positions: dict[str, int],
+    current_order: int | None,
 ) -> list[StoryEvent]:
     keys = _keywords(f"{instruction}\n{selection_text}\n{chapter_text[:400]}")
     if not keys:
@@ -1382,9 +1522,19 @@ def _related_events(
             or_(*clauses),
         )
         .order_by(StoryEvent.created_at.asc(), StoryEvent.id.asc())
-        .limit(8)
     )
-    return list(session.scalars(stmt))
+    allowed = [
+        event
+        for event in session.scalars(stmt)
+        if event.novel_id == novel_id
+        and _within_causal_window(
+            event.chapter_id,
+            positions,
+            current_order,
+            allow_unplaced=True,
+        )
+    ]
+    return allowed[:8]
 
 
 def _name_hit(entity: StoryEntity, haystack: str) -> str | None:
@@ -1442,7 +1592,60 @@ def _neighbor(chapters: list[Chapter], chapter_id: str, offset: int) -> Chapter 
     return chapters[target]
 
 
+def chapter_reading_index(session: Session, novel_id: str) -> dict[str, int]:
+    """Index chapters in reading order. Zero is the earliest chapter."""
+
+    chapters = catalog_repo.list_chapters(session, novel_id)
+    volumes = catalog_repo.list_volumes(session, novel_id)
+    ordered = _reading_order(volumes, chapters)
+    return {chapter.id: index for index, chapter in enumerate(ordered)}
+
+
+def _within_causal_window(
+    chapter_id: str | None,
+    positions: dict[str, int],
+    current_order: int | None,
+    *,
+    allow_unplaced: bool,
+) -> bool:
+    """True when a fact is allowed while compiling or checking ``current_order``.
+
+    Unplaced notes have no chapter. They are not a later chapter's chronicle.
+    A missing source chapter is dropped so an unknown future cannot leak.
+    """
+
+    if current_order is None:
+        return True
+    if chapter_id is None:
+        return allow_unplaced
+    order = positions.get(chapter_id)
+    if order is None:
+        return False
+    return order <= current_order
+
+
+def _assert_causal_cutoff(candidates: list[_Candidate], current_order: int | None) -> None:
+    """Fail the compile if a past fact from a later chapter was assembled.
+
+    Plans may describe what has not happened yet, but only when the text says so.
+    """
+
+    if current_order is None:
+        return
+    for item in candidates:
+        if item.plan_not_happened:
+            if item.included and "尚未发生" not in item.content:
+                raise ContextCausalViolation("已确认的计划没有标明尚未发生，已停止生成。")
+            continue
+        if item.chapter_order is None:
+            continue
+        if item.chapter_order > current_order:
+            raise ContextCausalViolation("上下文混入了尚未发生的章节材料，已停止生成。")
+
+
 def _distance(chapters: list[Chapter], current_id: str | None, other_id: str) -> int:
+    """Signed reading-order distance. Negative means ``other`` is still in the future."""
+
     if current_id is None:
         return 10
     current_index = next(
@@ -1454,8 +1657,8 @@ def _distance(chapters: list[Chapter], current_id: str | None, other_id: str) ->
         None,
     )
     if current_index is None or other_index is None:
-        return 10
-    return abs(current_index - other_index)
+        return -1
+    return current_index - other_index
 
 
 def _tail(text: str) -> str:

@@ -18,6 +18,7 @@ import {
 import { exportPortable } from "../api/portable.ts";
 import { ApiError, type Chapter, type ChapterSummary, type Novel, type Volume } from "../api/types.ts";
 import { AiPanel } from "../components/AiPanel.tsx";
+import { ErrorBoundary } from "../components/ErrorBoundary.tsx";
 import { ChapterEditor } from "../components/ChapterEditor.tsx";
 import { ChroniclePanel } from "../components/ChroniclePanel.tsx";
 import { confirmDialog } from "../components/ConfirmDialog.tsx";
@@ -490,16 +491,18 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
             </button>
           </div>
           {leftView === "outline" ? (
-            <OutlinePanel
-              novelId={novelId}
-              chapters={chapters}
-              volumes={volumes}
-              activeChapterId={chapterId}
-              materialVersion={materialVersion}
-              onOpenChapter={(id) => {
-                openChapterIn(id, "outline");
-              }}
-            />
+            <ErrorBoundary title="大纲">
+              <OutlinePanel
+                novelId={novelId}
+                chapters={chapters}
+                volumes={volumes}
+                activeChapterId={chapterId}
+                materialVersion={materialVersion}
+                onOpenChapter={(id) => {
+                  openChapterIn(id, "outline");
+                }}
+              />
+            </ErrorBoundary>
           ) : null}
           {leftView === "toc" && loading ? <p role="status">正在读取目录</p> : null}
           {leftView === "toc" && !loading && chapters.length === 0 && volumes.length === 0 ? (
@@ -644,27 +647,31 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
             </div>
           ) : null}
           {chapter && chapter.id === chapterId && centerView === "outline" ? (
-            <ChapterPlanEditor
-              key={`${novelId}:${chapter.id}`}
-              novelId={novelId}
-              chapterId={chapter.id}
-              chapterTitle={chapter.title}
-            />
+            <ErrorBoundary title="章节大纲">
+              <ChapterPlanEditor
+                key={`${novelId}:${chapter.id}`}
+                novelId={novelId}
+                chapterId={chapter.id}
+                chapterTitle={chapter.title}
+              />
+            </ErrorBoundary>
           ) : null}
           {chapter && chapter.id === chapterId && centerView === "manuscript" ? (
-            <ChapterEditor
-              key={chapter.id}
-              chapter={chapter}
-              onUnsavedChange={(value) => {
-                unsavedRef.current = value;
-                setUnsaved(value);
-              }}
-              onSelectionChange={setSelectionText}
-              adoptedChapter={adoptedChapter}
-              onSaved={(saved, kind) => {
-                noteManuscriptWrite(saved, kind);
-              }}
-            />
+            <ErrorBoundary title="正文">
+              <ChapterEditor
+                key={chapter.id}
+                chapter={chapter}
+                onUnsavedChange={(value) => {
+                  unsavedRef.current = value;
+                  setUnsaved(value);
+                }}
+                onSelectionChange={setSelectionText}
+                adoptedChapter={adoptedChapter}
+                onSaved={(saved, kind) => {
+                  noteManuscriptWrite(saved, kind);
+                }}
+              />
+            </ErrorBoundary>
           ) : null}
           {!chapter || chapter.id !== chapterId ? (
             <div className="empty">
@@ -748,56 +755,66 @@ export function WorkspacePage({ novelId, chapterId }: WorkspacePageProps) {
             </button>
           </div>
           <div hidden={sideTab !== "write"}>
-            <AiPanel
-              novelId={novelId}
-              chapter={chapter}
-              savedRevision={chapter?.revision ?? null}
-              selectionText={selectionText}
-              editorDirty={unsaved}
-              onAccepted={(saved) => {
-                noteManuscriptWrite(saved, "adopt");
-              }}
-              onActivity={noteActivity}
-            />
+            <ErrorBoundary title="生成">
+              <AiPanel
+                novelId={novelId}
+                chapter={chapter}
+                savedRevision={chapter?.revision ?? null}
+                selectionText={selectionText}
+                editorDirty={unsaved}
+                onAccepted={(saved) => {
+                  noteManuscriptWrite(saved, "adopt");
+                }}
+                onActivity={noteActivity}
+              />
+            </ErrorBoundary>
           </div>
           <div hidden={sideTab !== "quality"}>
-            <QualityPanel
-              novelId={novelId}
-              chapters={chapters}
-              activeChapterId={chapterId}
-              refreshKey={`${chapter?.revision ?? 0}:${chapters.map((item) => item.word_count).join(",")}`}
-              onManuscriptUpdated={(saved) => {
-                noteManuscriptWrite(saved, "adopt");
-              }}
-            />
+            <ErrorBoundary title="质量">
+              <QualityPanel
+                novelId={novelId}
+                chapters={chapters}
+                activeChapterId={chapterId}
+                refreshKey={`${chapter?.revision ?? 0}:${chapters.map((item) => item.word_count).join(",")}`}
+                onManuscriptUpdated={(saved) => {
+                  noteManuscriptWrite(saved, "adopt");
+                }}
+              />
+            </ErrorBoundary>
           </div>
           <div hidden={sideTab !== "ideation"}>
-            <IdeationPanel
-              novelId={novelId}
-              onFormalWrite={() => {
-                setMaterialVersion((version) => version + 1);
-              }}
-            />
+            <ErrorBoundary title="创意">
+              <IdeationPanel
+                novelId={novelId}
+                onFormalWrite={() => {
+                  setMaterialVersion((version) => version + 1);
+                }}
+              />
+            </ErrorBoundary>
           </div>
           <div hidden={sideTab !== "chronicle"}>
-            <ChroniclePanel
-              novelId={novelId}
-              chapters={chapters}
-              onFormalWrite={() => {
-                setMaterialVersion((version) => version + 1);
-              }}
-            />
+            <ErrorBoundary title="编年史">
+              <ChroniclePanel
+                novelId={novelId}
+                chapters={chapters}
+                onFormalWrite={() => {
+                  setMaterialVersion((version) => version + 1);
+                }}
+              />
+            </ErrorBoundary>
           </div>
           <div hidden={sideTab !== "memory"}>
-            <MemoryPanel
-              novelId={novelId}
-              activeChapterId={chapterId}
-              activeRevision={chapter?.revision ?? null}
-              activeTitle={chapter?.title ?? null}
-              editorDirty={unsaved}
-              chapters={chapters}
-              materialVersion={materialVersion}
-            />
+            <ErrorBoundary title="设定">
+              <MemoryPanel
+                novelId={novelId}
+                activeChapterId={chapterId}
+                activeRevision={chapter?.revision ?? null}
+                activeTitle={chapter?.title ?? null}
+                editorDirty={unsaved}
+                chapters={chapters}
+                materialVersion={materialVersion}
+              />
+            </ErrorBoundary>
           </div>
         </div>
       </div>

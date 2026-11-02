@@ -1,4 +1,11 @@
-import { apiDownload, apiRequest, apiUrl, readToken } from "./client.ts";
+import {
+  apiDownload,
+  apiRequest,
+  apiUrl,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  fetchWithTimeout,
+  readToken,
+} from "./client.ts";
 import { ApiError, type Novel } from "./types.ts";
 
 export type PortableCounts = {
@@ -93,8 +100,15 @@ async function uploadPortable<T>(path: string, file: File): Promise<T> {
   }
   let response: Response;
   try {
-    response = await fetch(apiUrl(path), { method: "POST", body, headers });
+    response = await fetchWithTimeout(
+      apiUrl(path),
+      { method: "POST", body, headers },
+      DEFAULT_REQUEST_TIMEOUT_MS,
+    );
   } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
     throw new ApiError(0, "NETWORK", "无法连接后端服务。", "", { cause: error });
   }
   let payload: unknown = null;

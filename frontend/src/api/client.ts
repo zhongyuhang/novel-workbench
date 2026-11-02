@@ -10,6 +10,76 @@ const SESSION_KEY = "ai-novel-writer.session";
 
 export const SESSION_REQUIRED_EVENT = "ai-novel-writer:session-required";
 
+/** Ordinary reads and writes. Hung requests must not spin forever. */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+
+/**
+ * Model calls and the generation stream.
+ * Server-side timeout_seconds is allowed up to 300, so the client waits at
+ * least that long and does not cut a generation off early.
+ */
+export const GENERATE_REQUEST_TIMEOUT_MS = 300_000;
+
+const TIMEOUT_MESSAGE = "请求超时，没有继续等待。请再试一次。";
+
+export function isLongRunningRequest(path: string): boolean {
+  return (
+    /\/ai\/tasks\/[^/]+\/events$/.test(path) ||
+    /\/ai\/tasks$/.test(path) ||
+    /\/analyze$/.test(path) ||
+    /\/conflict-check$/.test(path) ||
+    /\/quality-check$/.test(path) ||
+    /\/repairs$/.test(path) ||
+    /\/generate$/.test(path) ||
+    /\/chronicle\/plan$/.test(path) ||
+    /\/outline-candidate$/.test(path) ||
+    /\/settings\/models\/(?:[^/]+\/)?test$/.test(path)
+  );
+}
+
+function timeoutFor(path: string): number {
+  return isLongRunningRequest(path) ? GENERATE_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+export async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const parent = init.signal;
+  const onParentAbort = () => {
+    controller.abort();
+  };
+  if (parent) {
+    if (parent.aborted) {
+      controller.abort();
+    } else {
+      parent.addEventListener("abort", onParentAbort);
+    }
+  }
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (timedOut && !parent?.aborted) {
+      throw new ApiError(0, "TIMEOUT", TIMEOUT_MESSAGE, "", { cause: error });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    parent?.removeEventListener("abort", onParentAbort);
+  }
+}
+
 function notifySessionRequired(): void {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(SESSION_REQUIRED_EVENT));
@@ -86,13 +156,17 @@ function toApiError(response: Response, payload: unknown): ApiError {
 export async function getHealth(signal?: AbortSignal): Promise<HealthReport> {
   let response: Response;
   try {
-    response = await fetch(apiUrl("/api/v1/health"), {
-      signal,
-      headers: { Accept: "application/json" },
-    });
+    response = await fetchWithTimeout(
+      apiUrl("/api/v1/health"),
+      { signal, headers: { Accept: "application/json" } },
+      DEFAULT_REQUEST_TIMEOUT_MS,
+    );
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
+    if (isAbortError(error)) {
       throw error;
+    }
+    if (error instanceof ApiError && error.code === "TIMEOUT") {
+      throw new HealthCheckError(error.message, null, { cause: error });
     }
     throw new HealthCheckError("无法连接后端服务。请先按 README 启动 API。", null, {
       cause: error,
@@ -121,15 +195,22 @@ export async function getHealth(signal?: AbortSignal): Promise<HealthReport> {
 export async function openSession(password: string): Promise<void> {
   let response: Response;
   try {
-    response = await fetch(apiUrl("/api/v1/auth/session"), {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
+    response = await fetchWithTimeout(
+      apiUrl("/api/v1/auth/session"),
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ password }),
       },
-      body: JSON.stringify({ password }),
-    });
+      DEFAULT_REQUEST_TIMEOUT_MS,
+    );
   } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
     throw new ApiError(0, "NETWORK", "无法连接后端服务。", "", { cause: error });
   }
 
@@ -177,9 +258,9 @@ async function authorizedFetch(path: string, init: RequestInit, allowRetry = tru
 
   let response: Response;
   try {
-    response = await fetch(apiUrl(path), { ...init, headers });
+    response = await fetchWithTimeout(apiUrl(path), { ...init, headers }, timeoutFor(path));
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
+    if (error instanceof ApiError || isAbortError(error)) {
       throw error;
     }
     throw new ApiError(0, "NETWORK", "无法连接后端服务。", "", { cause: error });

@@ -6,6 +6,7 @@ const KIND_LABELS: Record<string, string> = {
   constraints: "本次约束",
   hard_rule: "作品硬规则",
   chapter: "当前章节",
+  as_of: "事实截至",
   story_plan: "作品大纲",
   chapter_outline: "章节大纲",
   scene_card: "场景卡片",
